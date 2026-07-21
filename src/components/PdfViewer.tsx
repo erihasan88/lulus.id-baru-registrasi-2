@@ -1,0 +1,970 @@
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
+import { AcademicTranscript } from '../interfaces/academicTranscript';
+import { Download, Printer, ShieldCheck, ArrowLeft, Maximize, Minimize, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+
+function PdfDocumentQRCode({ code, size = 64 }: { code: string; size?: number }) {
+  const [qrSrc, setQrSrc] = useState<string>('');
+
+  useEffect(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id';
+    const url = `${origin}/verifikasi/${code}`;
+    QRCode.toDataURL(url, {
+      margin: 1,
+      width: size * 2,
+      color: {
+        dark: '#0f172a', // slate-900
+        light: '#ffffff'
+      }
+    })
+      .then(src => setQrSrc(src))
+      .catch(err => console.error('Failed to generate PDF document QR Code', err));
+  }, [code, size]);
+
+  return (
+    <div className="relative p-1 bg-white rounded-lg border border-slate-300 shadow-xs flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+      {qrSrc ? (
+        <img 
+          src={qrSrc} 
+          alt="QR Code" 
+          className="w-full h-full object-contain"
+        />
+      ) : (
+        <div className="w-full h-full bg-slate-100 animate-pulse rounded" />
+      )}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="p-0.5 bg-white rounded border border-slate-100 shadow-xs">
+          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface PdfViewerProps {
+  documentType?: 'transcript' | 'invoice' | 'receipt';
+  transcript?: AcademicTranscript;
+  invoiceData?: {
+    id: string;
+    name: string;
+    amount: number;
+    status: 'Lunas' | 'Menunggu Verifikasi' | 'Belum Bayar';
+    createdDate: string;
+    dueDate: string;
+    studentName: string;
+    nisn: string;
+    program: string;
+    kelas: string;
+    tahunAjaran: string;
+  };
+  receiptData?: {
+    id: string;
+    invoiceId: string;
+    name: string;
+    amount: number;
+    paymentMethod: string;
+    paymentDate: string;
+    studentName: string;
+    nisn: string;
+    program: string;
+    kelas: string;
+    tahunAjaran: string;
+  };
+  lembagaIdentitas?: any; // Identitas dari Admin Settings
+  role?: 'siswa' | 'guru' | 'admin';
+  onClose?: () => void;
+}
+
+export default function PdfViewer({ 
+  documentType = 'transcript',
+  transcript, 
+  invoiceData,
+  receiptData,
+  lembagaIdentitas, 
+  role = 'siswa', 
+  onClose 
+}: PdfViewerProps) {
+  // Fallback metadata if not provided
+  const defaults = {
+    namaPkbm: 'PKBM AGRABINTA LULUS.ID',
+    npsn: 'P9961234',
+    alamat: 'Jl. Raya Agrabinta No. 45, RT 02/RW 03',
+    kecamatan: 'Agrabinta',
+    kabupaten: 'Cianjur',
+    provinsi: 'Jawa Barat',
+    nomorTelepon: '0263-221144',
+    emailLembaga: 'pkbm@lulus.id',
+    website: 'https://pkbm.lulus.id',
+    logoPkbm: 'https://placehold.co/120x120/00a884/ffffff?text=PKBM',
+    namaKepalaSekolah: 'Drs. H. Mulyadi, M.Pd.',
+    qrTandaTanganKepalaSekolah: 'https://placehold.co/150x150/ffffff/000000?text=QR+TTE+Kepsek',
+    capStempelDigital: 'https://placehold.co/150x150/e11d48/ffffff?text=CAP+RESMI',
+    tandaTanganKepalaSekolah: 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan',
+    namaPejabatTtd: 'Drs. H. Mulyadi, M.Pd.',
+    jabatanPejabatTtd: 'Kepala PKBM'
+  };
+
+  const identity = lembagaIdentitas || defaults;
+
+  // Zoom feature state
+  const [zoom, setZoom] = useState<number>(1.0);
+  
+  // Fullscreen feature state (pure css state-driven fullscreen overlay)
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // Standalone HTML Offline Document Download feature
+  const handleDownload = () => {
+    let printAreaId = 'official-transcript-print-area';
+    let docTitle = 'Dokumen';
+    let docNumber = '000';
+
+    if (documentType === 'invoice') {
+      printAreaId = 'invoice-print-area';
+      docTitle = 'Invoice';
+      docNumber = invoiceData?.id || '';
+    } else if (documentType === 'receipt') {
+      printAreaId = 'receipt-print-area';
+      docTitle = 'Kwitansi';
+      docNumber = receiptData?.id || '';
+    } else {
+      docTitle = 'Transkrip';
+      docNumber = transcript?.documentNumber || '';
+    }
+
+    const printArea = document.getElementById(printAreaId);
+    if (!printArea) return;
+
+    const htmlContent = printArea.outerHTML;
+
+    const fullHtml = `
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${docTitle} - ${docNumber}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f1f5f9;
+      padding: 40px 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    @media print {
+      body {
+        background-color: white;
+        padding: 0;
+        margin: 0;
+      }
+      .print-hide {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="max-w-[794px] w-full bg-white p-[50px] border border-slate-200 shadow-xl rounded-sm">
+    ${htmlContent}
+  </div>
+</body>
+</html>
+    `;
+
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${docTitle}_${docNumber}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Helper for status formatting
+  const getPredikat = (avg: number) => {
+    if (avg >= 90) return 'Sangat Baik (A)';
+    if (avg >= 80) return 'Baik (B)';
+    if (avg >= 75) return 'Cukup (C)';
+    return 'Kurang (D)';
+  };
+
+  const predikatVal = transcript ? (transcript.predicate || getPredikat(transcript.averageScore)) : '';
+
+  // Calculate receipt terbilang string (150,000 SPP amount as default)
+  const getTerbilang = (amount: number) => {
+    if (amount === 150000) return '# Seratus Lima Puluh Ribu Rupiah #';
+    if (amount === 155000) return '# Seratus Lima Puluh Lima Ribu Rupiah #';
+    // generic helper for basic amounts in mock data
+    return `# ${amount.toLocaleString('id-ID')} Rupiah #`;
+  };
+
+  return (
+    <div className={`flex flex-col bg-slate-800 text-slate-900 overflow-hidden select-text transition-all ${
+      isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'flex-1 h-full'
+    }`}>
+      {/* Viewer Header / Toolbar - Hidden in Print */}
+      <div className="px-4 py-2.5 bg-slate-900 text-white flex flex-wrap gap-3 items-center justify-between border-b border-slate-700 shrink-0 print:hidden">
+        <div className="flex items-center gap-2.5">
+          {onClose && (
+            <button 
+              onClick={onClose}
+              className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+              type="button"
+              title="Kembali"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
+          <div>
+            <h3 className="text-xs font-black tracking-wide">Pratinjau Dokumen Resmi</h3>
+            <p className="text-[9px] text-slate-400 font-semibold font-mono">
+              {documentType === 'transcript' && transcript?.documentNumber}
+              {documentType === 'invoice' && (invoiceData?.id || 'INVOICE')}
+              {documentType === 'receipt' && (receiptData?.id || 'KWITANSI')}
+            </p>
+          </div>
+        </div>
+
+        {/* Dynamic Interactive Toolbar Controls: Zoom, Fullscreen, Print, Download */}
+        <div className="flex items-center gap-3">
+          {/* Zoom Controls */}
+          <div className="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700">
+            <button
+              onClick={() => setZoom(prev => Math.max(0.5, prev - 0.1))}
+              className="p-1 hover:bg-slate-700 text-slate-400 hover:text-white rounded transition-colors"
+              title="Perkecil (Zoom Out)"
+              type="button"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[10px] font-mono text-slate-300 min-w-[32px] text-center">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              onClick={() => setZoom(prev => Math.min(2.0, prev + 0.1))}
+              className="p-1 hover:bg-slate-700 text-slate-400 hover:text-white rounded transition-colors"
+              title="Perbesar (Zoom In)"
+              type="button"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setZoom(1.0)}
+              className="p-1 hover:bg-slate-700 text-slate-400 hover:text-white rounded transition-colors"
+              title="Reset Zoom"
+              type="button"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Fullscreen Button */}
+            <button
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors cursor-pointer"
+              title={isFullscreen ? "Keluar Layar Penuh" : "Layar Penuh"}
+              type="button"
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+            </button>
+
+            {/* Offline HTML Download Button */}
+            <button
+              onClick={handleDownload}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-lg text-[10.5px] font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Unduh Dokumen Standalone"
+              type="button"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-400" />
+              Unduh
+            </button>
+
+            {/* Print / Save as PDF Button */}
+            <button
+              onClick={handlePrint}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-[10.5px] font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              type="button"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Cetak / PDF
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Scrollable Document Container */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center no-scrollbar bg-slate-700/80 print:bg-white print:p-0">
+        
+        {/* A4 Page Container */}
+        <div 
+          style={{ zoom: zoom }}
+          className="w-full max-w-[794px] bg-white rounded-sm shadow-xl p-[45px] md:p-[60px] flex flex-col justify-between aspect-[1/1.414] border border-slate-200 print:shadow-none print:border-none print:p-0 print:max-w-none print:w-full print:aspect-auto"
+        >
+          {/* --- TRANSCRIPT VIEW --- */}
+          {documentType === 'transcript' && transcript && (
+            <div id="official-transcript-print-area" className="flex flex-col justify-between h-full">
+              <div>
+                {/* 1. KOP SURAT */}
+                <div className="flex items-center justify-between border-b-4 border-double border-slate-950 pb-4 mb-5">
+                  {/* Logo Lembaga */}
+                  <div className="w-[85px] h-[85px] flex items-center justify-center bg-white border border-slate-100 p-1 shrink-0">
+                    <img 
+                      src={identity.logoPkbm || defaults.logoPkbm} 
+                      alt="Logo Lembaga" 
+                      className="max-w-full max-h-full object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+
+                  {/* Institution Identity */}
+                  <div className="flex-1 text-center px-4">
+                    <h1 className="text-sm font-black tracking-wide text-slate-950 leading-tight uppercase font-sans">
+                      PANITIA UJIAN KESETARAAN
+                    </h1>
+                    <h2 className="text-base font-extrabold tracking-wider text-slate-950 mt-0.5 leading-snug uppercase font-sans">
+                      {identity.namaPkbm || defaults.namaPkbm}
+                    </h2>
+                    <p className="text-[10px] text-slate-700 font-bold leading-normal mt-1 font-sans">
+                      Izin Operasional: {identity.npsn ? `NPSN ${identity.npsn}` : 'Lulus.id DRF Verified Office'} • Terakreditasi Resmi
+                    </p>
+                    <p className="text-[9px] text-slate-600 font-semibold leading-relaxed font-sans">
+                      {identity.alamat}, Kec. {identity.kecamatan}, Kab. {identity.kabupaten}, Prov. {identity.provinsi}
+                    </p>
+                    <p className="text-[8.5px] text-slate-500 font-semibold tracking-wide font-sans">
+                      Telp: {identity.nomorTelepon} • Email: {identity.emailLembaga} • Web: {identity.website}
+                    </p>
+                  </div>
+
+                  <div className="w-[85px] shrink-0 print:hidden opacity-0" />
+                </div>
+
+                {/* Title Document */}
+                <div className="text-center mb-6">
+                  <h3 className="text-sm font-black tracking-widest text-slate-950 uppercase underline font-sans">
+                    TRANSKRIP NILAI AKADEMIK
+                  </h3>
+                  <p className="text-[9.5px] font-extrabold text-slate-800 mt-1 font-mono">
+                    Nomor: {transcript.documentNumber}
+                  </p>
+                </div>
+
+                {/* 2. IDENTITAS PESERTA DIDIK */}
+                <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-[10px] text-slate-900 border border-slate-300 p-4 rounded-xl mb-6 bg-slate-50/40">
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Nama Lengkap</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-black text-slate-950 uppercase">{transcript.studentName}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">NISN</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{transcript.nisn}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">NIPD / NIS</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{transcript.nipd}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Tempat Lahir</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900">Cianjur</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Tanggal Lahir</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">14 April 2008</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Jenis Kelamin</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900">Laki-laki</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Program</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-black text-emerald-700">{transcript.program}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Kelas</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900">{transcript.kelas}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Tahun Masuk</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">2025</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Tahun Lulus</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">2026</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. TABEL NILAI PDF */}
+                <div className="border border-slate-950 overflow-hidden rounded-md mb-6">
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead>
+                      <tr className="border-b border-slate-950 text-slate-900 bg-slate-100/85 font-black uppercase tracking-wider">
+                        <th className="py-2.5 px-4 border-r border-slate-950 w-12 text-center">No</th>
+                        <th className="py-2.5 px-4 border-r border-slate-950">Mata Pelajaran</th>
+                        <th className="py-2.5 px-4 border-r border-slate-950 text-center w-20">KKM</th>
+                        <th className="py-2.5 px-4 border-r border-slate-950 text-center w-24">Nilai Akhir</th>
+                        <th className="py-2.5 px-4 text-center w-36">Keterangan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-950 text-slate-900 font-bold">
+                      {transcript.subjects.map((sub, idx) => (
+                        <tr key={sub.id || idx}>
+                          <td className="py-2 px-4 border-r border-slate-950 text-center font-mono">{idx + 1}</td>
+                          <td className="py-2 px-4 border-r border-slate-950 font-black">{sub.name}</td>
+                          <td className="py-2 px-4 border-r border-slate-950 text-center font-mono">{sub.kkm}</td>
+                          <td className="py-2 px-4 border-r border-slate-950 text-center font-mono font-black">{sub.score}</td>
+                          <td className="py-2 px-4 text-center">
+                            <span className="uppercase text-[9px] font-extrabold tracking-wider">
+                              {sub.score >= sub.kkm ? 'LULUS' : 'BELUM TUNTAS'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 4. REKAP NILAI PDF */}
+                <div className="grid grid-cols-2 gap-8 mb-8">
+                  {/* Rekapitulasi Data */}
+                  <div className="border border-slate-950 rounded-lg p-3 space-y-1.5 text-[9.5px] font-bold text-slate-800 bg-slate-50/20">
+                    <div className="flex justify-between">
+                      <span>Jumlah Mata Pelajaran</span>
+                      <span className="font-black text-slate-950 font-mono">{transcript.subjects.length} Mapel</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                      <span>Total Nilai Akhir</span>
+                      <span className="font-black text-slate-950 font-mono">{transcript.score}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                      <span>Rata-rata Nilai</span>
+                      <span className="font-black text-emerald-700 font-mono">{transcript.averageScore}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                      <span>Predikat Hasil Belajar</span>
+                      <span className="font-black text-slate-950 uppercase">{predikatVal}</span>
+                    </div>
+                  </div>
+
+                  {/* Security verification description */}
+                  <div className="text-[8.5px] text-slate-500 font-semibold space-y-1 leading-normal flex flex-col justify-center">
+                    <p className="font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      Sertifikasi & Verifikasi Digital
+                    </p>
+                    <p>
+                      Dokumen resmi ini dilengkapi QR Code untuk verifikasi keaslian dokumen, validasi nomor surat resmi, dan menampilkan informasi penerbit secara real-time.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. PENGESAHAN & QR CODE FOOTER */}
+              <div className="grid grid-cols-2 border-t border-slate-300 pt-6 gap-6 items-start text-[10px]">
+                {/* Left Side: Notice & QR Code */}
+                <div className="space-y-4">
+                  <div className="text-left space-y-1.5">
+                    <p className="font-black text-slate-900 leading-normal">
+                      Dokumen ini diterbitkan secara digital.
+                    </p>
+                    <p className="text-[9px] text-slate-500 font-semibold leading-normal">
+                      QR Code di bawah digunakan untuk verifikasi keaslian dokumen, validasi nomor surat resmi, serta menampilkan informasi resmi lembaga penerbit.
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <PdfDocumentQRCode code={transcript.verificationCode || 'TRK-2026-Y4M7V3'} size={64} />
+                    <div className="space-y-0.5 text-left">
+                      <p className="text-[8px] font-black text-slate-800 tracking-wider">
+                        Kode: <span className="font-mono uppercase">{transcript.verificationCode || 'TRK-2026-Y4M7V3'}</span>
+                      </p>
+                      <p className="text-[7.5px] font-extrabold text-emerald-600 font-mono break-all max-w-[130px]">
+                        {(typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id').replace(/^https?:\/\//, '')}/verifikasi/{transcript.verificationCode || 'TRK-2026-Y4M7V3'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side: Area Pengesahan */}
+                <div className="text-right flex flex-col items-end space-y-1 pr-4">
+                  <p className="font-semibold text-slate-700">
+                    Cianjur, {new Date(transcript.issueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
+                  <p className="font-black text-slate-950 uppercase tracking-wide">
+                    {identity.jabatanPejabatTtd || identity.jabatanPejabatTtd === '' ? identity.jabatanPejabatTtd : 'Kepala PKBM'}
+                  </p>
+                  
+                  {/* Signature & Stempel Container */}
+                  <div className={`relative h-20 w-44 flex items-center justify-end ${role === 'siswa' ? 'hidden print:flex' : 'flex'}`}>
+                    <img 
+                      src={identity.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan'} 
+                      alt="Tanda Tangan" 
+                      className="absolute z-10 max-h-full max-w-[140px] object-contain mix-blend-multiply"
+                      referrerPolicy="no-referrer"
+                    />
+                    {identity.capStempelDigital && (
+                      <img 
+                        src={identity.capStempelDigital} 
+                        alt="Stempel PKBM" 
+                        className="absolute right-8 z-20 h-16 w-16 object-contain mix-blend-multiply opacity-80"
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                  </div>
+                  {role === 'siswa' && (
+                    <div className="h-20 flex items-center justify-end text-[8.5px] font-bold text-slate-400 italic print:hidden">
+                      [Tanda Tangan & Stempel Resmi Terverifikasi]
+                    </div>
+                  )}
+
+                  <p className="font-black text-slate-950 underline mt-1 text-[10.5px]">
+                    {identity.namaPejabatTtd || identity.namaKepalaSekolah || defaults.namaKepalaSekolah}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- INVOICE VIEW --- */}
+          {documentType === 'invoice' && invoiceData && (
+            <div id="invoice-print-area" className="flex flex-col justify-between h-full">
+              <div>
+                {/* 1. KOP SURAT */}
+                <div className="flex items-center justify-between border-b-4 border-double border-slate-950 pb-4 mb-5">
+                  {/* Logo Lembaga */}
+                  <div className="w-[85px] h-[85px] flex items-center justify-center bg-white border border-slate-100 p-1 shrink-0">
+                    <img 
+                      src={identity.logoPkbm || defaults.logoPkbm} 
+                      alt="Logo Lembaga" 
+                      className="max-w-full max-h-full object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+
+                  {/* Institution Identity */}
+                  <div className="flex-1 text-center px-4">
+                    <h1 className="text-sm font-black tracking-wide text-slate-950 leading-tight uppercase font-sans">
+                      PANITIA ADMINISTRASI KEUANGAN
+                    </h1>
+                    <h2 className="text-base font-extrabold tracking-wider text-slate-950 mt-0.5 leading-snug uppercase font-sans">
+                      {identity.namaPkbm || defaults.namaPkbm}
+                    </h2>
+                    <p className="text-[10px] text-slate-700 font-bold leading-normal mt-1 font-sans">
+                      Izin Operasional: {identity.npsn ? `NPSN ${identity.npsn}` : 'Lulus.id DRF Verified Office'} • Terakreditasi Resmi
+                    </p>
+                    <p className="text-[9px] text-slate-600 font-semibold leading-relaxed font-sans">
+                      {identity.alamat}, Kec. {identity.kecamatan}, Kab. {identity.kabupaten}, Prov. {identity.provinsi}
+                    </p>
+                    <p className="text-[8.5px] text-slate-500 font-semibold tracking-wide font-sans">
+                      Telp: {identity.nomorTelepon} • Email: {identity.emailLembaga} • Web: {identity.website}
+                    </p>
+                  </div>
+
+                  <div className="w-[85px] shrink-0 print:hidden opacity-0" />
+                </div>
+
+                {/* Title Document */}
+                <div className="text-center mb-6">
+                  <h3 className="text-sm font-black tracking-widest text-slate-950 uppercase underline font-sans">
+                    INVOICE TAGIHAN RESMI
+                  </h3>
+                  <p className="text-[9.5px] font-extrabold text-slate-800 mt-1 font-mono">
+                    Nomor: {invoiceData.id}
+                  </p>
+                </div>
+
+                {/* 2. IDENTITAS PESERTA DIDIK */}
+                <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-[10px] text-slate-900 border border-slate-300 p-4 rounded-xl mb-6 bg-slate-50/40">
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Nama Siswa</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-black text-slate-950 uppercase">{invoiceData.studentName}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">NISN</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{invoiceData.nisn}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Program</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-black text-emerald-700">{invoiceData.program}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Kelas</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900">{invoiceData.kelas}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Thn Ajaran</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{invoiceData.tahunAjaran}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Status</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold">
+                        <span className={`px-2 py-0.5 text-[8px] font-black rounded-full uppercase ${
+                          invoiceData.status === 'Lunas' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-rose-100 text-rose-700 border border-rose-200'
+                        }`}>
+                          {invoiceData.status}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. RINCIAN TAGIHAN */}
+                <div className="border border-slate-950 overflow-hidden rounded-md mb-6">
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead>
+                      <tr className="border-b border-slate-950 text-slate-900 bg-slate-100/85 font-black uppercase tracking-wider">
+                        <th className="py-2.5 px-4 border-r border-slate-950 w-12 text-center">No</th>
+                        <th className="py-2.5 px-4 border-r border-slate-950">Rincian Pembayaran / Deskripsi</th>
+                        <th className="py-2.5 px-4 text-right w-44">Jumlah (Rupiah)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-950 text-slate-900 font-bold">
+                      <tr>
+                        <td className="py-2.5 px-4 border-r border-slate-950 text-center font-mono">1</td>
+                        <td className="py-2.5 px-4 border-r border-slate-950 font-black">{invoiceData.name}</td>
+                        <td className="py-2.5 px-4 text-right font-mono font-black">Rp {invoiceData.amount.toLocaleString('id-ID')}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-4 border-r border-slate-950 text-center font-mono">2</td>
+                        <td className="py-2.5 px-4 border-r border-slate-950 font-medium text-slate-500">Biaya Administrasi Virtual Account</td>
+                        <td className="py-2.5 px-4 text-right font-mono font-medium">Rp 5.000</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 4. REKAP TOTAL */}
+                <div className="grid grid-cols-2 gap-8 mb-8">
+                  <div className="border border-slate-950 rounded-lg p-3 space-y-1.5 text-[9.5px] font-bold text-slate-800 bg-slate-50/20">
+                    <div className="flex justify-between">
+                      <span>Tanggal Terbit</span>
+                      <span className="font-black text-slate-950 font-mono">
+                        {new Date(invoiceData.createdDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                      <span>Jatuh Tempo</span>
+                      <span className="font-black text-rose-600 font-mono">
+                        {new Date(invoiceData.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5 text-xs text-emerald-700 font-black">
+                      <span>Total Tagihan</span>
+                      <span className="font-mono">Rp {(invoiceData.amount + 5000).toLocaleString('id-ID')}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[8.5px] text-slate-500 font-semibold space-y-1 leading-normal flex flex-col justify-center">
+                    <p className="font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      Sertifikasi Penagihan Elektronik
+                    </p>
+                    <p>
+                      Invoice ini diterbitkan secara otomatis dan sah oleh sistem keuangan Lulus.id. Dokumen ini sah tanpa tanda tangan maupun stempel karena bersifat dokumen penagihan pra-bayar.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. QR CODE & VERIFICATION */}
+              <div className="grid grid-cols-2 border-t border-slate-300 pt-6 gap-6 items-start text-[10px]">
+                <div className="space-y-4">
+                  <div className="text-left space-y-1.5">
+                    <p className="font-black text-slate-900 leading-normal">
+                      Verifikasi Keaslian Invoice
+                    </p>
+                    <p className="text-[9px] text-slate-500 font-semibold leading-normal">
+                      Scan QR Code di bawah untuk memvalidasi nomor tagihan invoice resmi ini secara real-time di sistem validasi dokumen lulus.id.
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <div className="relative p-1 bg-white rounded-lg border border-slate-300 shadow-xs flex items-center justify-center w-16 h-16 shrink-0">
+                      <svg className="w-full h-full text-slate-900" viewBox="0 0 100 100" fill="none" stroke="currentColor">
+                        <rect x="5" y="5" width="22" height="22" strokeWidth="4" rx="1" />
+                        <rect x="9" y="9" width="14" height="14" fill="currentColor" />
+                        <rect x="73" y="5" width="22" height="22" strokeWidth="4" rx="1" />
+                        <rect x="77" y="9" width="14" height="14" fill="currentColor" />
+                        <rect x="5" y="73" width="22" height="22" strokeWidth="4" rx="1" />
+                        <rect x="9" y="77" width="14" height="14" fill="currentColor" />
+                        <rect x="77" y="77" width="10" height="10" fill="currentColor" />
+                        <path d="M 35,10 H 45 V 20 H 35 Z M 50,5 H 65 V 12 H 50 Z M 35,25 H 40 V 30 H 35 Z" fill="currentColor" />
+                        <path d="M 10,35 H 15 V 40 H 10 Z M 20,35 H 30 V 45 H 20 Z" fill="currentColor" />
+                        <path d="M 35,50 H 45 V 65 H 35 Z M 55,50 H 60 V 55 H 55 Z" fill="currentColor" />
+                        <path d="M 70,55 H 85 V 60 H 70 Z M 75,65 H 80 V 70 H 75 Z" fill="currentColor" />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="p-0.5 bg-white rounded border border-slate-100 shadow-xs">
+                          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-0.5 text-left">
+                      <p className="text-[8px] font-black text-slate-800 tracking-wider">
+                        Kode: <span className="font-mono">{invoiceData.id}</span>
+                      </p>
+                      <p className="text-[7.5px] font-extrabold text-emerald-600 font-mono">
+                        lulus.id/verifikasi/{invoiceData.id}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right flex flex-col items-end space-y-1 pr-4">
+                  <p className="font-semibold text-slate-700">
+                    Sistem Keuangan Otomatis
+                  </p>
+                  <p className="font-black text-slate-950 uppercase tracking-wide">
+                    {identity.namaPkbm || defaults.namaPkbm}
+                  </p>
+                  <div className="h-20 flex items-center justify-end text-[8.5px] font-bold text-slate-400 italic">
+                    [E-INVOICE VERIFIED & SECURE]
+                  </div>
+                  <p className="text-[9px] text-slate-500 font-semibold italic text-center mt-2 leading-relaxed">
+                    Dokumen tagihan elektronik resmi ini dicetak secara otomatis dan sah dari portal siswa.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- RECEIPT (KWITANSI) VIEW --- */}
+          {documentType === 'receipt' && receiptData && (
+            <div id="receipt-print-area" className="flex flex-col justify-between h-full">
+              <div>
+                {/* 1. KOP SURAT */}
+                <div className="flex items-center justify-between border-b-4 border-double border-slate-950 pb-4 mb-5">
+                  {/* Logo Lembaga */}
+                  <div className="w-[85px] h-[85px] flex items-center justify-center bg-white border border-slate-100 p-1 shrink-0">
+                    <img 
+                      src={identity.logoPkbm || defaults.logoPkbm} 
+                      alt="Logo Lembaga" 
+                      className="max-w-full max-h-full object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+
+                  {/* Institution Identity */}
+                  <div className="flex-1 text-center px-4">
+                    <h1 className="text-sm font-black tracking-wide text-slate-950 leading-tight uppercase font-sans">
+                      PANITIA ADMINISTRASI KEUANGAN
+                    </h1>
+                    <h2 className="text-base font-extrabold tracking-wider text-slate-950 mt-0.5 leading-snug uppercase font-sans">
+                      {identity.namaPkbm || defaults.namaPkbm}
+                    </h2>
+                    <p className="text-[10px] text-slate-700 font-bold leading-normal mt-1 font-sans">
+                      Izin Operasional: {identity.npsn ? `NPSN ${identity.npsn}` : 'Lulus.id DRF Verified Office'} • Terakreditasi Resmi
+                    </p>
+                    <p className="text-[9px] text-slate-600 font-semibold leading-relaxed font-sans">
+                      {identity.alamat}, Kec. {identity.kecamatan}, Kab. {identity.kabupaten}, Prov. {identity.provinsi}
+                    </p>
+                    <p className="text-[8.5px] text-slate-500 font-semibold tracking-wide font-sans">
+                      Telp: {identity.nomorTelepon} • Email: {identity.emailLembaga} • Web: {identity.website}
+                    </p>
+                  </div>
+
+                  <div className="w-[85px] shrink-0 print:hidden opacity-0" />
+                </div>
+
+                {/* Title Document */}
+                <div className="text-center mb-6">
+                  <h3 className="text-sm font-black tracking-widest text-slate-950 uppercase underline font-sans">
+                    KWITANSI PEMBAYARAN RESMI
+                  </h3>
+                  <p className="text-[9.5px] font-extrabold text-slate-800 mt-1 font-mono">
+                    Nomor: {receiptData.id}
+                  </p>
+                </div>
+
+                {/* 2. IDENTITAS KWITANSI */}
+                <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-[10px] text-slate-900 border border-slate-300 p-4 rounded-xl mb-6 bg-slate-50/40">
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Telah Terima Dari</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-black text-slate-950 uppercase">{receiptData.studentName}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">NISN</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{receiptData.nisn}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Program / Kelas</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900">{receiptData.program} / {receiptData.kelas}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Guna Pembayaran</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-black text-emerald-700">{receiptData.name}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Nomor Invoice</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{receiptData.invoiceId}</span>
+                    </div>
+                    <div className="grid grid-cols-12">
+                      <span className="col-span-4 font-bold text-slate-500">Status</span>
+                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                      <span className="col-span-7 font-black text-emerald-600 font-mono uppercase tracking-widest text-xs">
+                        LUNAS
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. RINCIAN TABEL */}
+                <div className="border border-slate-950 overflow-hidden rounded-md mb-6">
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead>
+                      <tr className="border-b border-slate-950 text-slate-900 bg-slate-100/85 font-black uppercase tracking-wider">
+                        <th className="py-2.5 px-4 border-r border-slate-950">Metode Pembayaran</th>
+                        <th className="py-2.5 px-4 border-r border-slate-950">Tanggal Pelunasan</th>
+                        <th className="py-2.5 px-4 text-right w-44">Jumlah Nominal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-950 text-slate-900 font-bold">
+                      <tr>
+                        <td className="py-2.5 px-4 border-r border-slate-950">{receiptData.paymentMethod}</td>
+                        <td className="py-2.5 px-4 border-r border-slate-950 font-mono">
+                          {new Date(receiptData.paymentDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </td>
+                        <td className="py-2.5 px-4 text-right font-mono font-black text-emerald-700 text-xs">
+                          Rp {receiptData.amount.toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Terbilang block */}
+                <div className="border border-slate-950 rounded-lg p-3 text-[10px] font-bold text-slate-800 bg-slate-50/20 mb-6 flex justify-between items-center">
+                  <span>Terbilang:</span>
+                  <span className="font-black italic text-slate-950">
+                    {getTerbilang(receiptData.amount)}
+                  </span>
+                </div>
+              </div>
+
+              {/* 5. PENGESAHAN & QR CODE FOOTER */}
+              <div className="grid grid-cols-2 border-t border-slate-300 pt-6 gap-6 items-start text-[10px]">
+                {/* Left Side: Notice & QR Code */}
+                <div className="space-y-4">
+                  <div className="text-left space-y-1.5">
+                    <p className="font-black text-slate-900 leading-normal">
+                      Verifikasi Kwitansi Pembayaran
+                    </p>
+                    <p className="text-[9px] text-slate-500 font-semibold leading-normal">
+                      Scan QR Code di bawah untuk memvalidasi nomor kwitansi pembayaran resmi ini secara langsung di portal verifikasi lulus.id.
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <div className="relative p-1 bg-white rounded-lg border border-slate-300 shadow-xs flex items-center justify-center w-16 h-16 shrink-0">
+                      <svg className="w-full h-full text-slate-900" viewBox="0 0 100 100" fill="none" stroke="currentColor">
+                        <rect x="5" y="5" width="22" height="22" strokeWidth="4" rx="1" />
+                        <rect x="9" y="9" width="14" height="14" fill="currentColor" />
+                        <rect x="73" y="5" width="22" height="22" strokeWidth="4" rx="1" />
+                        <rect x="77" y="9" width="14" height="14" fill="currentColor" />
+                        <rect x="5" y="73" width="22" height="22" strokeWidth="4" rx="1" />
+                        <rect x="9" y="77" width="14" height="14" fill="currentColor" />
+                        <rect x="77" y="77" width="10" height="10" fill="currentColor" />
+                        <path d="M 35,10 H 45 V 20 H 35 Z M 50,5 H 65 V 12 H 50 Z M 35,25 H 40 V 30 H 35 Z" fill="currentColor" />
+                        <path d="M 10,35 H 15 V 40 H 10 Z M 20,35 H 30 V 45 H 20 Z" fill="currentColor" />
+                        <path d="M 35,50 H 45 V 65 H 35 Z M 55,50 H 60 V 55 H 55 Z" fill="currentColor" />
+                        <path d="M 70,55 H 85 V 60 H 70 Z M 75,65 H 80 V 70 H 75 Z" fill="currentColor" />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="p-0.5 bg-white rounded border border-slate-100 shadow-xs">
+                          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-0.5 text-left">
+                      <p className="text-[8px] font-black text-slate-800 tracking-wider">
+                        Kode: <span className="font-mono">{receiptData.id}</span>
+                      </p>
+                      <p className="text-[7.5px] font-extrabold text-emerald-600 font-mono">
+                        lulus.id/verifikasi/{receiptData.id}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side: Area Pengesahan */}
+                <div className="text-right flex flex-col items-end space-y-1 pr-4">
+                  <p className="font-semibold text-slate-700">
+                    Cianjur, {new Date(receiptData.paymentDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
+                  <p className="font-black text-slate-950 uppercase tracking-wide">
+                    {identity.jabatanPejabatTtd || 'Kepala PKBM'}
+                  </p>
+                  
+                  {/* Signature and Stamp digital digital overlapping */}
+                  <div className="relative h-20 w-44 flex items-center justify-end">
+                    <img 
+                      src={identity.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan'} 
+                      alt="Tanda Tangan" 
+                      className="absolute z-10 max-h-full max-w-[140px] object-contain mix-blend-multiply"
+                      referrerPolicy="no-referrer"
+                    />
+                    {identity.capStempelDigital && (
+                      <img 
+                        src={identity.capStempelDigital} 
+                        alt="Stempel PKBM" 
+                        className="absolute right-8 z-20 h-16 w-16 object-contain mix-blend-multiply opacity-80"
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                  </div>
+
+                  <p className="font-black text-slate-950 underline mt-1 text-[10.5px]">
+                    {identity.namaPejabatTtd || identity.namaKepalaSekolah || defaults.namaKepalaSekolah}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

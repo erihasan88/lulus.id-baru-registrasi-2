@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  /* Override pink color palette with the exact mint green of the logo */
+  --color-pink-50: #f3faf7;
+  --color-pink-100: #e4f4ee;
+  --color-pink-200: #cae8de;
+  --color-pink-300: #a3d7c7;
+  --color-pink-400: #77c2ab;
+  --color-pink-500: #5cb095; /* Exact logo background color */
+  --color-pink-600: #46937b; /* Perfect rich brand green for interactive components & active tabs */
+  --color-pink-700: #3b7764;
+  --color-pink-800: #316052;
+  --color-pink-900: #2a5045;
+  --color-pink-950: #142d27;
+}

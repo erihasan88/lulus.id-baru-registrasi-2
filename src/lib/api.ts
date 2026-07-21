@@ -1,0 +1,427 @@
+/**
+ * api.ts
+ * Client API untuk integrasi dengan Django Backend (Lulus.id)
+ */
+
+import { DigitalLibraryBook, AcademicDocument } from '../types';
+
+// URL API Backend Django. Default ke current origin jika di container/preview
+export const API_URL = (import.meta as any).env?.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+
+// Interface untuk data respon login
+export interface LoginResponse {
+  token: string;
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    nama_lengkap: string;
+    role: 'siswa' | 'guru' | 'admin';
+  };
+}
+
+/**
+ * Helper to perform fetch requests with a specific timeout
+ */
+async function fetchWithTimeout(resource: string, options: RequestInit & { timeout?: number }): Promise<Response> {
+  const { timeout = 1000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(resource, {
+      ...fetchOptions,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
+
+/**
+ * Helper untuk melakukan HTTP request dengan token autentikasi
+ */
+async function fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<any> {
+  const token = localStorage.getItem('token');
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Token ${token}` } : {}),
+    ...(options.headers || {}),
+  };
+
+  const response = await fetchWithTimeout(`${API_URL}${endpoint}`, {
+    ...options,
+    headers,
+    timeout: 3000
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    let errorObj;
+    try {
+      errorObj = JSON.parse(errText);
+    } catch {
+      errorObj = { message: errText || 'Terjadi kesalahan sistem' };
+    }
+    throw new Error(errorObj.detail || errorObj.message || `HTTP Error ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * API Client Object
+ */
+export const api = {
+  /**
+   * Autentikasi Login (Token Auth Django / DRF)
+   */
+  async login(username: string, password: string): Promise<LoginResponse> {
+    const response = await fetchWithTimeout(`${API_URL}/api/token/login/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
+      timeout: 800
+    });
+
+    if (!response.ok) {
+      // Jika token auth standar tidak ketemu, coba endpoint login alternatif (/api/login/)
+      const fallbackResponse = await fetchWithTimeout(`${API_URL}/api/login/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+        timeout: 800
+      });
+
+      if (!fallbackResponse.ok) {
+        throw new Error('Username atau password salah.');
+      }
+      return fallbackResponse.json();
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Log Out / Hapus Token
+   */
+  async logout(): Promise<void> {
+    try {
+      await fetchWithAuth('/api/token/logout/', { method: 'POST' });
+    } catch (e) {
+      console.warn('Gagal memanggil API logout di server, menghapus token lokal...', e);
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
+  },
+
+  /**
+   * Mendapatkan Profile Pengguna yang sedang Login
+   */
+  async getCurrentUser(): Promise<LoginResponse['user']> {
+    return fetchWithAuth('/api/user/me/');
+  },
+
+  // === ENDPOINT SISWA ===
+
+  /**
+   * Mendapatkan data mata pelajaran (dashboard siswa)
+   */
+  async getSiswaSubjects(): Promise<any[]> {
+    return fetchWithAuth('/api/siswa/subjects/');
+  },
+
+  /**
+   * Mendapatkan daftar tugas siswa
+   */
+  async getSiswaTasks(): Promise<any[]> {
+    return fetchWithAuth('/api/siswa/tasks/');
+  },
+
+  /**
+   * Kirim tugas siswa (Submit assignment)
+   */
+  async submitTask(taskId: string, submissionText: string): Promise<any> {
+    return fetchWithAuth(`/api/siswa/tasks/${taskId}/submit/`, {
+      method: 'POST',
+      body: JSON.stringify({ text: submissionText }),
+    });
+  },
+
+  /**
+   * Mendapatkan nilai / rapor siswa
+   */
+  async getSiswaRapor(): Promise<any> {
+    return fetchWithAuth('/api/siswa/rapor/');
+  },
+
+  // === ENDPOINT GURU ===
+
+  /**
+   * Mendapatkan statistik dashboard guru
+   */
+  async getGuruDashboardStats(): Promise<any> {
+    return fetchWithAuth('/api/guru/stats/');
+  },
+
+  /**
+   * Mendapatkan daftar materi ajar (guru)
+   */
+  async getGuruMateri(): Promise<any[]> {
+    return fetchWithAuth('/api/guru/materi/');
+  },
+
+  /**
+   * Mendapatkan daftar tugas yang dibuat guru beserta submissions
+   */
+  async getGuruTugasSubmissions(): Promise<any[]> {
+    return fetchWithAuth('/api/guru/submissions/');
+  },
+
+  /**
+   * Memberikan nilai ke submission siswa
+   */
+  async submitGrading(submissionId: string, grade: number, feedback: string): Promise<any> {
+    return fetchWithAuth(`/api/guru/submissions/${submissionId}/grade/`, {
+      method: 'POST',
+      body: JSON.stringify({ nilai: grade, feedback }),
+    });
+  },
+
+  // === ENDPOINT ADMIN ===
+
+  /**
+   * Mendapatkan statistik dashboard admin
+   */
+  async getAdminStats(): Promise<any> {
+    return fetchWithAuth('/api/admin/stats/');
+  },
+
+  /**
+   * Mendapatkan daftar siswa terdaftar (admin)
+   */
+  async getAdminSiswaList(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/siswa/');
+  },
+
+  /**
+   * Menyetujui/verifikasi pendaftaran siswa baru
+   */
+  async verifySiswa(siswaId: string, status: 'Aktif' | 'Nonaktif'): Promise<any> {
+    return fetchWithAuth(`/api/admin/siswa/${siswaId}/verify/`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  // === ENDPOINT PERPUSTAKAAN DIGITAL ===
+
+  /**
+   * Mendapatkan daftar buku / modul dari perpustakaan digital
+   */
+  async getLibraryBooks(): Promise<DigitalLibraryBook[]> {
+    return fetchWithAuth('/api/perpustakaan/buku/');
+  },
+
+  /**
+   * Tambah buku / modul baru (Guru/Admin)
+   */
+  async createLibraryBook(bookData: Partial<DigitalLibraryBook>): Promise<DigitalLibraryBook> {
+    return fetchWithAuth('/api/perpustakaan/buku/', {
+      method: 'POST',
+      body: JSON.stringify(bookData)
+    });
+  },
+
+  /**
+   * Update buku / modul (Guru/Admin)
+   */
+  async updateLibraryBook(bookId: string, bookData: Partial<DigitalLibraryBook>): Promise<DigitalLibraryBook> {
+    return fetchWithAuth(`/api/perpustakaan/buku/${bookId}/`, {
+      method: 'PUT',
+      body: JSON.stringify(bookData)
+    });
+  },
+
+  /**
+   * Hapus buku / modul (Guru/Admin)
+   */
+  async deleteLibraryBook(bookId: string): Promise<void> {
+    return fetchWithAuth(`/api/perpustakaan/buku/${bookId}/`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Rate & review buku (Siswa)
+   */
+  async rateLibraryBook(bookId: string, rating: number, review?: string): Promise<any> {
+    return fetchWithAuth(`/api/perpustakaan/buku/${bookId}/rate/`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, review })
+    });
+  },
+
+  /**
+   * Catat download buku (Siswa)
+   */
+  async downloadLibraryBook(bookId: string): Promise<any> {
+    return fetchWithAuth(`/api/perpustakaan/buku/${bookId}/download/`, {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Catat baca / view buku (Siswa)
+   */
+  async viewLibraryBook(bookId: string): Promise<any> {
+    return fetchWithAuth(`/api/perpustakaan/buku/${bookId}/view/`, {
+      method: 'POST'
+    });
+  },
+
+  // === ENDPOINT DOKUMEN AKADEMIK ===
+
+  /**
+   * Mendapatkan daftar dokumen akademik siswa
+   */
+  async getAcademicDocuments(): Promise<AcademicDocument[]> {
+    return fetchWithAuth('/api/akademik/dokumen/');
+  },
+
+  /**
+   * Tambah dokumen akademik baru (Admin)
+   */
+  async createAcademicDocument(docData: Partial<AcademicDocument>): Promise<AcademicDocument> {
+    return fetchWithAuth('/api/akademik/dokumen/', {
+      method: 'POST',
+      body: JSON.stringify(docData)
+    });
+  },
+
+  /**
+   * Update dokumen akademik (Admin)
+   */
+  async updateAcademicDocument(docId: string, docData: Partial<AcademicDocument>): Promise<AcademicDocument> {
+    return fetchWithAuth(`/api/akademik/dokumen/${docId}/`, {
+      method: 'PUT',
+      body: JSON.stringify(docData)
+    });
+  },
+
+  /**
+   * Hapus dokumen akademik (Admin)
+   */
+  async deleteAcademicDocument(docId: string): Promise<void> {
+    return fetchWithAuth(`/api/akademik/dokumen/${docId}/`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Catat download dokumen (Siswa)
+   */
+  async downloadAcademicDocument(docId: string): Promise<any> {
+    return fetchWithAuth(`/api/akademik/dokumen/${docId}/download/`, {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Catat lihat / view dokumen (Siswa)
+   */
+  async viewAcademicDocument(docId: string): Promise<any> {
+    return fetchWithAuth(`/api/akademik/dokumen/${docId}/view/`, {
+      method: 'POST'
+    });
+  },
+
+  // === ENDPOINTS REGISTRASI & PEMBAYARAN V2 ===
+
+  /**
+   * Mendapatkan data pendaftaran siswa saat ini
+   */
+  async getMyRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/');
+  },
+
+  /**
+   * Membuat atau mengupdate draft pendaftaran siswa
+   */
+  async updateMyRegistration(data: { program_paket?: string; tipe_kelas?: string; biodata?: any; dokumen?: any }): Promise<any> {
+    return fetchWithAuth('/api/registration/me/', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Mengirimkan berkas pendaftaran (Draft -> Menunggu Verifikasi)
+   */
+  async submitMyRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/submit/', {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Mendapatkan tagihan pembayaran pendaftaran
+   */
+  async getMyInvoice(): Promise<any> {
+    return fetchWithAuth('/api/payment/invoice/');
+  },
+
+  /**
+   * Unggah bukti transfer pendaftaran siswa
+   */
+  async uploadPaymentProof(buktiTransfer: string, metodePembayaran?: string): Promise<any> {
+    return fetchWithAuth('/api/payment/invoice/upload-proof/', {
+      method: 'POST',
+      body: JSON.stringify({ bukti_transfer: buktiTransfer, metode_pembayaran: metodePembayaran })
+    });
+  },
+
+  /**
+   * Admin: Mendapatkan seluruh daftar pendaftar
+   */
+  async adminGetRegistrations(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/registrations/');
+  },
+
+  /**
+   * Admin: Verifikasi pendaftaran siswa (ACCEPT atau REJECT)
+   */
+  async adminVerifyRegistration(registrationId: string, data: { action: 'ACCEPT' | 'REJECT'; category?: string; reason?: string }): Promise<any> {
+    return fetchWithAuth(`/api/admin/registrations/${registrationId}/verify/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Verifikasi bukti transfer pembayaran pendaftaran
+   */
+  async adminVerifyPayment(invoiceId: string, data: { action: 'APPROVE' | 'DECLINE' }): Promise<any> {
+    return fetchWithAuth(`/api/admin/payment/${invoiceId}/verify/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Plotting rombel kelas untuk siswa baru
+   */
+  async adminPlotRegistration(registrationId: string, data: { kelas_plotted: boolean; rombel_nama: string }): Promise<any> {
+    return fetchWithAuth(`/api/admin/registrations/${registrationId}/plot/`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+};
