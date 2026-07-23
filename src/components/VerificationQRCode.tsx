@@ -23,6 +23,7 @@ export default function VerificationQRCode({ verificationCode, size = 'md' }: Ve
     QRCode.toDataURL(url, {
       margin: 1,
       width: size === 'sm' ? 120 : size === 'md' ? 160 : 200,
+      errorCorrectionLevel: 'H',
       color: {
         dark: '#0f172a', // slate-900
         light: '#ffffff'
@@ -51,10 +52,10 @@ export default function VerificationQRCode({ verificationCode, size = 'md' }: Ve
             <div className="w-full h-full bg-slate-100 animate-pulse rounded-lg" />
           )}
 
-          {/* Secure lock icon overlay in the center */}
+          {/* Secure lock icon overlay in the center - optimized size for flawless scanning */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="p-1 bg-white rounded-md border border-slate-100 shadow-xs">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <div className="p-0.5 bg-white rounded border border-slate-100/60 shadow-3xs">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
             </div>
           </div>
         </div>

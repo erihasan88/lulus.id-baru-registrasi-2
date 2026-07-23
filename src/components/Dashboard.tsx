@@ -10,6 +10,7 @@ import { Subject, Task, TaskSubmission, Exam, Question, AcademicYear } from '../
 import { api, API_URL } from '../lib/api';
 import DokumenAkademik from './DokumenAkademik';
 import TranscriptNilai from '../pages/TranscriptNilai';
+import { initialTeachers } from '../data/adminMockData';
 
 
 function getEmbedUrl(url: string) {
@@ -45,6 +46,7 @@ interface DashboardProps {
   skkReports?: any[];
   setSkkReports?: React.Dispatch<React.SetStateAction<any[]>>;
   students?: any[];
+  lembagaIdentitas?: any;
   activeAcademicYear?: AcademicYear;
 }
 
@@ -69,10 +71,12 @@ export default function Dashboard({
   skkReports = [],
   setSkkReports,
   students = [],
+  lembagaIdentitas,
   activeAcademicYear
 }: DashboardProps) {
   const studentObj = students?.find(s => s.username?.toLowerCase() === username?.toLowerCase() || s.nama?.toLowerCase()?.includes(username?.toLowerCase() || '')) || { id: 'SIS-1001', nama: 'Fajar Pratama', program: 'Paket C', kelas: 'Kelas X - Paket C' };
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [taskSearchQuery, setTaskSearchQuery] = useState<string>('');
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [detailTab, setDetailTab] = useState<'teks' | 'video'>('teks');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -477,6 +481,30 @@ export default function Dashboard({
     return isNotDraft && matchProgram && matchClass && matchSemester && matchAcademicYear;
   });
 
+  // Filter studentTasks based on taskSearchQuery
+  const filteredStudentTasks = studentTasks.filter(task => {
+    if (!taskSearchQuery) return true;
+    const query = taskSearchQuery.toLowerCase().trim();
+    
+    const titleMatch = (task.title || '').toLowerCase().includes(query);
+    const subjectMatch = (task.subject || '').toLowerCase().includes(query);
+    const descMatch = (task.description || '').toLowerCase().includes(query);
+    
+    const teacher = initialTeachers.find(t => t.id === task.teacherId);
+    let teacherMatch = false;
+    if (teacher) {
+      teacherMatch = (teacher.nama || '').toLowerCase().includes(query);
+    } else {
+      const subjectTeachers = initialTeachers.filter(t => 
+        t.mapels?.some(m => m.toLowerCase() === task.subject.toLowerCase()) ||
+        (t.mapel && t.mapel.toLowerCase() === task.subject.toLowerCase())
+      );
+      teacherMatch = subjectTeachers.some(t => (t.nama || '').toLowerCase().includes(query));
+    }
+    
+    return titleMatch || subjectMatch || descMatch || teacherMatch;
+  });
+
   // Helper to get status of a task for the current student
   const getTaskStudentStatus = (task: Task) => {
     const submission = (taskSubmissions || []).find(sub => sub.taskId === task.id && sub.studentId === studentObj.id);
@@ -860,7 +888,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
 
             <div className="flex gap-1.5 mt-3 text-[9px] font-bold select-none">
               <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-500/20 flex items-center gap-1">
-                <GraduationCap className="w-3.5 h-3.5" /> PKBM Agrabinta
+                <GraduationCap className="w-3.5 h-3.5" /> {lembagaIdentitas?.namaPkbm || 'PKBM Agrabinta'}
               </span>
               <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-500/10 flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5" /> {activeAcademicYear ? `TA ${activeAcademicYear.nama} (${activeAcademicYear.semester})` : 'Semester Ganjil'}
@@ -1477,8 +1505,16 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
       {/* MATERI SCREEN */}
       {activeTab === 'materi' && !selectedSubject && (
         <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden">
-          <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
-            <h2 className="text-base font-extrabold text-slate-800">Materi Pembelajaran</h2>
+          <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 shrink-0">
+            <button
+              onClick={() => { setSelectedSubject(null); setActiveTab('beranda'); }}
+              className="mb-3 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+            </button>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-800">Materi Pembelajaran</h2>
+            </div>
           </div>
           <div className="p-4 bg-white border-b border-slate-100 shrink-0">
             <div className="relative">
@@ -1493,34 +1529,46 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
-            {filteredSubjects.map((sub) => (
-              <div 
-                key={sub.id} 
-                onClick={() => setSelectedSubject(sub)}
-                className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:border-emerald-400 transition-all cursor-pointer flex justify-between items-center group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center border border-emerald-100 shadow-sm">
-                    <BookOpen className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-800 group-hover:text-emerald-600 transition-colors flex items-center gap-1.5 flex-wrap">
-                      {sub.name}
-                      {sub.videoUrl && (
-                        <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-200/50 rounded text-[7px] font-extrabold flex items-center gap-0.5 animate-pulse">
-                          <Play className="w-2 h-2 fill-current" /> Video
-                        </span>
-                      )}
-                    </h3>
-                    <span className="text-[10px] text-slate-400 font-semibold">{sub.materiCount} Topik Pembelajaran</span>
-                  </div>
+            {filteredSubjects.length === 0 ? (
+              <div className="py-12 px-4 text-center space-y-2 bg-white rounded-2xl border border-slate-150 shadow-sm">
+                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                  <Search className="w-5 h-5" />
                 </div>
-                <div className="flex items-center gap-1 text-slate-400 text-xs">
-                  <span className="text-emerald-500 font-black">{sub.progress}%</span>
-                  <ChevronRight className="w-4 h-4" />
-                </div>
+                <p className="text-sm font-bold text-slate-700">Materi tidak ditemukan.</p>
+                <p className="text-xs text-slate-400 font-medium max-w-[240px] mx-auto">
+                  Coba cari dengan kata kunci lain atau periksa ejaan Anda.
+                </p>
               </div>
-            ))}
+            ) : (
+              filteredSubjects.map((sub) => (
+                <div 
+                  key={sub.id} 
+                  onClick={() => setSelectedSubject(sub)}
+                  className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:border-emerald-400 transition-all cursor-pointer flex justify-between items-center group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center border border-emerald-100 shadow-sm">
+                      <BookOpen className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-800 group-hover:text-emerald-600 transition-colors flex items-center gap-1.5 flex-wrap">
+                        {sub.name}
+                        {sub.videoUrl && (
+                          <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-200/50 rounded text-[7px] font-extrabold flex items-center gap-0.5 animate-pulse">
+                            <Play className="w-2 h-2 fill-current" /> Video
+                          </span>
+                        )}
+                      </h3>
+                      <span className="text-[10px] text-slate-400 font-semibold">{sub.materiCount} Topik Pembelajaran</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 text-slate-400 text-xs">
+                    <span className="text-emerald-500 font-black">{sub.progress}%</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
@@ -1693,73 +1741,109 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
           {!selectedTask ? (
             /* MASTER VIEW: LIST OF TASKS */
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 shrink-0">
+                <button
+                  onClick={() => { setSelectedSubject(null); setActiveTab('beranda'); }}
+                  className="mb-3 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+                </button>
                 <div>
                   <h2 className="text-base font-extrabold text-slate-800">Tugas Mandiri Kesetaraan</h2>
                   <p className="text-[9px] text-slate-400 font-bold mt-0.5">Pilih salah satu tugas untuk membaca petunjuk dan mengumpulkan jawaban.</p>
                 </div>
               </div>
               
+              <div className="p-4 bg-white border-b border-slate-100 shrink-0">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input 
+                    type="text" 
+                    placeholder="Cari tugas berdasarkan judul, mapel, tutor, atau deskripsi..." 
+                    value={taskSearchQuery}
+                    onChange={(e) => setTaskSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-100 border-none rounded-xl text-xs text-slate-800 focus:outline-none"
+                  />
+                </div>
+              </div>
+              
               <div className="flex-1 overflow-y-auto p-4 space-y-3.5 no-scrollbar">
-                {studentTasks.map((task) => {
-                  const submission = (taskSubmissions || []).find(sub => sub.taskId === task.id && sub.studentId === studentObj.id);
-                  const isSubmitted = submission && submission.status !== 'Draft';
-                  const statusText = getTaskStudentStatus(task);
+                {filteredStudentTasks.length === 0 ? (
+                  <div className="py-12 px-4 text-center space-y-2 bg-white rounded-2xl border border-slate-150 shadow-sm">
+                    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                      <Search className="w-5 h-5" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-700">Tugas tidak ditemukan.</p>
+                    <p className="text-xs text-slate-400 font-medium max-w-[240px] mx-auto">
+                      Coba cari dengan kata kunci lain atau periksa ejaan Anda.
+                    </p>
+                  </div>
+                ) : (
+                  filteredStudentTasks.map((task) => {
+                    const submission = (taskSubmissions || []).find(sub => sub.taskId === task.id && sub.studentId === studentObj.id);
+                    const isSubmitted = submission && submission.status !== 'Draft';
+                    const statusText = getTaskStudentStatus(task);
+                    const teacher = initialTeachers.find(t => t.id === task.teacherId) || 
+                                    initialTeachers.find(t => t.mapels?.some(m => m.toLowerCase() === task.subject.toLowerCase()) || (t.mapel && t.mapel.toLowerCase() === task.subject.toLowerCase()));
 
-                  return (
-                    <div 
-                      key={task.id} 
-                      onClick={() => {
-                        setSelectedTask(task);
-                        setIsEditingSubmission(false);
-                        setSubmissionText(submission?.submissionText || '');
-                        setSubmissionFiles(submission?.submissionFiles || []);
-                      }}
-                      className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm hover:border-emerald-400 transition-all cursor-pointer flex flex-col gap-3 group"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center border border-blue-100 shrink-0">
-                            <FileText className="w-5 h-5" />
+                    return (
+                      <div 
+                        key={task.id} 
+                        onClick={() => {
+                          setSelectedTask(task);
+                          setIsEditingSubmission(false);
+                          setSubmissionText(submission?.submissionText || '');
+                          setSubmissionFiles(submission?.submissionFiles || []);
+                        }}
+                        className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm hover:border-emerald-400 transition-all cursor-pointer flex flex-col gap-3 group"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center border border-blue-100 shrink-0">
+                              <FileText className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-slate-800 group-hover:text-emerald-600 transition-colors">{task.subject}</h4>
+                              <p className="text-[10px] text-slate-450 font-bold mt-0.5">{task.title}</p>
+                              {teacher && (
+                                <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Tutor: {teacher.nama}</p>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <h4 className="text-xs font-black text-slate-800 group-hover:text-emerald-600 transition-colors">{task.subject}</h4>
-                            <p className="text-[10px] text-slate-400 font-bold mt-0.5">{task.title}</p>
-                          </div>
-                        </div>
-                        <span className={`px-2 py-0.5 text-[8px] font-black rounded-full uppercase ${
-                          isSubmitted ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
-                        }`}>
-                          {statusText}
-                        </span>
-                      </div>
-                      
-                      <div className="flex justify-between items-center pt-2.5 border-t border-slate-100">
-                        <div className="text-[8px] text-slate-400 font-bold leading-normal">
-                          Batas Pengiriman:<br />
-                          <span className="text-slate-700 font-black">{task.dueDate}</span>
+                          <span className={`px-2 py-0.5 text-[8px] font-black rounded-full uppercase ${
+                            isSubmitted ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                          }`}>
+                            {statusText}
+                          </span>
                         </div>
                         
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedTask(task);
-                            setIsEditingSubmission(false);
-                            setSubmissionText(submission?.submissionText || '');
-                            setSubmissionFiles(submission?.submissionFiles || []);
-                          }}
-                          className={`px-3.5 py-1.5 text-[10px] font-black rounded-lg transition-all ${
-                            isSubmitted 
-                              ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' 
-                              : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm'
-                          }`}
-                        >
-                          {isSubmitted ? 'Lihat Jawaban' : 'Kerjakan & Kirim'}
-                        </button>
+                        <div className="flex justify-between items-center pt-2.5 border-t border-slate-100">
+                          <div className="text-[8px] text-slate-400 font-bold leading-normal">
+                            Batas Pengiriman:<br />
+                            <span className="text-slate-700 font-black">{task.dueDate}</span>
+                          </div>
+                          
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedTask(task);
+                              setIsEditingSubmission(false);
+                              setSubmissionText(submission?.submissionText || '');
+                              setSubmissionFiles(submission?.submissionFiles || []);
+                            }}
+                            className={`px-3.5 py-1.5 text-[10px] font-black rounded-lg transition-all ${
+                              isSubmitted 
+                                ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' 
+                                : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm'
+                            }`}
+                          >
+                            {isSubmitted ? 'Lihat Jawaban' : 'Kerjakan & Kirim'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
           ) : (

@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
-const PORT = 3000;
+const PORT = 3001;
 const app = express();
 
 app.use(express.json());
@@ -64,7 +64,7 @@ app.post('/api/gemini', async (req: Request, res: Response): Promise<void> => {
       model: 'gemini-3.5-flash',
       contents,
       config: {
-        systemInstruction: systemInstruction || 'Kamu adalah Lulus AI, asisten dan guru pendamping sekolah PKBM Agrabinta yang sangat ramah, penyabar, dan suportif. Jawab pertanyaan siswa dengan bahasa Indonesia yang santun, sederhana, mudah dipahami anak sekolah non-formal, serta berikan contoh konkret bila perlu. Jangan terlalu panjang lebar, langsung ke inti penjelasan.',
+        systemInstruction: systemInstruction || 'Kamu adalah Lulus AI, asisten dan guru pendamping Lulus.id yang sangat ramah, penyabar, dan suportif. Jawab pertanyaan siswa dengan bahasa Indonesia yang santun, sederhana, mudah dipahami anak sekolah non-formal, serta berikan contoh konkret bila perlu. Jangan terlalu panjang lebar, langsung ke inti penjelasan.',
         temperature: 0.7,
       }
     });
@@ -106,80 +106,9 @@ interface PaymentInvoice {
   created_at: string;
 }
 
-let mockRegistrations: StudentRegistration[] = [
-  {
-    id: "reg-1",
-    username: "aditya_perkasa",
-    email: "aditya@gmail.com",
-    program_paket: "Paket A",
-    tipe_kelas: "Reguler",
-    registration_status: "MENUNGGU_VERIFIKASI",
-    biodata: {
-      nama: "Aditya Perkasa",
-      nik: "3201234567890001",
-      nisn: "0123456781",
-      tempat_lahir: "Sukabumi",
-      tgl_lahir: "2015-08-12",
-      jk: "Laki-laki",
-      no_hp: "081299998888",
-      alamat: "Jl. Kidang Kencana No. 12, Sukabumi",
-      nama_ibu: "Siti Aminah",
-      nama_ayah: "Ahmad Perkasa"
-    },
-    dokumen: {
-      foto: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=120",
-      kk: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=250",
-      ktp: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=250",
-      ijazah: "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&q=80&w=250"
-    },
-    catatan_admin: "",
-    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 24).toISOString()
-  },
-  {
-    id: "reg-2",
-    username: "siti_rahma",
-    email: "siti@gmail.com",
-    program_paket: "Paket C",
-    tipe_kelas: "Karyawan",
-    registration_status: "DITERIMA",
-    biodata: {
-      nama: "Siti Rahma",
-      nik: "3201234567890002",
-      nisn: "0123456782",
-      tempat_lahir: "Sukabumi",
-      tgl_lahir: "2002-04-10",
-      jk: "Perempuan",
-      no_hp: "081388887777",
-      alamat: "Kp. Cigunung RT 04/01, Sukabumi",
-      nama_ibu: "Fatimah",
-      nama_ayah: "Zulkilfli"
-    },
-    dokumen: {
-      foto: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=120",
-      kk: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=250",
-      ktp: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=250",
-      ijazah: "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&q=80&w=250"
-    },
-    catatan_admin: "Berkas lengkap dan lolos seleksi.",
-    created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 48).toISOString()
-  }
-];
+let mockRegistrations: StudentRegistration[] = [];
 
-let mockInvoices: PaymentInvoice[] = [
-  {
-    id: "inv-2",
-    registration_id: "reg-2",
-    invoice_number: "INV/2026/07/0002",
-    amount: 500000,
-    payment_status: "UNPAID",
-    metode_pembayaran: "Transfer Virtual Account Mandiri",
-    bukti_transfer: "https://images.unsplash.com/photo-1601597111158-2fceff270190?auto=format&fit=crop&q=80&w=250",
-    expired_at: new Date(Date.now() + 3600000 * 24).toISOString(),
-    created_at: new Date(Date.now() - 3600000 * 48).toISOString()
-  }
-];
+let mockInvoices: PaymentInvoice[] = [];
 
 const getUsernameFromAuth = (req: Request): string => {
   const authHeader = req.headers.authorization;

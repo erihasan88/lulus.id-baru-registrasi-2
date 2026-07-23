@@ -28,6 +28,7 @@ function DocumentQRCodeMini({ code, size = 42 }: { code: string; size?: number }
     QRCode.toDataURL(url, {
       margin: 1,
       width: size * 2,
+      errorCorrectionLevel: 'H',
       color: {
         dark: '#0f172a',
         light: '#ffffff'
@@ -213,6 +214,7 @@ export default function BankVerifikasi({ role, students, loggedInUser, showModal
     QRCode.toDataURL(url, {
       margin: 2,
       width: 320,
+      errorCorrectionLevel: 'H',
       color: {
         dark: '#0f172a',
         light: '#ffffff'

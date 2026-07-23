@@ -7,8 +7,6 @@ import {
 import { Subject, AcademicYear, Student } from '../types';
 import QRCode from 'qrcode';
 import VerificationQRCode from './VerificationQRCode';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 
 interface RaporMerdekaProps {
   subjects: Subject[];
@@ -16,6 +14,21 @@ interface RaporMerdekaProps {
   showModal: (title: string, desc: string, type?: 'info' | 'warning' | 'success') => void;
   activeAcademicYear?: AcademicYear;
 }
+
+const safeSrc = (src: string) => {
+  if (!src) return '';
+  if (src.startsWith('data:image/svg+xml;utf8,') || src.startsWith('data:image/svg+xml;utf-8,')) {
+    const isUtf8 = src.startsWith('data:image/svg+xml;utf8,');
+    const prefix = isUtf8 ? 'data:image/svg+xml;utf8,' : 'data:image/svg+xml;utf-8,';
+    const svgContent = src.substring(prefix.length);
+    try {
+      return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgContent)))}`;
+    } catch (e) {
+      return src.replace(/"/g, '&quot;');
+    }
+  }
+  return src;
+};
 
 export default function RaporMerdeka({ subjects, onBack, showModal, activeAcademicYear }: RaporMerdekaProps) {
   const [activeSubTab, setActiveSubTab] = useState<'intra' | 'p5'>('intra');
@@ -686,7 +699,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
     <table class="header-table">
       <tr>
         <td style="width: 80px; text-align: left; vertical-align: middle;">
-          <img src="${inst.logoPkbm || 'https://placehold.co/80x80/00a884/ffffff?text=PKBM'}" alt="Logo PKBM" style="width: 70px; height: 70px; object-fit: contain;">
+          <img src="${safeSrc(inst.logoPkbm || 'https://placehold.co/80x80/00a884/ffffff?text=PKBM')}" alt="Logo PKBM" style="width: 70px; height: 70px; object-fit: contain;">
         </td>
         <td class="kop-title">
           <h1>${inst.namaYayasan}</h1>
@@ -695,7 +708,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
           <p>Email: ${inst.emailLembaga || 'email@lulus.id'} | Telp: ${inst.nomorTelepon || '-'}</p>
         </td>
         <td style="width: 80px; text-align: right; vertical-align: middle;">
-          <img src="${inst.logoYayasan || 'https://placehold.co/80x80/1e3a8a/ffffff?text=YAYASAN'}" alt="Logo Yayasan" style="width: 70px; height: 70px; object-fit: contain;">
+          <img src="${safeSrc(inst.logoYayasan || 'https://placehold.co/80x80/1e3a8a/ffffff?text=YAYASAN')}" alt="Logo Yayasan" style="width: 70px; height: 70px; object-fit: contain;">
         </td>
       </tr>
     </table>
@@ -770,7 +783,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
         <td class="sig-block">
           <p>Orang Tua / Wali Siswa</p>
           <div class="sig-space">
-            ${currentStudent?.tandaTanganOrangTua ? `<img src="${currentStudent.tandaTanganOrangTua}" alt="Ttd Orang Tua">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
+            ${currentStudent?.tandaTanganOrangTua ? `<img src="${safeSrc(currentStudent.tandaTanganOrangTua)}" alt="Ttd Orang Tua">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
           </div>
           <p style="font-weight: bold; text-decoration: underline; margin-top: 15px;">${pengesahan.parentName}</p>
           <p style="color: #64748b; font-size: 10px;">Wali Murid</p>
@@ -780,7 +793,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
           <p>${pengesahan.tempatPengesahan}, ${pengesahan.tanggalPengesahan}</p>
           <p>Wali Kelas</p>
           <div class="sig-space">
-            ${pengesahan.waliKelasSignature ? `<img src="${pengesahan.waliKelasSignature}" alt="Ttd Wali Kelas">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
+            ${pengesahan.waliKelasSignature ? `<img src="${safeSrc(pengesahan.waliKelasSignature)}" alt="Ttd Wali Kelas">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
           </div>
           <p style="font-weight: bold; text-decoration: underline; margin-top: 15px;">${pengesahan.waliKelasName}</p>
           <p style="color: #64748b; font-size: 10px;">NIP. ${pengesahan.waliKelasNip}</p>
@@ -790,8 +803,8 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
           <p>Mengetahui,</p>
           <p>${inst.jabatanPejabatTtd || 'Kepala PKBM'}</p>
           <div class="sig-space">
-            ${inst.capStempelDigital ? `<img src="${inst.capStempelDigital}" alt="Stempel Resmi" style="position: absolute; opacity: 0.55; width: 65px; left: calc(50% - 45px); mix-blend-multiply; z-index: 1;">` : ''}
-            ${inst.tandaTanganKepalaSekolah ? `<img src="${inst.tandaTanganKepalaSekolah}" alt="Ttd Kepala Sekolah" style="position: relative; z-index: 2;">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
+            ${inst.capStempelDigital ? `<img src="${safeSrc(inst.capStempelDigital)}" alt="Stempel Resmi" style="position: absolute; opacity: 0.55; width: 65px; left: calc(50% - 45px); mix-blend-multiply; z-index: 1;">` : ''}
+            ${inst.tandaTanganKepalaSekolah ? `<img src="${safeSrc(inst.tandaTanganKepalaSekolah)}" alt="Ttd Kepala Sekolah" style="position: relative; z-index: 2;">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
           </div>
           <p style="font-weight: bold; text-decoration: underline; margin-top: 15px;">${inst.namaKepalaSekolah}</p>
           <p style="color: #64748b; font-size: 10px;">NIP. ${inst.nipKepalaSekolah}</p>
@@ -953,6 +966,9 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
         throw new Error('Gagal merender lembar e-rapor.');
       }
 
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
       const canvas = await html2canvas(pageEl, {
         scale: 2,
         useCORS: true,
@@ -1102,7 +1118,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
             <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] font-medium text-emerald-100 pt-1 border-t border-white/20">
               <div>NISN: {studentNisn}</div>
               <div className="text-right">TA: {activeAcademicYear?.nama || '2026/2027'}</div>
-              <div>PKBM Agrabinta (Kelas {studentKelas})</div>
+              <div>{inst.namaPkbm} (Kelas {studentKelas})</div>
               <div className="text-right">Semester: {activeAcademicYear?.semester || 'Ganjil'}</div>
             </div>
           </div>
@@ -1176,7 +1192,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                 ))}
               </ul>
               <p className="text-[9.5px] text-rose-700 font-bold mt-1.5 leading-snug">
-                Silakan hubungi Administrator PKBM Agrabinta untuk melengkapi Master CP melalui menu <span className="underline font-extrabold">Modul SKK → Master CP</span>. Fitur cetak rapor diblokir sementara sampai seluruh CP tersedia.
+                Silakan hubungi Administrator {inst.namaPkbm} untuk melengkapi Master CP melalui menu <span className="underline font-extrabold">Modul SKK → Master CP</span>. Fitur cetak rapor diblokir sementara sampai seluruh CP tersedia.
               </p>
             </div>
           </div>
@@ -1618,7 +1634,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                   <div className="h-12 flex items-center justify-center relative w-full">
                     {currentStudent?.tandaTanganOrangTua ? (
                       <img 
-                        src={currentStudent.tandaTanganOrangTua} 
+                        src={safeSrc(currentStudent.tandaTanganOrangTua)} 
                         alt="Ttd Orang Tua" 
                         className="h-12 object-contain max-w-[120px]" 
                         referrerPolicy="no-referrer" 
@@ -1643,7 +1659,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                   <div className="h-12 flex items-center justify-center gap-2 relative w-full">
                     {waliKelasSignature ? (
                       <img 
-                        src={waliKelasSignature} 
+                        src={safeSrc(waliKelasSignature)} 
                         alt="Ttd Wali Kelas" 
                         className="h-12 object-contain max-w-[100px]" 
                         referrerPolicy="no-referrer" 
@@ -1691,7 +1707,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                   <div className="h-12 flex items-center justify-center relative w-full">
                     {currentStudent?.tandaTanganOrangTua ? (
                       <img 
-                        src={currentStudent.tandaTanganOrangTua} 
+                        src={safeSrc(currentStudent.tandaTanganOrangTua)} 
                         alt="Ttd Orang Tua" 
                         className="h-12 object-contain max-w-[120px]" 
                         referrerPolicy="no-referrer" 
@@ -1716,7 +1732,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                   <div className="h-12 flex items-center justify-center gap-2 relative w-full">
                     {waliKelasSignature ? (
                       <img 
-                        src={waliKelasSignature} 
+                        src={safeSrc(waliKelasSignature)} 
                         alt="Ttd Wali Kelas" 
                         className="h-12 object-contain max-w-[100px]" 
                         referrerPolicy="no-referrer" 
@@ -1761,7 +1777,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                   {lembagaIdentitas.capStempelDigital && (
                     <div className="absolute left-[calc(50%-75px)] h-14 w-14 flex items-center justify-center pointer-events-none opacity-45 mix-blend-multiply z-10">
                       <img 
-                        src={lembagaIdentitas.capStempelDigital} 
+                        src={safeSrc(lembagaIdentitas.capStempelDigital)} 
                         alt="Cap Stempel Resmi" 
                         className="h-14 object-contain max-w-[56px]" 
                         referrerPolicy="no-referrer" 
@@ -1771,7 +1787,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
 
                   {lembagaIdentitas.tandaTanganKepalaSekolah ? (
                     <img 
-                      src={lembagaIdentitas.tandaTanganKepalaSekolah} 
+                      src={safeSrc(lembagaIdentitas.tandaTanganKepalaSekolah)} 
                       alt="Ttd Kepala Sekolah" 
                       className="h-14 object-contain max-w-[140px] relative z-20" 
                       referrerPolicy="no-referrer" 

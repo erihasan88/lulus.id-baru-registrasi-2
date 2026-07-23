@@ -5,8 +5,8 @@
 
 import { DigitalLibraryBook, AcademicDocument } from '../types';
 
-// URL API Backend Django. Default ke current origin jika di container/preview
-export const API_URL = (import.meta as any).env?.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+// URL API Backend Django. Default ke localhost jika tidak ditentukan di .env
+export const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
 
 // Interface untuk data respon login
 export interface LoginResponse {
@@ -160,6 +160,45 @@ export const api = {
    */
   async getSiswaRapor(): Promise<any> {
     return fetchWithAuth('/api/siswa/rapor/');
+  },
+
+
+  // === REGISTRATION V2 ===
+
+  /**
+   * Mendapatkan status pendaftaran siswa V2
+   */
+  async getMyRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/');
+  },
+
+
+  /**
+   * Submit pendaftaran
+   */
+  async submitRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/submit/', {
+      method: 'POST',
+    });
+  },
+
+
+  /**
+   * Mendapatkan invoice pembayaran
+   */
+  async getMyInvoice(): Promise<any> {
+    return fetchWithAuth('/api/registration/invoice/me/');
+  },
+
+
+  /**
+   * Upload bukti pembayaran
+   */
+  async uploadPaymentProof(data: any): Promise<any> {
+    return fetchWithAuth('/api/registration/invoice/upload-proof/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   // === ENDPOINT GURU ===
@@ -343,51 +382,6 @@ export const api = {
     });
   },
 
-  // === ENDPOINTS REGISTRASI & PEMBAYARAN V2 ===
-
-  /**
-   * Mendapatkan data pendaftaran siswa saat ini
-   */
-  async getMyRegistration(): Promise<any> {
-    return fetchWithAuth('/api/registration/me/');
-  },
-
-  /**
-   * Membuat atau mengupdate draft pendaftaran siswa
-   */
-  async updateMyRegistration(data: { program_paket?: string; tipe_kelas?: string; biodata?: any; dokumen?: any }): Promise<any> {
-    return fetchWithAuth('/api/registration/me/', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  /**
-   * Mengirimkan berkas pendaftaran (Draft -> Menunggu Verifikasi)
-   */
-  async submitMyRegistration(): Promise<any> {
-    return fetchWithAuth('/api/registration/me/submit/', {
-      method: 'POST'
-    });
-  },
-
-  /**
-   * Mendapatkan tagihan pembayaran pendaftaran
-   */
-  async getMyInvoice(): Promise<any> {
-    return fetchWithAuth('/api/payment/invoice/');
-  },
-
-  /**
-   * Unggah bukti transfer pendaftaran siswa
-   */
-  async uploadPaymentProof(buktiTransfer: string, metodePembayaran?: string): Promise<any> {
-    return fetchWithAuth('/api/payment/invoice/upload-proof/', {
-      method: 'POST',
-      body: JSON.stringify({ bukti_transfer: buktiTransfer, metode_pembayaran: metodePembayaran })
-    });
-  },
-
   /**
    * Admin: Mendapatkan seluruh daftar pendaftar
    */
@@ -424,4 +418,5 @@ export const api = {
       body: JSON.stringify(data)
     });
   }
+
 };

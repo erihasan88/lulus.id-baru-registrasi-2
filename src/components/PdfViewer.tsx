@@ -3,6 +3,21 @@ import QRCode from 'qrcode';
 import { AcademicTranscript } from '../interfaces/academicTranscript';
 import { Download, Printer, ShieldCheck, ArrowLeft, Maximize, Minimize, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
+const safeSrc = (src: string) => {
+  if (!src) return '';
+  if (src.startsWith('data:image/svg+xml;utf8,') || src.startsWith('data:image/svg+xml;utf-8,')) {
+    const isUtf8 = src.startsWith('data:image/svg+xml;utf8,');
+    const prefix = isUtf8 ? 'data:image/svg+xml;utf8,' : 'data:image/svg+xml;utf-8,';
+    const svgContent = src.substring(prefix.length);
+    try {
+      return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgContent)))}`;
+    } catch (e) {
+      return src.replace(/"/g, '&quot;');
+    }
+  }
+  return src;
+};
+
 function PdfDocumentQRCode({ code, size = 64 }: { code: string; size?: number }) {
   const [qrSrc, setQrSrc] = useState<string>('');
 
@@ -521,14 +536,14 @@ export default function PdfViewer({
                   {/* Signature & Stempel Container */}
                   <div className={`relative h-20 w-44 flex items-center justify-end ${role === 'siswa' ? 'hidden print:flex' : 'flex'}`}>
                     <img 
-                      src={identity.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan'} 
+                      src={safeSrc(identity.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan')} 
                       alt="Tanda Tangan" 
                       className="absolute z-10 max-h-full max-w-[140px] object-contain mix-blend-multiply"
                       referrerPolicy="no-referrer"
                     />
                     {identity.capStempelDigital && (
                       <img 
-                        src={identity.capStempelDigital} 
+                        src={safeSrc(identity.capStempelDigital)} 
                         alt="Stempel PKBM" 
                         className="absolute right-8 z-20 h-16 w-16 object-contain mix-blend-multiply opacity-80"
                         referrerPolicy="no-referrer"
@@ -941,14 +956,14 @@ export default function PdfViewer({
                   {/* Signature and Stamp digital digital overlapping */}
                   <div className="relative h-20 w-44 flex items-center justify-end">
                     <img 
-                      src={identity.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan'} 
+                      src={safeSrc(identity.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan')} 
                       alt="Tanda Tangan" 
                       className="absolute z-10 max-h-full max-w-[140px] object-contain mix-blend-multiply"
                       referrerPolicy="no-referrer"
                     />
                     {identity.capStempelDigital && (
                       <img 
-                        src={identity.capStempelDigital} 
+                        src={safeSrc(identity.capStempelDigital)} 
                         alt="Stempel PKBM" 
                         className="absolute right-8 z-20 h-16 w-16 object-contain mix-blend-multiply opacity-80"
                         referrerPolicy="no-referrer"

@@ -34,6 +34,7 @@ interface DashboardGuruProps {
   skkReports?: any[];
   setSkkReports?: React.Dispatch<React.SetStateAction<any[]>>;
   students?: any[];
+  lembagaIdentitas?: any;
   activeAcademicYear?: AcademicYear;
 }
 
@@ -73,6 +74,7 @@ export default function DashboardGuru({
   skkReports = [],
   setSkkReports,
   students = [],
+  lembagaIdentitas,
   activeAcademicYear
 }: DashboardGuruProps) {
   
@@ -982,6 +984,9 @@ export default function DashboardGuru({
   const [materiFilterProgram, setMateriFilterProgram] = useState('all');
   const [materiFilterClass, setMateriFilterClass] = useState('all');
   const [materiFilterStatus, setMateriFilterStatus] = useState('all');
+
+  // Search & Filter States for Kelola Tugas
+  const [tugasSearch, setTugasSearch] = useState('');
 
   // Dedicated form states for Materi
   const [formMateriTitle, setFormMateriTitle] = useState('');
@@ -3369,133 +3374,179 @@ export default function DashboardGuru({
                   <span className="text-[9px] text-pink-600 font-bold bg-pink-50 px-2.5 py-1 rounded-full uppercase tracking-wider font-mono">T.A. {activeAcademicYear?.nama} • Semester {activeAcademicYear?.semester}</span>
                 </div>
 
-                {tasks.length === 0 ? (
-                  <div className="bg-white rounded-3xl border border-slate-150 p-12 text-center shadow-sm">
-                    <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3 animate-pulse" />
-                    <h4 className="text-xs font-black text-slate-800">Belum Ada Tugas yang Dibuat</h4>
-                    <p className="text-[9.5px] text-slate-400 font-medium max-w-xs mx-auto mt-1">Buat tugas mandiri pertama Anda dengan mengeklik tombol "+ Tambah Tugas" di pojok kanan atas.</p>
+                {/* Kolom Pencarian Realtime */}
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-150 shadow-sm">
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
+                    <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input 
+                      type="text" 
+                      placeholder="Cari tugas berdasarkan judul, mapel, guru, atau deskripsi..." 
+                      value={tugasSearch}
+                      onChange={(e) => setTugasSearch(e.target.value)}
+                      className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none placeholder-slate-400"
+                    />
+                    {tugasSearch && (
+                      <button onClick={() => setTugasSearch('')} className="text-slate-400 hover:text-slate-600 text-xs font-black">✕</button>
+                    )}
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {tasks.map((task) => {
-                      const taskSubs = (localTaskSubmissions || []).filter(sub => sub.taskId === task.id && sub.status !== 'Draft');
-                      const submittedCount = taskSubs.length;
-                      const matchingStudents = students.filter(s => {
-                        const sClass = s.kelas || '';
-                        const sProg = s.program || '';
-                        return sClass.toLowerCase() === task.kelas.toLowerCase() || sProg.toLowerCase() === task.program.toLowerCase();
-                      });
-                      const classTotalStudents = matchingStudents.length > 0 ? matchingStudents.length : 15;
-                      const unsubmittedCount = Math.max(0, classTotalStudents - submittedCount);
+                </div>
 
-                      return (
-                        <div 
-                          key={task.id} 
-                          className="bg-white p-4 rounded-3xl border border-slate-150 shadow-sm hover:shadow-md transition-all flex flex-col gap-3 group relative"
-                        >
-                          <div className="flex justify-between items-start gap-2">
-                            <div className="flex items-start gap-2.5">
-                              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-50 to-indigo-50 flex items-center justify-center text-pink-600 shrink-0 border border-pink-100">
-                                <FileText className="w-4 h-4" />
+                {(() => {
+                  const filteredTasks = tasks.filter(task => {
+                    if (!tugasSearch.trim()) return true;
+                    const query = tugasSearch.toLowerCase();
+                    const taskTeacher = (teachers || []).find(t => t.id === task.teacherId);
+                    const teacherName = taskTeacher ? taskTeacher.nama : (loggedInTeacher?.nama || '');
+                    return (
+                      (task.title || '').toLowerCase().includes(query) ||
+                      (task.subject || '').toLowerCase().includes(query) ||
+                      teacherName.toLowerCase().includes(query) ||
+                      (task.description || '').toLowerCase().includes(query)
+                    );
+                  });
+
+                  if (tasks.length === 0) {
+                    return (
+                      <div className="bg-white rounded-3xl border border-slate-150 p-12 text-center shadow-sm">
+                        <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3 animate-pulse" />
+                        <h4 className="text-xs font-black text-slate-800">Belum Ada Tugas yang Dibuat</h4>
+                        <p className="text-[9.5px] text-slate-400 font-medium max-w-xs mx-auto mt-1">Buat tugas mandiri pertama Anda dengan mengeklik tombol "+ Tambah Tugas" di pojok kanan atas.</p>
+                      </div>
+                    );
+                  }
+
+                  if (filteredTasks.length === 0) {
+                    return (
+                      <div className="py-12 text-center bg-white border border-dashed border-slate-200 rounded-3xl">
+                        <Search className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="text-xs font-bold text-slate-500">Tugas tidak ditemukan.</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Coba ubah kata kunci pencarian Anda.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredTasks.map((task) => {
+                        const taskSubs = (localTaskSubmissions || []).filter(sub => sub.taskId === task.id && sub.status !== 'Draft');
+                        const submittedCount = taskSubs.length;
+                        const matchingStudents = students.filter(s => {
+                          const sClass = s.kelas || '';
+                          const sProg = s.program || '';
+                          return sClass.toLowerCase() === task.kelas.toLowerCase() || sProg.toLowerCase() === task.program.toLowerCase();
+                        });
+                        const classTotalStudents = matchingStudents.length > 0 ? matchingStudents.length : 15;
+                        const unsubmittedCount = Math.max(0, classTotalStudents - submittedCount);
+
+                        return (
+                          <div 
+                            key={task.id} 
+                            className="bg-white p-4 rounded-3xl border border-slate-150 shadow-sm hover:shadow-md transition-all flex flex-col gap-3 group relative"
+                          >
+                            <div className="flex justify-between items-start gap-2">
+                              <div className="flex items-start gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-50 to-indigo-50 flex items-center justify-center text-pink-600 shrink-0 border border-pink-100">
+                                  <FileText className="w-4 h-4" />
+                                </div>
+                                <div className="space-y-0.5">
+                                  <h4 className="font-extrabold text-xs text-slate-850 group-hover:text-pink-600 transition-colors line-clamp-1">{task.title}</h4>
+                                  <span className="inline-block text-[8.5px] font-black text-slate-450">{task.subject} • Pertemuan {task.pertemuan || 1}</span>
+                                </div>
                               </div>
-                              <div className="space-y-0.5">
-                                <h4 className="font-extrabold text-xs text-slate-850 group-hover:text-pink-600 transition-colors line-clamp-1">{task.title}</h4>
-                                <span className="inline-block text-[8.5px] font-black text-slate-450">{task.subject} • Pertemuan {task.pertemuan || 1}</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase ${
+                                task.status === 'Dipublikasikan' ? 'bg-emerald-100 text-emerald-700' :
+                                task.status === 'Draft' ? 'bg-amber-100 text-amber-700' : 'bg-slate-150 text-slate-600'
+                              }`}>
+                                {task.status}
+                              </span>
+                            </div>
+
+                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100 grid grid-cols-2 gap-y-1.5 gap-x-2 text-[8.5px] font-semibold text-slate-500">
+                              <div>Program: <span className="text-slate-800 font-black">{task.program}</span></div>
+                              <div>Kelas: <span className="text-slate-800 font-black">{task.kelas}</span></div>
+                              <div>Semester: <span className="text-slate-800 font-black">{task.semester}</span></div>
+                              <div>Tahun Ajaran: <span className="text-slate-800 font-black">{task.tahunAjaran}</span></div>
+                            </div>
+
+                            <div className="pt-1.5 flex justify-between items-center text-[8.5px] font-bold text-slate-400">
+                              <div>
+                                Dibuat: <span className="text-slate-650 font-black">{task.createdDate || '-'}</span>
+                              </div>
+                              <div className="text-rose-600 font-black flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-rose-500" /> Batas: {task.dueDate}
                               </div>
                             </div>
-                            <span className={`px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase ${
-                              task.status === 'Dipublikasikan' ? 'bg-emerald-100 text-emerald-700' :
-                              task.status === 'Draft' ? 'bg-amber-100 text-amber-700' : 'bg-slate-150 text-slate-600'
-                            }`}>
-                              {task.status}
-                            </span>
-                          </div>
 
-                          <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100 grid grid-cols-2 gap-y-1.5 gap-x-2 text-[8.5px] font-semibold text-slate-500">
-                            <div>Program: <span className="text-slate-800 font-black">{task.program}</span></div>
-                            <div>Kelas: <span className="text-slate-800 font-black">{task.kelas}</span></div>
-                            <div>Semester: <span className="text-slate-800 font-black">{task.semester}</span></div>
-                            <div>Tahun Ajaran: <span className="text-slate-800 font-black">{task.tahunAjaran}</span></div>
-                          </div>
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                              <div className="bg-emerald-50/50 p-2 rounded-xl text-center border border-emerald-100/50">
+                                <div className="text-xs font-black text-emerald-700">{submittedCount} Siswa</div>
+                                <div className="text-[7.5px] text-emerald-500 font-bold uppercase mt-0.5">Sudah Mengumpulkan</div>
+                              </div>
+                              <div className="bg-rose-50/30 p-2 rounded-xl text-center border border-rose-100/30">
+                                <div className="text-xs font-black text-rose-700">{unsubmittedCount} Siswa</div>
+                                <div className="text-[7.5px] text-rose-500 font-bold uppercase mt-0.5">Belum Mengumpulkan</div>
+                              </div>
+                            </div>
 
-                          <div className="pt-1.5 flex justify-between items-center text-[8.5px] font-bold text-slate-400">
-                            <div>
-                              Dibuat: <span className="text-slate-650 font-black">{task.createdDate || '-'}</span>
-                            </div>
-                            <div className="text-rose-600 font-black flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-rose-500" /> Batas: {task.dueDate}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-                            <div className="bg-emerald-50/50 p-2 rounded-xl text-center border border-emerald-100/50">
-                              <div className="text-xs font-black text-emerald-700">{submittedCount} Siswa</div>
-                              <div className="text-[7.5px] text-emerald-500 font-bold uppercase mt-0.5">Sudah Mengumpulkan</div>
-                            </div>
-                            <div className="bg-rose-50/30 p-2 rounded-xl text-center border border-rose-100/30">
-                              <div className="text-xs font-black text-rose-700">{unsubmittedCount} Siswa</div>
-                              <div className="text-[7.5px] text-rose-500 font-bold uppercase mt-0.5">Belum Mengumpulkan</div>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-1.5 pt-2 border-t border-slate-100">
-                            <button 
-                              onClick={() => {
-                                setSelectedTaskForSubmissions(task);
-                                setTugasSubView('submissions');
-                              }}
-                              className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-black transition-all cursor-pointer flex items-center justify-center gap-1"
-                              type="button"
-                            >
-                              <Award className="w-3 h-3" /> Lihat Pengumpulan
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setSelectedTaskForEdit(task);
-                                setFormTugasTitle(task.title);
-                                setFormTugasSubject(task.subject);
-                                setFormTugasProgram(task.program);
-                                setFormTugasClass(task.kelas);
-                                setFormTugasSemester(task.semester);
-                                setFormTugasTahunAjaran(task.tahunAjaran);
-                                setFormTugasPertemuan(task.pertemuan?.toString() || '1');
-                                setFormTugasDescription(task.description || '');
-                                setFormTugasLampiran(task.lampiran || 'Modul_Ajar.pdf');
-                                setFormTugasVideoUrl(task.videoUrl || '');
-                                setFormTugasStartDate(task.startDate || new Date().toISOString().split('T')[0]);
-                                setFormTugasDueDate(task.dueDate);
-                                setFormTugasMaxGrade(task.maxGrade?.toString() || '100');
-                                setFormTugasBobot(task.bobotNilai?.toString() || '10');
-                                setFormTugasStatus(task.status);
-                                setTugasSubView('edit');
-                              }}
-                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black transition-all cursor-pointer"
-                              title="Edit Tugas"
-                              type="button"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button 
-                              onClick={() => {
-                                if (confirm('Apakah Anda yakin ingin menghapus tugas ini?')) {
-                                  if (setTasks) {
-                                    setTasks(prev => prev.filter(t => t.id !== task.id));
+                            <div className="flex gap-1.5 pt-2 border-t border-slate-100">
+                              <button 
+                                onClick={() => {
+                                  setSelectedTaskForSubmissions(task);
+                                  setTugasSubView('submissions');
+                                }}
+                                className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-black transition-all cursor-pointer flex items-center justify-center gap-1"
+                                type="button"
+                              >
+                                <Award className="w-3 h-3" /> Lihat Pengumpulan
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setSelectedTaskForEdit(task);
+                                  setFormTugasTitle(task.title);
+                                  setFormTugasSubject(task.subject);
+                                  setFormTugasProgram(task.program);
+                                  setFormTugasClass(task.kelas);
+                                  setFormTugasSemester(task.semester);
+                                  setFormTugasTahunAjaran(task.tahunAjaran);
+                                  setFormTugasPertemuan(task.pertemuan?.toString() || '1');
+                                  setFormTugasDescription(task.description || '');
+                                  setFormTugasLampiran(task.lampiran || 'Modul_Ajar.pdf');
+                                  setFormTugasVideoUrl(task.videoUrl || '');
+                                  setFormTugasStartDate(task.startDate || new Date().toISOString().split('T')[0]);
+                                  setFormTugasDueDate(task.dueDate);
+                                  setFormTugasMaxGrade(task.maxGrade?.toString() || '100');
+                                  setFormTugasBobot(task.bobotNilai?.toString() || '10');
+                                  setFormTugasStatus(task.status);
+                                  setTugasSubView('edit');
+                                }}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black transition-all cursor-pointer"
+                                title="Edit Tugas"
+                                type="button"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  if (confirm('Apakah Anda yakin ingin menghapus tugas ini?')) {
+                                    if (setTasks) {
+                                      setTasks(prev => prev.filter(t => t.id !== task.id));
+                                    }
+                                    showModal('Tugas Dihapus', `Tugas "${task.title}" berhasil dihapus.`, 'info');
                                   }
-                                  showModal('Tugas Dihapus', `Tugas "${task.title}" berhasil dihapus.`, 'info');
-                                }
-                              }}
-                              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[9px] font-black transition-all cursor-pointer"
-                              title="Hapus Tugas"
-                              type="button"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                                }}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[9px] font-black transition-all cursor-pointer"
+                                title="Hapus Tugas"
+                                type="button"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

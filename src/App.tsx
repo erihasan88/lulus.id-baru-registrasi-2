@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import VerificationPage from './components/VerificationPage';
+import { useState, useEffect, lazy, Suspense } from 'react';
+
 import { 
   GraduationCap, Sparkles, BookOpen, Key, Info, 
   Smartphone, Wifi, Battery, Signal, User, Lock, ArrowRight, School,
@@ -24,23 +26,25 @@ import {
 
 // Import Components
 import Modal from './components/Modal';
-import RegistrationWizard from './components/RegistrationWizard';
-import Dashboard from './components/Dashboard';
-import UnifiedChat from './components/UnifiedChat';
-import GeminiChat from './components/GeminiChat';
-import DashboardGuru from './components/DashboardGuru';
-import DashboardAdmin from './components/DashboardAdmin';
-import BillTracker from './components/BillTracker';
-import RaporMerdeka from './components/RaporMerdeka';
-import ProfilSiswa from './components/ProfilSiswa';
+const RegistrationWizard = lazy(() => import('./components/RegistrationWizard'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const UnifiedChat = lazy(() => import('./components/UnifiedChat'));
+const GeminiChat = lazy(() => import('./components/GeminiChat'));
+const DashboardGuru = lazy(() => import('./components/DashboardGuru'));
+const DashboardAdmin = lazy(() => import('./components/DashboardAdmin'));
+const BillTracker = lazy(() => import('./components/BillTracker'));
+const RaporMerdeka = lazy(() => import('./components/RaporMerdeka'));
+const ProfilSiswa = lazy(() => import('./components/ProfilSiswa'));
 import Logo from './components/Logo';
-import BankSoal from './components/BankSoal';
-import VerificationPage from './components/VerificationPage';
-import { RegistrationStatusPage } from './components/RegistrationStatusPage';
-import { PaymentPage } from './components/PaymentPage';
-import { OrientationDashboard } from './components/OrientationDashboard';
+const BankSoal = lazy(() => import('./components/BankSoal'));
+const PWAManager = lazy(() => import('./components/PWAManager'));
+const PaymentPage = lazy(() => import('./components/PaymentPage').then(m => ({default: m.PaymentPage})));
+const OrientationDashboard = lazy(() => import('./components/OrientationDashboard').then(m => ({default: m.OrientationDashboard})));
+const RegistrationStatusPage = lazy(() => import('./components/RegistrationStatusPage'));
+
 
 export default function App() {
+
   // Sync restore session synchronously on initial render
   const getInitialRole = (): Role => {
     const cachedUser = localStorage.getItem('user');
@@ -110,6 +114,17 @@ export default function App() {
 
   // Routing simulation for QR Code / verification pages
   useEffect(() => {
+    const cleanVerificationCode = (code: string): string => {
+      if (!code) return '';
+      // Split by '?' first to remove any query parameters
+      let clean = code.split('?')[0];
+      // Split by '#' next to remove any trailing hash
+      clean = clean.split('#')[0];
+      // Trim and remove any trailing slashes or spaces
+      clean = clean.trim().replace(/\/+$/, '');
+      return clean;
+    };
+
     const checkVerificationPath = () => {
       const path = window.location.pathname;
       const hash = window.location.hash;
@@ -117,24 +132,24 @@ export default function App() {
       
       const queryCode = params.get('verifikasi') || params.get('verify');
       if (queryCode) {
-        setVerificationCode(queryCode);
+        setVerificationCode(cleanVerificationCode(queryCode));
         setScreen('verifikasi');
         return;
       }
 
       if (path.includes('/verifikasi/')) {
-        const code = path.split('/verifikasi/')[1];
-        if (code && code.trim() !== '') {
-          setVerificationCode(code);
+        const rawCode = path.split('/verifikasi/')[1];
+        if (rawCode && rawCode.trim() !== '') {
+          setVerificationCode(cleanVerificationCode(rawCode));
           setScreen('verifikasi');
           return;
         }
       }
 
       if (hash.includes('/verifikasi/')) {
-        const code = hash.split('/verifikasi/')[1];
-        if (code && code.trim() !== '') {
-          setVerificationCode(code);
+        const rawCode = hash.split('/verifikasi/')[1];
+        if (rawCode && rawCode.trim() !== '') {
+          setVerificationCode(cleanVerificationCode(rawCode));
           setScreen('verifikasi');
           return;
         }
@@ -159,6 +174,20 @@ export default function App() {
   // App states
   const [role, setRole] = useState<Role>(getInitialRole);
   const [username, setUsername] = useState<string>(getInitialUsername);
+
+  // Identitas lembaga global Lulus.id
+  const [lembagaIdentitas, setLembagaIdentitas] = useState(() => {
+    const saved = localStorage.getItem('lulus_lembaga_identitas');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      namaPkbm: 'PKBM Agrabinta Lulus.id'
+    };
+  });
+
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   
@@ -220,7 +249,7 @@ export default function App() {
         console.warn('Gagal memverifikasi session via Django API:', error);
         
         // If it's our mock token, just stay logged in, don't clear localStorage!
-        if (token && token.startsWith('mock-token-')) {
+        if (token === 'mock-token-12345') {
           // Since it's mock token, just keep existing cached user!
           setIsValidatingSession(false);
           return;
@@ -287,52 +316,35 @@ export default function App() {
 
   // States for student V2 registration and payment status flow
   const [studentReg, setStudentReg] = useState<any | null>(null);
+  
+  console.log("STUDENT REG APP", studentReg);
+
   const [regLoading, setRegLoading] = useState<boolean>(false);
 
   const fetchStudentRegistration = async () => {
     try {
       setRegLoading(true);
+
+      console.log("FETCH REGISTRATION START");
+
       const reg = await api.getMyRegistration();
+
+      console.log("REGISTRATION RESULT", reg);
+
       setStudentReg(reg);
+
     } catch (err) {
-      console.warn("Gagal mengambil data pendaftaran, menggunakan offline fallback...", err);
+      console.warn("Gagal mengambil data pendaftaran...", err);
     } finally {
       setRegLoading(false);
     }
-  };
+};
 
   useEffect(() => {
     if (screen === 'workspace' && role === 'siswa') {
       fetchStudentRegistration();
     }
   }, [screen, role]);
-
-  // Poll registration status every 4 seconds when in waiting states to ensure a real-time responsive experience
-  useEffect(() => {
-    let intervalId: any;
-    const shouldPoll = 
-      screen === 'workspace' && 
-      role === 'siswa' && 
-      studentReg && 
-      (studentReg.registration_status !== 'AKTIF' || !studentReg.biodata?.kelas_plotted);
-
-    if (shouldPoll) {
-      intervalId = setInterval(async () => {
-        try {
-          const reg = await api.getMyRegistration();
-          setStudentReg(reg);
-        } catch (err) {
-          console.warn("Polling pendaftaran gagal:", err);
-        }
-      }, 4000);
-    }
-
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-    };
-  }, [screen, role, studentReg]);
 
   // Stateful mock records
   const [subjects, setSubjects] = useState<Subject[]>(() => {
@@ -829,6 +841,14 @@ export default function App() {
     setModalOpen(true);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setRole(null);
+    setUsername('');
+    setScreen('login');
+  };
+
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try {
@@ -915,18 +935,9 @@ export default function App() {
                (password === studentPassword || password === '' || password === '••••••••' || password === '123456');
       });
 
-      const isHardcodedMockStudent = enteredUsername === 'aditya_perkasa' || enteredUsername === 'siti_rahma';
-      const isNewlyRegistered = enteredUsername.length >= 3 && (password === '123456' || password === '');
-
-      if (matchedStudent || isHardcodedMockStudent || isNewlyRegistered) {
+      if (matchedStudent) {
         detectedRole = 'siswa';
-        finalUsername = matchedStudent 
-          ? matchedStudent.nama 
-          : (enteredUsername === 'aditya_perkasa' 
-              ? 'Aditya Perkasa' 
-              : (enteredUsername === 'siti_rahma' 
-                  ? 'Siti Rahma' 
-                  : username));
+        finalUsername = matchedStudent.nama;
         loginSuccess = true;
       } else if (enteredUsername === 'fajar' || enteredUsername === 'siswa') {
         detectedRole = 'siswa';
@@ -937,11 +948,10 @@ export default function App() {
 
     if (loginSuccess) {
       // Save mock data to localStorage too!
-      const resolvedUsername = enteredUsername === 'siswa' ? 'fajar_pratama' : enteredUsername;
-      localStorage.setItem('token', `mock-token-${resolvedUsername}`); // Custom token bound to username!
+      localStorage.setItem('token', 'mock-token-12345'); // Use a dummy token for mock login!
       localStorage.setItem('user', JSON.stringify({
         nama_lengkap: finalUsername,
-        username: resolvedUsername,
+        username: finalUsername.toLowerCase().split(' ').join('_'),
         role: detectedRole
       }));
 
@@ -960,14 +970,6 @@ export default function App() {
       triggerModal('Gagal Masuk', 'Username atau password salah. Silakan periksa kembali kredensial Anda.', 'warning');
     }
     setIsLoggingIn(false);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setScreen('login');
-    setStudentReg(null);
-    triggerModal('Logout Berhasil', 'Anda telah keluar dari Portal Lulus.id secara aman.', 'success');
   };
 
   const handleRegisterSuccess = (newUsername: string, newStudent?: Student) => {
@@ -1020,7 +1022,7 @@ export default function App() {
     setTimeout(() => setCopiedFile(null), 2000);
   };
 
-  if (isValidatingSession) {
+  if (isValidatingSession && !localStorage.getItem('user')) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-50 font-sans p-4 relative">
         <div className="absolute top-0 inset-x-0 h-44 bg-gradient-to-b from-emerald-50/50 to-transparent pointer-events-none" />
@@ -1039,6 +1041,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-white text-slate-800 font-sans antialiased overflow-hidden relative">
+      <PWAManager />
       {/* Core App screen display portal */}
       <div className="flex-1 flex flex-col relative overflow-hidden bg-white">
         {/* LOGIN SCREEN */}
@@ -1183,162 +1186,152 @@ export default function App() {
 
         {/* MAIN WORKSPACE SCREEN */}
         {screen === 'workspace' && (
-          <div className="fixed inset-0 flex flex-col bg-white overflow-hidden">
+          <div className="min-h-screen flex flex-col bg-white overflow-y-auto">
             {role === 'siswa' ? (
-              (regLoading || !studentReg) ? (
-                <div className="flex-1 flex flex-col items-center justify-center bg-slate-50">
-                  <div className="w-10 h-10 border-4 border-pink-500 border-t-transparent rounded-full animate-spin mb-4 animate-bounce"></div>
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 animate-pulse">Memuat data akun...</h3>
-                </div>
-              ) : (() => {
-                const registration_status = studentReg?.registration_status || '';
-                const payment_status = studentReg?.invoice?.payment_status || '';
-                const class_plotted = studentReg?.biodata?.kelas_plotted || false;
-                const student_active = studentReg?.registration_status === 'AKTIF';
-                
-                let redirect_target = 'LMS_DASHBOARD';
-                
-                // Priority Routing System:
-                if (registration_status === 'AKTIF' && payment_status === 'PAID' && class_plotted && student_active) {
-                  redirect_target = 'LMS_DASHBOARD';
-                } else if (registration_status === 'DITERIMA' && payment_status !== 'PAID') {
-                  redirect_target = 'PAYMENT_PAGE';
-                } else if (payment_status === 'PAID' && !class_plotted) {
-                  redirect_target = 'ORIENTATION_DASHBOARD';
-                } else if (['DRAFT', 'MENUNGGU_VERIFIKASI', 'PERBAIKAN_DOKUMEN', 'KLARIFIKASI_DATA'].includes(registration_status)) {
-                  redirect_target = 'REGISTRATION_STATUS_PAGE';
-                } else {
-                  // Fallback for anything else
-                  redirect_target = 'LMS_DASHBOARD';
-                }
+              <>
+                {studentReg && (() => {
+                  const registration_status = studentReg.registration_status;
+                  const payment_status = studentReg.invoice?.payment_status;
 
-                console.log("ROUTING DEBUG STATUS:", {
-                  role,
-                  registration_status,
-                  payment_status,
-                  class_plotted,
-                  student_active,
-                  redirect_target
-                });
+                  if (
+                    registration_status === 'MENUNGGU_VERIFIKASI' ||
+                    registration_status === 'PERBAIKAN_DOKUMEN' ||
+                    registration_status === 'KLARIFIKASI_DATA'
+                  ) {
+                    return (
+                      <RegistrationStatusPage
+                        registration={studentReg}
+                        onRefresh={fetchStudentRegistration}
+                        onLogout={handleLogout}
+                      />
+                    );
+                  }
 
-                if (redirect_target === 'PAYMENT_PAGE') {
-                  return (
-                    <PaymentPage
-                      registration={studentReg}
-                      onRefresh={fetchStudentRegistration}
-                      onLogout={handleLogout}
-                    />
-                  );
-                } else if (redirect_target === 'ORIENTATION_DASHBOARD') {
-                  return (
-                    <OrientationDashboard
-                      registration={studentReg}
-                      onRefresh={fetchStudentRegistration}
-                      onCompleteOrientation={fetchStudentRegistration}
-                    />
-                  );
-                } else if (redirect_target === 'REGISTRATION_STATUS_PAGE') {
-                  return (
-                    <RegistrationStatusPage
-                      registration={studentReg}
-                      onRefresh={fetchStudentRegistration}
-                      onLogout={handleLogout}
-                    />
-                  );
-                } else {
-                  return (
-                    <>
-                      {/* Student workspace layouts */}
-                      {['beranda', 'materi', 'tugas', 'cbt', 'nilai', 'pustaka', 'sertifikat', 'pengumuman', 'skk', 'absensi'].includes(activeTab) && (
-                        <Dashboard 
-                          subjects={subjects}
-                          setSubjects={setSubjects}
-                          tasks={tasks}
-                          setTasks={setTasks}
-                          taskSubmissions={taskSubmissions}
-                          setTaskSubmissions={setTaskSubmissions}
-                          activeTab={activeTab}
-                          setActiveTab={setActiveTab}
-                          onTriggerExplainWithAi={handleTriggerExplainWithAi}
-                          showModal={triggerModal}
-                          username={username}
-                          onBackToLogin={() => {
-                            localStorage.removeItem('token');
-                            localStorage.removeItem('user');
-                            setScreen('login');
-                            triggerModal('Logout Berhasil', 'Anda telah keluar dari Portal Siswa Lulus.id secara aman.', 'success');
-                          }}
-                          exams={exams}
-                          setExams={setExams}
-                          competencies={competencies}
-                          studentCompetencies={studentCompetencies}
-                          setStudentCompetencies={setStudentCompetencies}
-                          skkReports={skkReports}
-                          setSkkReports={setSkkReports}
-                          students={students}
-                          activeAcademicYear={activeAcademicYear}
-                        />
-                      )}
+                  if (
+                    registration_status === 'DITERIMA' &&
+                    payment_status !== 'PAID'
+                  ) {
+                    return (
+                      <PaymentPage
+                        registration={studentReg}
+                        onRefresh={fetchStudentRegistration}
+                        onLogout={handleLogout}
+                      />
+                    );
+                  }
 
-                      {/* Separate Tanya AI (GeminiChat) and Diskusi Siswa (UnifiedChat) */}
-                      {activeTab === 'tanyaAI' && (
-                        <GeminiChat 
-                          chatHistory={chatHistory}
-                          setChatHistory={setChatHistory}
-                          onBack={() => setActiveTab('beranda')}
-                          explainTextRequest={explainRequest}
-                          onClearExplainRequest={() => setExplainRequest(null)}
-                          showModal={triggerModal}
-                          currentUserRole={role}
-                        />
-                      )}
+                  if (
+                    payment_status === 'PAID' &&
+                    !studentReg.biodata?.kelas_plotted
+                  ) {
+                    return (
+                      <OrientationDashboard
+                        registration={studentReg}
+                        onRefresh={fetchStudentRegistration}
+                        onCompleteOrientation={fetchStudentRegistration}
+                      />
+                    );
+                  }
 
-                      {activeTab === 'diskusi' && (
-                        <UnifiedChat 
-                          currentUserRole="siswa"
-                          onBack={() => setActiveTab('beranda')}
-                          showModal={triggerModal}
-                          initialCategory="forum"
-                          teachers={teachers}
-                          classes={classes}
-                          students={students}
-                        />
-                      )}
+                  return null;
+                })()}
 
-                      {activeTab === 'tagihan' && (
-                        <BillTracker 
-                          onBack={() => setActiveTab('beranda')}
-                          showModal={triggerModal}
-                          financialTransactions={financialTransactions}
-                          onUpdateTransactions={updateTransactions}
-                          paymentMethods={paymentMethods}
-                        />
-                      )}
 
-                      {activeTab === 'rapor' && (
-                        <RaporMerdeka 
-                          subjects={subjects}
-                          onBack={() => setActiveTab('beranda')}
-                          showModal={triggerModal}
-                          activeAcademicYear={activeAcademicYear}
-                        />
-                      )}
+                {/* Student workspace layouts */}
+                {(!studentReg || studentReg.invoice?.payment_status === 'PAID') &&
+                ['beranda', 'materi', 'tugas', 'cbt', 'nilai', 'pustaka', 'sertifikat', 'pengumuman', 'skk', 'absensi'].includes(activeTab) && (
+                  <Dashboard 
+                    subjects={subjects}
+                    setSubjects={setSubjects}
+                    tasks={tasks}
+                    setTasks={setTasks}
+                    taskSubmissions={taskSubmissions}
+                    setTaskSubmissions={setTaskSubmissions}
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                    onTriggerExplainWithAi={handleTriggerExplainWithAi}
+                    showModal={triggerModal}
+                    username={username}
+                    onBackToLogin={() => {
+                      localStorage.removeItem('token');
+                      localStorage.removeItem('user');
+                      setScreen('login');
+                      triggerModal('Logout Berhasil', 'Anda telah keluar dari Portal Siswa Lulus.id secara aman.', 'success');
+                    }}
+                    exams={exams}
+                    setExams={setExams}
+                    competencies={competencies}
+                    studentCompetencies={studentCompetencies}
+                    setStudentCompetencies={setStudentCompetencies}
+                    skkReports={skkReports}
+                    setSkkReports={setSkkReports}
+                    students={students}
+                    lembagaIdentitas={lembagaIdentitas}
+                    activeAcademicYear={activeAcademicYear}
+                  />
+                )}
 
-                      {activeTab === 'profil' && (
-                        <ProfilSiswa 
-                          onBack={() => setActiveTab('beranda')}
-                          showModal={triggerModal}
-                          students={students}
-                          setStudents={setStudents}
-                          username={username}
-                          onBackToLogin={handleLogout}
-                        />
-                      )}
-                    </>
-                  );
-                }
-              })()
-          ) : role === 'admin' ? (
+                {/* Separate Tanya AI (GeminiChat) and Diskusi Siswa (UnifiedChat) */}
+                {activeTab === 'tanyaAI' && (
+                  <GeminiChat 
+                    chatHistory={chatHistory}
+                    setChatHistory={setChatHistory}
+                    onBack={() => setActiveTab('beranda')}
+                    explainTextRequest={explainRequest}
+                    onClearExplainRequest={() => setExplainRequest(null)}
+                    showModal={triggerModal}
+                    currentUserRole={role}
+                  />
+                )}
+
+                {activeTab === 'diskusi' && (
+                  <UnifiedChat 
+                    currentUserRole="siswa"
+                    onBack={() => setActiveTab('beranda')}
+                    showModal={triggerModal}
+                    initialCategory="forum"
+                    teachers={teachers}
+                    classes={classes}
+                    students={students}
+                  />
+                )}
+
+                {activeTab === 'tagihan' && (
+                  <BillTracker 
+                    onBack={() => setActiveTab('beranda')}
+                    showModal={triggerModal}
+                    financialTransactions={financialTransactions}
+                    onUpdateTransactions={updateTransactions}
+                    paymentMethods={paymentMethods}
+                  />
+                )}
+
+                {activeTab === 'rapor' && (
+                  <RaporMerdeka 
+                    subjects={subjects}
+                    onBack={() => setActiveTab('beranda')}
+                    showModal={triggerModal}
+                    activeAcademicYear={activeAcademicYear}
+                  />
+                )}
+
+                {activeTab === 'profil' && (
+                  <ProfilSiswa 
+                    onBack={() => setActiveTab('beranda')}
+                    showModal={triggerModal}
+                    students={students}
+                    setStudents={setStudents}
+                    username={username}
+                    onBackToLogin={() => {
+                      localStorage.removeItem('token');
+                      localStorage.removeItem('user');
+                      setScreen('login');
+                      triggerModal('Logout Berhasil', 'Anda telah keluar dari Portal Siswa Lulus.id secara aman.', 'success');
+                    }}
+                  />
+                )}
+              </>
+            ) : role === 'admin' ? (
               <DashboardAdmin 
                 students={students}
                 setStudents={setStudents}

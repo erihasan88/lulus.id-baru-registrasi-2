@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, UserCheck, School, Activity, Database, 
   FileSpreadsheet, Bell, ChevronRight, Plus, Edit, Search, Filter, 
   Check, CheckCircle, X, Download, Lock, Settings, RefreshCw, Sliders, ShieldAlert, Upload, Building, Mail, Phone, Globe, Printer,
-  ArrowRight, FileText, BarChart2, Eye, ClipboardList, Sparkles, Bot, Send,
+  ArrowLeft, ArrowRight, FileText, BarChart2, Eye, ClipboardList, Sparkles, Bot, Send,
   Wallet, QrCode, Trash2, TrendingUp, DollarSign, CreditCard, Award, Calendar, MessageSquare, Megaphone, BookOpen, Layers
 } from 'lucide-react';
 import { Student, Teacher, ClassData, SystemNotification, Subject, ChatMessage, PaymentMethod, AcademicYear, Announcement, LibraryBook, ProgramBelajar, BebanBelajar } from '../types';
@@ -133,7 +133,7 @@ export default function DashboardAdmin({
 
   // AI Assistant States
   const [aiMessages, setAiMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: 'Halo Admin! Saya Lulus AI Admin, asisten operasional cerdas untuk PKBM Agrabinta. Saya siap membantu Anda melakukan peninjauan data siswa, analisis kelengkapan dokumen pendaftaran, pengecekan aktivitas guru, serta pembuatan laporan otomatis secara cepat. Apa yang ingin Anda tanyakan hari ini?' }
+    { role: 'model', text: 'Halo Admin! Saya Lulus AI Admin, siap membantu operasional Lulus.id. Apa yang ingin Anda lakukan hari ini?' }
   ]);
   const [aiInput, setAiInput] = useState<string>('');
   const [aiLoading, setAiLoading] = useState<boolean>(false);
@@ -168,6 +168,14 @@ export default function DashboardAdmin({
   });
   const [showAdminCompModal, setShowAdminCompModal] = useState<boolean>(false);
   const [showInstitutionalReportModal, setShowInstitutionalReportModal] = useState<boolean>(false);
+
+  // Search states for tables
+  const [adminGuruSearch, setAdminGuruSearch] = useState<string>('');
+  const [adminKelasSearch, setAdminKelasSearch] = useState<string>('');
+  const [adminMapelSearch, setAdminMapelSearch] = useState<string>('');
+  const [adminProgramSearch, setAdminProgramSearch] = useState<string>('');
+  const [adminCbtSearch, setAdminCbtSearch] = useState<string>('');
+  const [adminBankVerifikasiSearch, setAdminBankVerifikasiSearch] = useState<string>('');
 
   // Master CP Local States
   const defaultCPList = [
@@ -1894,7 +1902,7 @@ export default function DashboardAdmin({
       const teachersList = teachers.map(t => `${t.nama} (${t.mapel})`).join(', ');
       const classesList = classes.map(c => c.nama).join(', ');
 
-      const systemPrompt = `Kamu adalah AI Assistant Admin Lulus.id, asisten operasional cerdas untuk portal web admin PKBM Agrabinta. 
+      const systemPrompt = `Kamu adalah AI Assistant Admin Lulus.id, asisten operasional cerdas untuk portal web admin ${lembagaIdentitas?.namaPkbm || 'Lulus.id'}. 
 Tugasmu adalah membantu administrator mengelola operasional sekolah kesetaraan secara efektif.
 Berikan jawaban ringkas, solutif, profesional, dan gunakan data nyata Lulus.id berikut untuk menjawab pertanyaan admin secara presisi:
 
@@ -1903,8 +1911,8 @@ DATA OPERASIONAL REAL-TIME LULUS.ID:
 - Calon Siswa Menunggu Verifikasi Berkas (Dokumen): ${totalPendingVerifikasi} orang (${pendingVerifNames || 'Tidak ada'}).
 - Total Guru/Tutor Aktif: ${totalTeachers} orang (${teachersList}).
 - Daftar Kelas Aktif: ${classesList}.
-- Siswa tidak aktif > 14 hari: 3 siswa (e.g. Ani Lestari, Budi Santoso, Slamet).
-- Guru belum menginput nilai: 2 guru (e.g. Bu Rina untuk kelas Matematika, Pak Bambang untuk IPS).
+- Data siswa tidak aktif: gunakan data monitoring sistem.
+- Data input nilai guru: gunakan data akademik terbaru.
 
 Aturan penting:
 1. Jika admin bertanya tentang jumlah siswa, dokumen pending, guru belum input nilai, atau laporan perkembangan, jawablah dengan angka presisi berdasarkan data di atas secara sopan dan terstruktur. Jangan mengarang data di luar konteks di atas.
@@ -2442,20 +2450,159 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
     showModal('Program Dihapus', `Program "${prg.nama}" dan seluruh konfigurasi beban belajar terkait berhasil dihapus dari sistem.`, 'success');
   };
 
-  // Simulating Administrative Data Export (Data Peserta Didik / Excel / PDF)
-  const handleSimulateExport = (type: 'Excel' | 'PDF', name: string) => {
-    showModal(
-      'Mengekspor Dokumen...',
-      `Sistem sedang menyusun query Django ORM, menyusun layout ${type}, dan mengunduh berkas administrasi "${name}.${type === 'Excel' ? 'xlsx' : 'pdf'}".`,
-      'info'
-    );
-    setTimeout(() => {
+  // Export Administrative Report (PDF / Excel)
+  const handleSimulateExport = async (type: 'Excel' | 'PDF', name: string) => {
+    if (type === 'Excel') {
+      showModal(
+        'Ekspor Excel',
+        'Format Excel akan diproses pada tahap integrasi laporan database.',
+        'info'
+      );
+      return;
+    }
+
+    try {
+      showModal(
+        'Menyusun PDF...',
+        'Sistem sedang membuat laporan administrasi akademik.',
+        'info'
+      );
+
+      const container = document.createElement('div');
+      container.style.width = '794px';
+      container.style.padding = '40px';
+      container.style.background = '#ffffff';
+      container.style.fontFamily = 'Arial';
+
+      container.innerHTML = `
+        <h1 style="font-size:22px;text-align:center;">
+          ${lembagaIdentitas?.namaPkbm || 'Lulus.id'}
+        </h1>
+        <h2 style="font-size:16px;text-align:center;">
+          ${name.replaceAll('_',' ')}
+        </h2>
+
+        <hr/>
+
+        <div style="text-align:center;margin-bottom:20px;">
+          <h1 style="font-size:22px;margin:0;">
+            ${lembagaIdentitas?.namaPkbm || 'Lulus.id'}
+          </h1>
+          <p style="font-size:12px;margin:5px;">
+            SISTEM INFORMASI LULUS.ID
+          </p>
+          <hr/>
+        </div>
+
+        <h2 style="text-align:center;font-size:16px;">
+          ${name.replaceAll('_',' ')}
+        </h2>
+
+        <p>
+          Tanggal Laporan : ${new Date().toLocaleDateString('id-ID')}
+        </p>
+
+        <p>
+          Tahun Ajaran : ${activeAcademicYear?.nama || '-'} 
+          (${activeAcademicYear?.semester || '-'})
+        </p>
+
+        <h3 style="font-size:14px;">
+          RINGKASAN DATA
+        </h3>
+
+        <table width="100%" border="1" cellspacing="0" cellpadding="6">
+          <tr>
+            <td>Total Siswa Aktif</td>
+            <td>${totalActiveStudents}</td>
+          </tr>
+          <tr>
+            <td>Paket A</td>
+            <td>${students.filter(s => s.program === 'Paket A' && s.status === 'Aktif').length}</td>
+          </tr>
+          <tr>
+            <td>Paket B</td>
+            <td>${students.filter(s => s.program === 'Paket B' && s.status === 'Aktif').length}</td>
+          </tr>
+          <tr>
+            <td>Paket C</td>
+            <td>${students.filter(s => s.program === 'Paket C' && s.status === 'Aktif').length}</td>
+          </tr>
+          <tr>
+            <td>Total Guru</td>
+            <td>${teachers.length}</td>
+          </tr>
+        </table>
+
+        <br/>
+
+        <h3 style="font-size:14px;">
+          DAFTAR SISWA AKTIF
+        </h3>
+
+        <table width="100%" border="1" cellspacing="0" cellpadding="5">
+          <tr>
+            <th>No</th>
+            <th>Nama</th>
+            <th>NISN</th>
+            <th>Program</th>
+            <th>Kelas</th>
+          </tr>
+
+          ${students.filter(s => s.status === 'Aktif').slice(0,20).map((s,i)=>`
+          <tr>
+            <td>${i+1}</td>
+            <td>${s.nama}</td>
+            <td>${s.nisn || '-'}</td>
+            <td>${s.program}</td>
+            <td>${s.kelas}</td>
+          </tr>
+          `).join('')}
+
+        </table>
+
+        <br/><br/>
+
+        <p>
+          Mengetahui,<br/><br/>
+          Kepala ${lembagaIdentitas?.namaPkbm || 'Lembaga'}
+          <br/><br/><br/>
+          ${lembagaIdentitas?.namaKepalaSekolah || ''}
+        </p>
+      `;
+
+      document.body.appendChild(container);
+
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        backgroundColor: '#ffffff'
+      });
+
+      document.body.removeChild(container);
+
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+      pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+      pdf.save(`${name}.pdf`);
+
       showModal(
         'Ekspor Berhasil',
-        `Berkas ${name}.${type === 'Excel' ? 'xlsx' : 'pdf'} telah diunduh secara lokal dan siap dilaporkan ke dinas pendidikan setempat.`,
+        `Berkas ${name}.pdf berhasil diunduh.`,
         'success'
       );
-    }, 1500);
+
+    } catch (error) {
+      console.error(error);
+      showModal(
+        'Gagal Export',
+        'Terjadi kesalahan saat membuat PDF.',
+        'warning'
+      );
+    }
   };
 
   // Filter students
@@ -2543,13 +2690,13 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
             {[
               { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'siswa', label: 'Data Siswa', icon: <Users className="w-4 h-4 shrink-0" />, badge: 0 },
-              { id: 'registrasi_v2', label: 'Pendaftaran V2 🆕', icon: <UserCheck className="w-4 h-4 shrink-0 text-pink-400" />, badge: 0 },
               { id: 'tahun_ajaran', label: 'Tahun Ajaran', icon: <Calendar className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'guru', label: 'Data Guru', icon: <Sliders className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'kelas', label: 'Kelas', icon: <School className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'program_belajar', label: 'Program Belajar', icon: <Sliders className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'mapel', label: 'Mata Pelajaran', icon: <BookOpen className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'verifikasi', label: 'Verif Regis', icon: <UserCheck className="w-4 h-4 shrink-0" />, badge: totalPendingVerifikasi },
+              { id: 'pendaftaran', label: 'Pendaftaran V2', icon: <ClipboardList className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'mading', label: 'Mading', icon: <Megaphone className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'perpustakaan', label: 'Perpustakaan', icon: <BookOpen className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'dokumen_akademik', label: 'Dokumen Akademik', icon: <FileText className="w-4 h-4 shrink-0" />, badge: 0 },
@@ -3151,6 +3298,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           )}
 
           {/* TAB 2: VERIFIKASI PENDAFTARAN ONLINE */}
+{activeTab === 'pendaftaran' && (            <AdminRegistrationManager              students={students}              setStudents={setStudents}              financialTransactions={financialTransactions}              onUpdateTransactions={onUpdateTransactions}              showModal={showModal}            />          )}
           {activeTab === 'verifikasi' && (
             <div className="space-y-4 animate-fade-in">
               <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-1.5">
@@ -3287,17 +3435,25 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB 3: MANAJEMEN SISWA */}
           {activeTab === 'siswa' && (
             <div className="space-y-4 animate-fade-in">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
-                <div>
-                  <h4 className="text-xs font-extrabold text-slate-800">Manajemen Pengguna Siswa</h4>
-                  <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Kelola keaktifan akun, jenjang sekolah, dan detail data mading.</p>
-                </div>
+              <div className="flex flex-col gap-2 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
                 <button
-                  onClick={() => setShowAddStudentModal(true)}
-                  className="py-2 px-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-md shadow-rose-500/10 flex items-center justify-center gap-1 cursor-pointer self-start sm:self-auto"
+                  onClick={() => setActiveTab('dashboard')}
+                  className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
                 >
-                  <Plus className="w-4 h-4" /> Tambah Siswa Manual
+                  <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
                 </button>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-800">Manajemen Pengguna Siswa</h4>
+                    <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Kelola keaktifan akun, jenjang sekolah, dan detail data mading.</p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddStudentModal(true)}
+                    className="py-2 px-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-md shadow-rose-500/10 flex items-center justify-center gap-1 cursor-pointer self-start sm:self-auto"
+                  >
+                    <Plus className="w-4 h-4" /> Tambah Siswa Manual
+                  </button>
+                </div>
               </div>
 
               {/* Search & Filter tools */}
@@ -4076,17 +4232,39 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB 4: MANAJEMEN GURU */}
           {activeTab === 'guru' && (
             <div className="space-y-4 animate-fade-in">
-              <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
-                <div>
-                  <h4 className="text-xs font-extrabold text-slate-800">Manajemen Guru / Tutor</h4>
-                  <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Tambah guru baru dan pantau distribusi materi & tugas.</p>
-                </div>
-                <button 
-                  onClick={() => setShowAddTeacherModal(true)}
-                  className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black flex items-center gap-1 shadow-md shadow-rose-500/10 cursor-pointer"
+              <div className="flex flex-col gap-2 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Tambah Guru
+                  <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
                 </button>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-800">Manajemen Guru / Tutor</h4>
+                    <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Tambah guru baru dan pantau distribusi materi & tugas.</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowAddTeacherModal(true)}
+                    className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black flex items-center gap-1 shadow-md shadow-rose-500/10 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Tambah Guru
+                  </button>
+                </div>
+              </div>
+
+              {/* Search bar for Master Guru */}
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Cari guru berdasarkan nama, mata pelajaran, atau ID..."
+                    value={adminGuruSearch}
+                    onChange={(e) => setAdminGuruSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
+                  />
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                </div>
               </div>
 
               {/* Add Teacher Dialog */}
@@ -4168,92 +4346,114 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-[10.5px]">
-                      {teachers.map(teach => (
-                        <tr key={teach.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-3 py-1.5 font-semibold text-slate-800">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-slate-900">{teach.nama}</span>
-                              <span className="text-[8px] font-bold text-slate-400">({teach.id})</span>
-                              {teach.isWaliKelas && (
-                                <span className="text-[7.5px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-1 py-0.2 rounded font-black uppercase">
-                                  Wali Kelas
-                                </span>
+                      {(() => {
+                        const filteredTeachers = teachers.filter(teach => {
+                          const query = adminGuruSearch.toLowerCase();
+                          return teach.nama.toLowerCase().includes(query) ||
+                                 teach.id.toLowerCase().includes(query) ||
+                                 teach.mapel.toLowerCase().includes(query) ||
+                                 (teach.nip || '').includes(query);
+                        });
+
+                        if (filteredTeachers.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={6} className="text-center py-8 text-slate-400 font-medium">
+                                <Search className="w-8 h-8 mx-auto text-slate-300 mb-1.5" />
+                                <p className="font-bold text-[11px]">Tidak ada data yang ditemukan.</p>
+                                <p className="text-[9px]">Coba sesuaikan kata kunci pencarian Anda.</p>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return filteredTeachers.map(teach => (
+                          <tr key={teach.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-3 py-1.5 font-semibold text-slate-800">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-slate-900">{teach.nama}</span>
+                                <span className="text-[8px] font-bold text-slate-400">({teach.id})</span>
+                                {teach.isWaliKelas && (
+                                  <span className="text-[7.5px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-1 py-0.2 rounded font-black uppercase">
+                                    Wali Kelas
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[8px] text-slate-400 font-semibold block mt-0.5 font-mono">NIP: {teach.nip || '-'}</span>
+                              {teach.isWaliKelas && teach.tandaTangan && (
+                                <div className="mt-1 p-1 bg-slate-50 border border-slate-150 rounded w-fit">
+                                  <span className="text-[7px] uppercase tracking-wider text-slate-400 font-extrabold block mb-0.5">TTE:</span>
+                                  <img src={teach.tandaTangan} alt="Tanda Tangan" className="h-5 object-contain" />
+                                </div>
                               )}
-                            </div>
-                            <span className="text-[8px] text-slate-400 font-semibold block mt-0.5 font-mono">NIP: {teach.nip || '-'}</span>
-                            {teach.isWaliKelas && teach.tandaTangan && (
-                              <div className="mt-1 p-1 bg-slate-50 border border-slate-150 rounded w-fit">
-                                <span className="text-[7px] uppercase tracking-wider text-slate-400 font-extrabold block mb-0.5">TTE:</span>
-                                <img src={teach.tandaTangan} alt="Tanda Tangan" className="h-5 object-contain" />
+                            </td>
+                            <td className="px-3 py-1.5 text-slate-600">
+                              <span className="font-bold text-slate-800 block text-[9.5px]">{teach.mapel}</span>
+                              <span className="text-[8.5px] text-slate-400 font-bold block">{teach.kelas}</span>
+                            </td>
+                            <td className="px-3 py-1.5 text-slate-500 text-[9px]">
+                              {teach.rekeningNomor ? (
+                                <div className="leading-tight">
+                                  <span className="text-slate-800 font-bold block">{teach.rekeningNomor}</span>
+                                  <span className="text-[8px] text-slate-400 font-semibold uppercase">{teach.rekeningType || 'Bank'} - a.n. {teach.rekeningNama || teach.nama}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 italic">Belum Diatur</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-1.5 text-slate-500 font-bold text-[9px]">
+                              <div className="flex flex-col gap-0.5">
+                                <span>📚 {teach.materiCount || 0} Materi</span>
+                                <span>📝 {teach.tugasCount || 0} Tugas</span>
+                                <span>✓ {teach.penilaianCount || 0} Nilai</span>
                               </div>
-                            )}
-                          </td>
-                          <td className="px-3 py-1.5 text-slate-600">
-                            <span className="font-bold text-slate-800 block text-[9.5px]">{teach.mapel}</span>
-                            <span className="text-[8.5px] text-slate-400 font-bold block">{teach.kelas}</span>
-                          </td>
-                          <td className="px-3 py-1.5 text-slate-500 text-[9px]">
-                            {teach.rekeningNomor ? (
-                              <div className="leading-tight">
-                                <span className="text-slate-800 font-bold block">{teach.rekeningNomor}</span>
-                                <span className="text-[8px] text-slate-400 font-semibold uppercase">{teach.rekeningType || 'Bank'} - a.n. {teach.rekeningNama || teach.nama}</span>
+                            </td>
+                            <td className="px-3 py-1.5 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase inline-block ${
+                                teach.status === 'Aktif' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/30' : 'bg-slate-150 text-slate-500'
+                              }`}>
+                                {teach.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button 
+                                  onClick={() => handleToggleTeacherStatus(teach.id)}
+                                  className={`px-2 py-0.5 text-[8.5px] font-black rounded-md border cursor-pointer transition-colors ${
+                                    teach.status === 'Aktif' 
+                                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-100' 
+                                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-100'
+                                  }`}
+                                >
+                                  {teach.status === 'Aktif' ? 'Deaktif' : 'Aktifkan'}
+                                </button>
+
+                                <button 
+                                  onClick={() => setEditingTeacher({ 
+                                    ...teach, 
+                                    mapels: teach.mapels || [teach.mapel], 
+                                    kelasList: teach.kelasList || [teach.kelas],
+                                    username: teach.username || teach.nama.split(' ')[0].toLowerCase().replace(/[^a-z]/g, ''),
+                                    password: teach.password || '123456'
+                                  })}
+                                  className="p-1 bg-slate-50 hover:bg-slate-100 hover:text-rose-600 text-slate-400 rounded border border-slate-200/60 transition-colors cursor-pointer"
+                                  title="Edit Data Guru"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                </button>
+
+                                <button 
+                                  onClick={() => setConfirmDeleteTeacherId(teach.id)}
+                                  className="p-1 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 text-slate-400 rounded border border-slate-200/60 transition-colors cursor-pointer"
+                                  title="Hapus Guru"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
                               </div>
-                            ) : (
-                              <span className="text-slate-300 italic">Belum Diatur</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-1.5 text-slate-500 font-bold text-[9px]">
-                            <div className="flex flex-col gap-0.5">
-                              <span>📚 {teach.materiCount || 0} Materi</span>
-                              <span>📝 {teach.tugasCount || 0} Tugas</span>
-                              <span>✓ {teach.penilaianCount || 0} Nilai</span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-1.5 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase inline-block ${
-                              teach.status === 'Aktif' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/30' : 'bg-slate-150 text-slate-500'
-                            }`}>
-                              {teach.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button 
-                                onClick={() => handleToggleTeacherStatus(teach.id)}
-                                className={`px-2 py-0.5 text-[8.5px] font-black rounded-md border cursor-pointer transition-colors ${
-                                  teach.status === 'Aktif' 
-                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-100' 
-                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-100'
-                                }`}
-                              >
-                                {teach.status === 'Aktif' ? 'Deaktif' : 'Aktifkan'}
-                              </button>
-
-                              <button 
-                                onClick={() => setEditingTeacher({ 
-                                  ...teach, 
-                                  mapels: teach.mapels || [teach.mapel], 
-                                  kelasList: teach.kelasList || [teach.kelas],
-                                  username: teach.username || teach.nama.split(' ')[0].toLowerCase().replace(/[^a-z]/g, ''),
-                                  password: teach.password || '123456'
-                                })}
-                                className="p-1 bg-slate-50 hover:bg-slate-100 hover:text-rose-600 text-slate-400 rounded border border-slate-200/60 transition-colors cursor-pointer"
-                                title="Edit Data Guru"
-                              >
-                                <Edit className="w-3 h-3" />
-                              </button>
-
-                              <button 
-                                onClick={() => setConfirmDeleteTeacherId(teach.id)}
-                                className="p-1 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 text-slate-400 rounded border border-slate-200/60 transition-colors cursor-pointer"
-                                title="Hapus Guru"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                          </tr>
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -4705,20 +4905,42 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB 5: MANAJEMEN KELAS */}
           {activeTab === 'kelas' && (
             <div className="space-y-4 animate-fade-in text-slate-800">
-              <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
-                <div>
-                  <h4 className="text-xs font-extrabold text-slate-800">Manajemen Kelas & Rombel</h4>
-                  <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Tentukan wali kelas dan program kesetaraan di PKBM Agrabinta.</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    setEditingClass(null);
-                    setShowAddClassModal(true);
-                  }}
-                  className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black flex items-center gap-1 shadow-md shadow-rose-500/10 cursor-pointer"
+              <div className="flex flex-col gap-2 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Tambah Kelas
+                  <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
                 </button>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-800">Manajemen Kelas & Rombel</h4>
+                    <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Tentukan wali kelas dan program kesetaraan di PKBM Agrabinta.</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setEditingClass(null);
+                      setShowAddClassModal(true);
+                    }}
+                    className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black flex items-center gap-1 shadow-md shadow-rose-500/10 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Tambah Kelas
+                  </button>
+                </div>
+              </div>
+
+              {/* Search bar for Master Kelas */}
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Cari kelas berdasarkan nama, wali kelas, atau program..."
+                    value={adminKelasSearch}
+                    onChange={(e) => setAdminKelasSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
+                  />
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                </div>
               </div>
 
               {/* Add / Edit Class Dialog */}
@@ -4848,72 +5070,92 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
 
               {/* Classes List */}
               <div className="space-y-3">
-                {classes.map(cls => {
-                  const studentList = students.filter(s => s.kelas === cls.nama && s.status === 'Aktif');
-                  return (
-                    <div key={cls.id} className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-3">
-                      <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                        <div>
-                          <h4 className="text-xs font-black text-slate-800">{cls.nama}</h4>
-                          <span className="text-[9px] text-slate-400 font-bold block">
-                            {cls.paket} | {cls.jenjang || cls.tingkat || 'Siswa'} | Sistem: {cls.sistemBelajar || 'Reguler'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[8px] font-extrabold uppercase">
-                              {studentList.length} Siswa
-                            </span>
-                            <span className="text-[8px] text-rose-500 font-extrabold uppercase tracking-wide">
-                              Target: {cls.targetSkk || (cls.paket === 'Paket C' ? 80 : cls.paket === 'Paket B' ? 40 : 20)} SKK
+                {(() => {
+                  const filteredClasses = classes.filter(cls => {
+                    const query = adminKelasSearch.toLowerCase();
+                    return cls.nama.toLowerCase().includes(query) ||
+                           cls.paket.toLowerCase().includes(query) ||
+                           (cls.waliKelasNama || '').toLowerCase().includes(query) ||
+                           (cls.sistemBelajar || '').toLowerCase().includes(query);
+                  });
+
+                  if (filteredClasses.length === 0) {
+                    return (
+                      <div className="bg-white p-8 rounded-2xl border border-slate-200/60 shadow-sm text-center text-slate-400 font-medium">
+                        <Search className="w-8 h-8 mx-auto text-slate-300 mb-1.5" />
+                        <p className="font-bold text-[11px]">Tidak ada data yang ditemukan.</p>
+                        <p className="text-[9px]">Coba sesuaikan kata kunci pencarian Anda.</p>
+                      </div>
+                    );
+                  }
+
+                  return filteredClasses.map(cls => {
+                    const studentList = students.filter(s => s.kelas === cls.nama && s.status === 'Aktif');
+                    return (
+                      <div key={cls.id} className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-3">
+                        <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                          <div>
+                            <h4 className="text-xs font-black text-slate-800">{cls.nama}</h4>
+                            <span className="text-[9px] text-slate-400 font-bold block">
+                              {cls.paket} | {cls.jenjang || cls.tingkat || 'Siswa'} | Sistem: {cls.sistemBelajar || 'Reguler'}
                             </span>
                           </div>
-
-                          <div className="flex items-center gap-1">
-                            <button 
-                              onClick={() => {
-                                setEditingClass(cls);
-                                setShowAddClassModal(false);
-                              }}
-                              className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-rose-600 rounded-lg border border-slate-200/60 transition-colors cursor-pointer"
-                              title="Edit Kelas"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button 
-                              onClick={() => handleRequestDeleteClass(cls)}
-                              className="p-1.5 bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 rounded-lg border border-slate-200/60 transition-colors cursor-pointer"
-                              title="Hapus Kelas"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-[9.5px] text-slate-500 font-bold">
-                        Wali Kelas: <span className="text-slate-800 font-extrabold">{cls.waliKelasNama}</span>
-                      </div>
-
-                      {/* Students enrolled short preview */}
-                      <div className="space-y-1">
-                        <span className="text-[8px] text-slate-400 font-black uppercase">Siswa Terdaftar:</span>
-                        {studentList.length === 0 ? (
-                          <p className="text-[9px] text-slate-400 italic">Belum ada siswa yang dimasukkan ke kelas ini.</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5 pt-1">
-                            {studentList.map(s => (
-                              <span key={s.id} className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-150 rounded text-[8.5px] font-bold">
-                                {s.nama}
+                          <div className="flex items-center gap-3">
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[8px] font-extrabold uppercase">
+                                {studentList.length} Siswa
                               </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                              <span className="text-[8px] text-rose-500 font-extrabold uppercase tracking-wide">
+                                Target: {cls.targetSkk || (cls.paket === 'Paket C' ? 80 : cls.paket === 'Paket B' ? 40 : 20)} SKK
+                              </span>
+                            </div>
 
-                    </div>
-                  );
-                })}
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => {
+                                  setEditingClass(cls);
+                                  setShowAddClassModal(false);
+                                }}
+                                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-rose-600 rounded-lg border border-slate-200/60 transition-colors cursor-pointer"
+                                title="Edit Kelas"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button 
+                                onClick={() => handleRequestDeleteClass(cls)}
+                                className="p-1.5 bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 rounded-lg border border-slate-200/60 transition-colors cursor-pointer"
+                                title="Hapus Kelas"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-[9.5px] text-slate-500 font-bold">
+                          Wali Kelas: <span className="text-slate-800 font-extrabold">{cls.waliKelasNama}</span>
+                        </div>
+
+                        {/* Students enrolled short preview */}
+                        <div className="space-y-1">
+                          <span className="text-[8px] text-slate-400 font-black uppercase">Siswa Terdaftar:</span>
+                          {studentList.length === 0 ? (
+                            <p className="text-[9px] text-slate-400 italic">Belum ada siswa yang dimasukkan ke kelas ini.</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {studentList.map(s => (
+                                <span key={s.id} className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-150 rounded text-[8.5px] font-bold">
+                                  {s.nama}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+                    );
+                  });
+                })()}
               </div>
 
               {/* CONFIRM DELETE CLASS MODAL */}
@@ -4952,31 +5194,53 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: MASTER PROGRAM BELAJAR */}
           {activeTab === 'program_belajar' && (
             <div className="space-y-4 animate-fade-in text-slate-800">
-              <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
-                <div>
-                  <h4 className="text-xs font-extrabold text-slate-800">Master Program Belajar</h4>
-                  <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Kelola konfigurasi program akademik, sistem belajar, durasi, dan sebaran beban belajar SKK.</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    setEditingProgram(null);
-                    setNewProgram({
-                      nama: '',
-                      jenjang: 'Paket C',
-                      sistemBelajar: 'Reguler',
-                      lamaBelajar: '3 Tahun',
-                      totalSkk: 80,
-                      skkGanjil: 15,
-                      skkGenap: 15,
-                      mapelWajibText: 'Bahasa Indonesia, Matematika, PPKn, Bahasa Inggris, Pendidikan Agama, Sejarah Indonesia',
-                      mapelPilihanText: 'Sosiologi, Geografi, Ekonomi'
-                    });
-                    setShowAddProgramModal(true);
-                  }}
-                  className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black flex items-center gap-1 shadow-md shadow-rose-500/10 cursor-pointer"
+              <div className="flex flex-col gap-2 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Tambah Program
+                  <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
                 </button>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-800">Master Program Belajar</h4>
+                    <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Kelola konfigurasi program akademik, sistem belajar, durasi, dan sebaran beban belajar SKK.</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setEditingProgram(null);
+                      setNewProgram({
+                        nama: '',
+                        jenjang: 'Paket C',
+                        sistemBelajar: 'Reguler',
+                        lamaBelajar: '3 Tahun',
+                        totalSkk: 80,
+                        skkGanjil: 15,
+                        skkGenap: 15,
+                        mapelWajibText: 'Bahasa Indonesia, Matematika, PPKn, Bahasa Inggris, Pendidikan Agama, Sejarah Indonesia',
+                        mapelPilihanText: 'Sosiologi, Geografi, Ekonomi'
+                      });
+                      setShowAddProgramModal(true);
+                    }}
+                    className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black flex items-center gap-1 shadow-md shadow-rose-500/10 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Tambah Program
+                  </button>
+                </div>
+              </div>
+
+              {/* Search bar for Master Program Belajar */}
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Cari program berdasarkan nama, jenjang (Paket), atau sistem belajar..."
+                    value={adminProgramSearch}
+                    onChange={(e) => setAdminProgramSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
+                  />
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                </div>
               </div>
 
               {/* Add / Edit Program Dialog */}
@@ -5111,95 +5375,115 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
 
               {/* Programs Cards Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {programs.map(prg => (
-                  <div key={prg.id} className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-3.5 flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-start border-b border-slate-100 pb-2">
-                        <div>
-                          <span className="text-[8px] font-mono font-bold text-slate-400">{prg.id}</span>
-                          <h4 className="text-xs font-black text-slate-800">{prg.nama}</h4>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${
-                          prg.sistemBelajar === 'Reguler' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
-                        }`}>
-                          {prg.jenjang} | {prg.sistemBelajar}
-                        </span>
-                      </div>
+                {(() => {
+                  const filteredPrograms = programs.filter(prg => {
+                    const query = adminProgramSearch.toLowerCase();
+                    return prg.nama.toLowerCase().includes(query) ||
+                           prg.jenjang.toLowerCase().includes(query) ||
+                           prg.sistemBelajar.toLowerCase().includes(query) ||
+                           prg.id.toLowerCase().includes(query);
+                  });
 
-                      <div className="grid grid-cols-3 gap-2 py-2 text-[9.5px] font-bold text-slate-500">
-                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
-                          <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Lama Belajar</span>
-                          <span className="text-slate-800 mt-0.5 block">{prg.lamaBelajar}</span>
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
-                          <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Target SKK</span>
-                          <span className="text-rose-600 font-extrabold mt-0.5 block">{prg.totalSkk} SKK</span>
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
-                          <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Ganjil / Genap</span>
-                          <span className="text-indigo-600 mt-0.5 block">{prg.distribusiSkk['Ganjil'] || 0} / {prg.distribusiSkk['Genap'] || 0}</span>
-                        </div>
+                  if (filteredPrograms.length === 0) {
+                    return (
+                      <div className="col-span-full bg-white p-8 rounded-2xl border border-slate-200/60 shadow-sm text-center text-slate-400 font-medium">
+                        <Search className="w-8 h-8 mx-auto text-slate-300 mb-1.5" />
+                        <p className="font-bold text-[11px]">Tidak ada data yang ditemukan.</p>
+                        <p className="text-[9px]">Coba sesuaikan kata kunci pencarian Anda.</p>
                       </div>
+                    );
+                  }
 
-                      <div className="space-y-1.5 pt-1 text-[9.5px]">
-                        <div>
-                          <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">Mapel Wajib:</span>
-                          <div className="flex flex-wrap gap-1 mt-0.5">
-                            {prg.mapelWajib.map((mw, i) => (
-                              <span key={i} className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[8px] font-semibold border border-slate-150">
-                                {mw}
-                              </span>
-                            ))}
+                  return filteredPrograms.map(prg => (
+                    <div key={prg.id} className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-3.5 flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start border-b border-slate-100 pb-2">
+                          <div>
+                            <span className="text-[8px] font-mono font-bold text-slate-400">{prg.id}</span>
+                            <h4 className="text-xs font-black text-slate-800">{prg.nama}</h4>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${
+                            prg.sistemBelajar === 'Reguler' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                          }`}>
+                            {prg.jenjang} | {prg.sistemBelajar}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 py-2 text-[9.5px] font-bold text-slate-500">
+                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
+                            <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Lama Belajar</span>
+                            <span className="text-slate-800 mt-0.5 block">{prg.lamaBelajar}</span>
+                          </div>
+                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
+                            <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Target SKK</span>
+                            <span className="text-rose-600 font-extrabold mt-0.5 block">{prg.totalSkk} SKK</span>
+                          </div>
+                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
+                            <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Ganjil / Genap</span>
+                            <span className="text-indigo-600 mt-0.5 block">{prg.distribusiSkk['Ganjil'] || 0} / {prg.distribusiSkk['Genap'] || 0}</span>
                           </div>
                         </div>
 
-                        {prg.mapelPilihan && prg.mapelPilihan.length > 0 && (
-                          <div className="pt-1">
-                            <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">Mapel Pilihan:</span>
+                        <div className="space-y-1.5 pt-1 text-[9.5px]">
+                          <div>
+                            <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">Mapel Wajib:</span>
                             <div className="flex flex-wrap gap-1 mt-0.5">
-                              {prg.mapelPilihan.map((mp, i) => (
-                                <span key={i} className="px-1.5 py-0.5 bg-indigo-50/50 text-indigo-700 rounded text-[8px] font-semibold border border-indigo-100">
-                                  {mp}
+                              {prg.mapelWajib.map((mw, i) => (
+                                <span key={i} className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[8px] font-semibold border border-slate-150">
+                                  {mw}
                                 </span>
                               ))}
                             </div>
                           </div>
-                        )}
+
+                          {prg.mapelPilihan && prg.mapelPilihan.length > 0 && (
+                            <div className="pt-1">
+                              <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">Mapel Pilihan:</span>
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {prg.mapelPilihan.map((mp, i) => (
+                                  <span key={i} className="px-1.5 py-0.5 bg-indigo-50/50 text-indigo-700 rounded text-[8px] font-semibold border border-indigo-100">
+                                    {mp}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 border-t border-slate-100 pt-2 shrink-0">
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setEditingProgram(prg);
+                            setNewProgram({
+                              nama: prg.nama,
+                              jenjang: prg.jenjang,
+                              sistemBelajar: prg.sistemBelajar,
+                              lamaBelajar: prg.lamaBelajar,
+                              totalSkk: prg.totalSkk,
+                              skkGanjil: prg.distribusiSkk['Ganjil'] || 0,
+                              skkGenap: prg.distribusiSkk['Genap'] || 0,
+                              mapelWajibText: prg.mapelWajib.join(', '),
+                              mapelPilihanText: (prg.mapelPilihan || []).join(', ')
+                            });
+                            setShowAddProgramModal(true);
+                          }}
+                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-[9px] font-black cursor-pointer flex items-center gap-1 transition-colors"
+                        >
+                          <Edit className="w-3 h-3" /> Edit
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => handleDeleteProgram(prg.id)}
+                          className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[9px] font-black cursor-pointer flex items-center gap-1 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" /> Hapus
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-2 shrink-0">
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          setEditingProgram(prg);
-                          setNewProgram({
-                            nama: prg.nama,
-                            jenjang: prg.jenjang,
-                            sistemBelajar: prg.sistemBelajar,
-                            lamaBelajar: prg.lamaBelajar,
-                            totalSkk: prg.totalSkk,
-                            skkGanjil: prg.distribusiSkk['Ganjil'] || 0,
-                            skkGenap: prg.distribusiSkk['Genap'] || 0,
-                            mapelWajibText: prg.mapelWajib.join(', '),
-                            mapelPilihanText: (prg.mapelPilihan || []).join(', ')
-                          });
-                          setShowAddProgramModal(true);
-                        }}
-                        className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-[9px] font-black cursor-pointer flex items-center gap-1 transition-colors"
-                      >
-                        <Edit className="w-3 h-3" /> Edit
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => handleDeleteProgram(prg.id)}
-                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[9px] font-black cursor-pointer flex items-center gap-1 transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" /> Hapus
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ));
+                })()}
               </div>
 
               {/* PENGATURAN BEBAN BELAJAR */}
@@ -5470,41 +5754,62 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: MASTER MATA PELAJARAN */}
           {activeTab === 'mapel' && (
             <div className="space-y-4 animate-fade-in text-slate-800">
-              {/* Header Card */}
-              <div className="bg-white p-4 rounded-xl border border-slate-200/60 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <div className="p-2 bg-emerald-50 rounded-xl text-[#00a884]">
-                      <BookOpen className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-black text-slate-900">Kurikulum & Master Mata Pelajaran</h3>
-                      <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                        Kelola seluruh data master mata pelajaran, kurikulum, kelompok kompetensi, program kesetaraan, dan standar KKM akademik Lulus.id.
-                      </p>
+              <div className="flex flex-col gap-2 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+                </button>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-emerald-50 rounded-xl text-[#00a884]">
+                        <BookOpen className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-slate-900">Kurikulum & Master Mata Pelajaran</h3>
+                        <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                          Kelola seluruh data master mata pelajaran, kurikulum, kelompok kompetensi, program kesetaraan, dan standar KKM akademik Lulus.id.
+                        </p>
+                      </div>
                     </div>
                   </div>
+                  <button
+                    onClick={() => {
+                      setMapelForm({
+                        id: '',
+                        code: '',
+                        name: '',
+                        program: 'Paket C',
+                        fase: 'E',
+                        category: 'Umum',
+                        kkm: 75,
+                        status: 'Aktif',
+                        cpId: ''
+                      });
+                      setIsEditingMapel(false);
+                      setShowMapelFormModal(true);
+                    }}
+                    className="py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black shadow-xs flex items-center justify-center gap-1 cursor-pointer self-start sm:self-auto shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Tambah Mata Pelajaran
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setMapelForm({
-                      id: '',
-                      code: '',
-                      name: '',
-                      program: 'Paket C',
-                      fase: 'E',
-                      category: 'Umum',
-                      kkm: 75,
-                      status: 'Aktif',
-                      cpId: ''
-                    });
-                    setIsEditingMapel(false);
-                    setShowMapelFormModal(true);
-                  }}
-                  className="py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black shadow-xs flex items-center justify-center gap-1 cursor-pointer self-start sm:self-auto shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Tambah Mata Pelajaran
-                </button>
+              </div>
+
+              {/* Search bar for Master Mapel */}
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Cari mata pelajaran berdasarkan nama, kode, kelompok, atau program..."
+                    value={adminMapelSearch}
+                    onChange={(e) => setAdminMapelSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
+                  />
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                </div>
               </div>
 
               {/* Form Section in Modal */}
@@ -5808,98 +6113,120 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-[10.5px]">
-                      {subjects.map((sub) => {
-                        const isActive = sub.status !== 'Tidak Aktif';
-                        // Look up connected CP in cpList
-                        const matchedCp = cpList.find(cp => cp.id === sub.cpId) || cpList.find(cp => 
-                          cp.isActive &&
-                          cp.program.toLowerCase() === (sub.program || 'Paket C').toLowerCase() &&
-                          cp.fase.toUpperCase() === (sub.fase || 'E').toUpperCase() &&
-                          cp.subject.toLowerCase() === sub.name.toLowerCase()
-                        );
-                        return (
-                          <tr key={sub.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-3 py-2 text-[10px] font-extrabold text-slate-900">
-                              <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[8.5px] font-black font-mono">
-                                {sub.code || sub.id.substring(0, 6)}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-[10.5px] font-bold text-slate-800">
-                              {sub.name}
-                            </td>
-                            <td className="px-3 py-2 text-[10px] font-bold text-slate-600">
-                              <span className="block">{sub.program || 'Paket C'} - Fase {sub.fase || 'E'}</span>
-                              <span className="text-[8.5px] text-slate-400 font-extrabold uppercase block mt-0.5">
-                                Belajar: {sub.sistemBelajar || 'Reguler'} | {sub.kelas || 'Kelas X'}
-                              </span>
-                              <span className="text-[8px] text-indigo-500 font-black block mt-0.5">
-                                Semester: {sub.semester || 'Ganjil'} ({sub.tahunAjaran || '2026/2027'})
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-[10px] font-bold text-slate-500">
-                              {sub.category || 'Umum'}
-                            </td>
-                            <td className="px-3 py-2 text-[10.5px]">
-                              <span className="font-extrabold text-[#00a884] block">{sub.bobotSkk ?? 4} SKK</span>
-                              <span className="text-[8.5px] text-slate-400 font-extrabold uppercase">
-                                {sub.isWajib ?? true ? 'Wajib' : 'Pilihan'}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-[10px]">
-                              {matchedCp ? (
-                                <div className="max-w-[180px] leading-tight">
-                                  <span className="text-[8px] font-black bg-emerald-50 text-emerald-700 border border-emerald-150/30 px-1.5 py-0.5 rounded uppercase">
-                                    ✓ {matchedCp.id}
-                                  </span>
-                                  <p className="text-[9px] text-slate-500 font-medium truncate mt-0.5" title={matchedCp.deskripsi}>
-                                    {matchedCp.elemen}: {matchedCp.deskripsi}
-                                  </p>
-                                </div>
-                              ) : (
-                                <span className="text-[8px] font-black bg-rose-50 text-rose-600 border border-rose-100/30 px-1.5 py-0.5 rounded uppercase">
-                                  ⚠ Belum Terhubung
+                      {(() => {
+                        const filteredSubjects = subjects.filter(sub => {
+                          const query = adminMapelSearch.toLowerCase();
+                          return sub.name.toLowerCase().includes(query) ||
+                                 (sub.code || '').toLowerCase().includes(query) ||
+                                 (sub.category || '').toLowerCase().includes(query) ||
+                                 (sub.program || '').toLowerCase().includes(query);
+                        });
+
+                        if (filteredSubjects.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={9} className="px-3 py-8 text-center text-slate-400 font-medium">
+                                <Search className="w-8 h-8 mx-auto text-slate-300 mb-1.5" />
+                                <p className="font-bold text-[11px]">Tidak ada data yang ditemukan.</p>
+                                <p className="text-[9px]">Coba sesuaikan kata kunci pencarian Anda.</p>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return filteredSubjects.map((sub) => {
+                          const isActive = sub.status !== 'Tidak Aktif';
+                          // Look up connected CP in cpList
+                          const matchedCp = cpList.find(cp => cp.id === sub.cpId) || cpList.find(cp => 
+                            cp.isActive &&
+                            cp.program.toLowerCase() === (sub.program || 'Paket C').toLowerCase() &&
+                            cp.fase.toUpperCase() === (sub.fase || 'E').toUpperCase() &&
+                            cp.subject.toLowerCase() === sub.name.toLowerCase()
+                          );
+                          return (
+                            <tr key={sub.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-3 py-2 text-[10px] font-extrabold text-slate-900">
+                                <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[8.5px] font-black font-mono">
+                                  {sub.code || sub.id.substring(0, 6)}
                                 </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-[10.5px] font-black text-slate-800 text-center">
-                              {sub.kkm || 75}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              <button
-                                onClick={() => handleToggleMapelStatus(sub.id, isActive ? 'Aktif' : 'Tidak Aktif')}
-                                className={`inline-flex px-1.5 py-0.5 rounded text-[8px] font-extrabold cursor-pointer transition-all border ${
-                                  isActive
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
-                                    : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
-                                }`}
-                                type="button"
-                              >
-                                {isActive ? 'Aktif' : 'Tidak Aktif'}
-                              </button>
-                            </td>
-                            <td className="px-3 py-2">
-                              <div className="flex items-center justify-center gap-1">
+                              </td>
+                              <td className="px-3 py-2 text-[10.5px] font-bold text-slate-800">
+                                {sub.name}
+                              </td>
+                              <td className="px-3 py-2 text-[10px] font-bold text-slate-600">
+                                <span className="block">{sub.program || 'Paket C'} - Fase {sub.fase || 'E'}</span>
+                                <span className="text-[8.5px] text-slate-400 font-extrabold uppercase block mt-0.5">
+                                  Belajar: {sub.sistemBelajar || 'Reguler'} | {sub.kelas || 'Kelas X'}
+                                </span>
+                                <span className="text-[8px] text-indigo-500 font-black block mt-0.5">
+                                  Semester: {sub.semester || 'Ganjil'} ({sub.tahunAjaran || '2026/2027'})
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-[10px] font-bold text-slate-500">
+                                {sub.category || 'Umum'}
+                              </td>
+                              <td className="px-3 py-2 text-[10.5px]">
+                                <span className="font-extrabold text-[#00a884] block">{sub.bobotSkk ?? 4} SKK</span>
+                                <span className="text-[8.5px] text-slate-400 font-extrabold uppercase">
+                                  {sub.isWajib ?? true ? 'Wajib' : 'Pilihan'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-[10px]">
+                                {matchedCp ? (
+                                  <div className="max-w-[180px] leading-tight">
+                                    <span className="text-[8px] font-black bg-emerald-50 text-emerald-700 border border-emerald-150/30 px-1.5 py-0.5 rounded uppercase">
+                                      ✓ {matchedCp.id}
+                                    </span>
+                                    <p className="text-[9px] text-slate-500 font-medium truncate mt-0.5" title={matchedCp.deskripsi}>
+                                      {matchedCp.elemen}: {matchedCp.deskripsi}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <span className="text-[8px] font-black bg-rose-50 text-rose-600 border border-rose-100/30 px-1.5 py-0.5 rounded uppercase">
+                                    ⚠ Belum Terhubung
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-[10.5px] font-black text-slate-800 text-center">
+                                {sub.kkm || 75}
+                              </td>
+                              <td className="px-3 py-2 text-center">
                                 <button
-                                  onClick={() => handleEditMapelClick(sub)}
-                                  className="p-1 hover:bg-indigo-50 text-indigo-600 rounded border border-slate-150 transition-colors cursor-pointer"
-                                  title="Edit Mata Pelajaran"
+                                  onClick={() => handleToggleMapelStatus(sub.id, isActive ? 'Aktif' : 'Tidak Aktif')}
+                                  className={`inline-flex px-1.5 py-0.5 rounded text-[8px] font-extrabold cursor-pointer transition-all border ${
+                                    isActive
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
+                                      : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
+                                  }`}
                                   type="button"
                                 >
-                                  <Edit className="w-3 h-3" />
+                                  {isActive ? 'Aktif' : 'Tidak Aktif'}
                                 </button>
-                                <button
-                                  onClick={() => handleDeleteMapel(sub.id)}
-                                  className="p-1 hover:bg-rose-50 text-rose-500 rounded border border-slate-150 transition-colors cursor-pointer"
-                                  title="Hapus Mata Pelajaran"
-                                  type="button"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => handleEditMapelClick(sub)}
+                                    className="p-1 hover:bg-indigo-50 text-indigo-600 rounded border border-slate-150 transition-colors cursor-pointer"
+                                    title="Edit Mata Pelajaran"
+                                    type="button"
+                                  >
+                                    <Edit className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteMapel(sub.id)}
+                                    className="p-1 hover:bg-rose-50 text-rose-500 rounded border border-slate-150 transition-colors cursor-pointer"
+                                    title="Hapus Mata Pelajaran"
+                                    type="button"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -6130,6 +6457,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB 7.5: KEUANGAN HUB */}
           {activeTab === 'keuangan' && (
             <div className="space-y-4 animate-fade-in">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               {/* Stats Summary */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm flex items-center justify-between">
@@ -6646,6 +6979,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB 8: REPORTING CENTER */}
           {activeTab === 'laporan' && (
             <div className="space-y-4 animate-fade-in">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-1.5">
                 <h4 className="text-xs font-extrabold text-slate-800">Reporting Center Akademik</h4>
                 <p className="text-[9.5px] text-slate-400 font-semibold leading-relaxed">Ekspor seluruh rekapan mading sekolah, rekam nilai e-Rapor, dan absensi guru.</p>
@@ -6685,6 +7024,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: SKK MANAGEMENT */}
           {activeTab === 'skk' && (
             <div className="space-y-4 animate-fade-in text-slate-800">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               <div className="bg-gradient-to-r from-pink-600 to-rose-600 p-5 rounded-3xl text-white shadow-md relative overflow-hidden flex justify-between items-center shrink-0">
                 <div className="space-y-1.5 z-10">
                   <span className="text-[9px] font-black tracking-widest bg-white/20 px-2 py-0.5 rounded-full uppercase">
@@ -7297,7 +7642,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                     </div>
                     <button
                       onClick={() => setAiMessages([
-                        { role: 'model', text: 'Halo Admin! Saya Lulus AI Admin, asisten operasional cerdas untuk PKBM Agrabinta. Saya siap membantu Anda melakukan peninjauan data siswa, analisis kelengkapan dokumen pendaftaran, pengecekan aktivitas guru, serta pembuatan laporan otomatis secara cepat. Apa yang ingin Anda tanyakan hari ini?' }
+                        { role: 'model', text: 'Halo Admin! Saya Lulus AI Admin, siap membantu operasional Lulus.id. Apa yang ingin Anda lakukan hari ini?' }
                       ])}
                       className="px-2 py-1 text-[8px] font-bold text-rose-500 hover:bg-rose-50 rounded-lg border border-rose-100/50 cursor-pointer"
                     >
@@ -7798,6 +8143,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: MADING / PENGUMUMAN */}
           {activeTab === 'mading' && (
             <div className="space-y-4 animate-fade-in text-slate-800">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               {/* Header card with statistics */}
               <div className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
@@ -8163,6 +8514,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: PERPUSTAKAAN DIGITAL */}
           {activeTab === 'perpustakaan' && (
             <div className="space-y-4 animate-fade-in text-slate-800">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               {/* Header card */}
               <div className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
@@ -8460,6 +8817,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: DOKUMEN AKADEMIK */}
           {activeTab === 'dokumen_akademik' && (
             <div className="space-y-4 animate-fade-in text-slate-800 h-full overflow-hidden flex flex-col">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               <div className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                 <div>
                   <h3 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
@@ -8488,6 +8851,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: TRANSKRIP NILAI ADMIN */}
           {activeTab === 'transkrip_nilai' && (
             <div className="space-y-4 animate-fade-in text-slate-800 h-full overflow-hidden flex flex-col">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               <div className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                 <div>
                   <h3 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
@@ -8517,6 +8886,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           {/* TAB: BANK VERIFIKASI DOKUMEN */}
           {activeTab === 'bank_verifikasi' && (
             <div className="space-y-4 animate-fade-in text-slate-800 h-full overflow-hidden flex flex-col">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
+              </button>
               <div className="flex-1 overflow-hidden min-h-[600px] border border-slate-200/50 rounded-3xl bg-slate-50">
                 <BankVerifikasi 
                   role="admin"
@@ -9120,18 +9495,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
 
               </div>
             </div>
-          )}
-
-          {activeTab === 'registrasi_v2' && (
-            <AdminRegistrationManager
-              students={students}
-              setStudents={setStudents}
-              financialTransactions={financialTransactions}
-              onUpdateTransactions={onUpdateTransactions || (() => {})}
-              showModal={(title, message, type) => {
-                showModal(title, message, type === 'error' ? 'warning' : type);
-              }}
-            />
           )}
 
       {/* ==================== MODUL SKK MODALS ==================== */}

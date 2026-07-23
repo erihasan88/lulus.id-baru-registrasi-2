@@ -83,6 +83,36 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
     ];
   };
 
+  const sanitizeForPublic = (doc: any) => {
+    if (!doc) return null;
+    const sanitized = { ...doc };
+    
+    // Deep clone snapshotData if it exists and sanitize
+    if (sanitized.snapshotData) {
+      sanitized.snapshotData = { ...sanitized.snapshotData };
+      const sensitiveKeys = [
+        'nik', 'kk', 'alamat', 'ayah', 'ibu', 'tempatLahir', 'tglLahir', 
+        'jk', 'telepon', 'hp', 'email', 'namaWali', 'pekerjaanWali',
+        'noHandphone', 'noKk', 'namaIbu', 'namaAyah', 'alamatRumah'
+      ];
+      sensitiveKeys.forEach(key => {
+        delete sanitized.snapshotData[key];
+      });
+    }
+    
+    // Also strip top-level fields
+    const topLevelSensitiveKeys = [
+      'nik', 'kk', 'alamat', 'ayah', 'ibu', 'tempatLahir', 'tglLahir', 
+      'jk', 'telepon', 'hp', 'email', 'namaWali', 'pekerjaanWali',
+      'noHandphone', 'noKk', 'namaIbu', 'namaAyah', 'alamatRumah'
+    ];
+    topLevelSensitiveKeys.forEach(key => {
+      delete sanitized[key];
+    });
+    
+    return sanitized;
+  };
+
   const performVerification = (code: string) => {
     const cleanCode = code.trim().toUpperCase();
     if (!cleanCode) {
@@ -164,15 +194,16 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
     }
 
     if (found) {
+      const sanitized = sanitizeForPublic(found);
       // If it matched the custom demo code, format nicely
-      if (cleanCode === 'TRK-2026-00001' && found.documentType === 'Transkrip Nilai') {
+      if (cleanCode === 'TRK-2026-00001' && sanitized && sanitized.documentType === 'Transkrip Nilai') {
         setMatchedDoc({
-          ...found,
+          ...sanitized,
           documentNumber: 'TRK-2026-00001',
           title: 'Transkrip Nilai Hasil Belajar Kumulatif'
         });
       } else {
-        setMatchedDoc(found);
+        setMatchedDoc(sanitized);
       }
     } else {
       setMatchedDoc(null);
@@ -214,7 +245,7 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
             Portal Verifikasi Dokumen Digital
           </h2>
           <p className="text-[10px] text-slate-400 font-bold">
-            Sistem Keamanan & Verifikasi Keaslian Lulus.id PKBM Agrabinta
+            Sistem Keamanan & Verifikasi Keaslian Lulus.id {lembagaIdentitas.namaPkbm}
           </p>
         </div>
 
@@ -261,7 +292,7 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
                     DOKUMEN VALID & ASLI
                   </h3>
                   <p className="text-[10px] text-emerald-600 font-bold mt-1">
-                    Dokumen ini terdaftar secara resmi pada pangkalan data akademik Lulus.id PKBM Agrabinta
+                    Dokumen ini terdaftar secara resmi pada pangkalan data akademik Lulus.id {lembagaIdentitas.namaPkbm}
                   </p>
                 </div>
               ) : (
@@ -385,7 +416,7 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
                               </tr>
                             </thead>
                             <tbody>
-                              {matchedDoc.snapshotData.subjects.map((sub: any) => {
+                              {(matchedDoc.snapshotData?.subjects || []).map((sub: any) => {
                                 const kkmVal = sub.kkm || 75;
                                 const isPass = sub.grade >= kkmVal;
                                 return (
@@ -455,7 +486,7 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
 
               {/* COMPLIANCE INFORMATION */}
               <div className="bg-slate-50 border border-slate-150 rounded-xl p-3.5 text-[9.5px] text-slate-500 leading-relaxed text-justify">
-                <strong>Catatan Keamanan:</strong> Lembar verifikasi elektronik ini diterbitkan secara otomatis oleh server Lulus.id berdasarkan data tanda tangan elektronik tersertifikasi dan identitas digital PKBM Agrabinta yang sah. Modifikasi fisik maupun digital pada dokumen cetak tanpa QR Code yang valid dapat dituntut secara hukum.
+                <strong>Catatan Keamanan:</strong> Lembar verifikasi elektronik ini diterbitkan secara otomatis oleh server Lulus.id berdasarkan data tanda tangan elektronik tersertifikasi dan identitas digital {lembagaIdentitas.namaPkbm} yang sah. Modifikasi fisik maupun digital pada dokumen cetak tanpa QR Code yang valid dapat dituntut secara hukum.
               </div>
 
             </div>
@@ -470,7 +501,7 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
                   DOKUMEN TIDAK VALID
                 </h3>
                 <p className="text-[10px] text-rose-600 font-bold mt-1">
-                  Nomor dokumen atau kode verifikasi "{searchCode}" tidak ditemukan dalam database Lulus.id PKBM Agrabinta.
+                  Nomor dokumen atau kode verifikasi "{searchCode}" tidak ditemukan dalam database Lulus.id {lembagaIdentitas.namaPkbm}.
                 </p>
               </div>
 
@@ -479,7 +510,7 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
                 <ul className="list-disc list-inside space-y-0.5">
                   <li>Kode atau nomor dokumen yang dimasukkan salah/typo.</li>
                   <li>Dokumen telah dicabut, ditangguhkan, atau diganti dengan versi baru.</li>
-                  <li>Dokumen bukan merupakan produk resmi keluaran PKBM Agrabinta Lulus.id.</li>
+                  <li>Dokumen bukan merupakan produk resmi keluaran {lembagaIdentitas.namaPkbm}.</li>
                 </ul>
               </div>
             </div>

@@ -9,6 +9,21 @@ import {
 import QRCode from 'qrcode';
 import { AcademicDocument, Student, Role } from '../types';
 
+const safeSrc = (src: string) => {
+  if (!src) return '';
+  if (src.startsWith('data:image/svg+xml;utf8,') || src.startsWith('data:image/svg+xml;utf-8,')) {
+    const isUtf8 = src.startsWith('data:image/svg+xml;utf8,');
+    const prefix = isUtf8 ? 'data:image/svg+xml;utf8,' : 'data:image/svg+xml;utf-8,';
+    const svgContent = src.substring(prefix.length);
+    try {
+      return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgContent)))}`;
+    } catch (e) {
+      return src.replace(/"/g, '&quot;');
+    }
+  }
+  return src;
+};
+
 export function generateDocVerificationCode(docType: string, year: string = '2026'): string {
   const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
   let randomPart = '';
@@ -58,6 +73,7 @@ function DocumentQRCode({ code, size = 56 }: { code: string; size?: number }) {
     QRCode.toDataURL(url, {
       margin: 1,
       width: size * 2,
+      errorCorrectionLevel: 'H',
       color: {
         dark: '#0f172a', // slate-900
         light: '#ffffff'
@@ -179,7 +195,7 @@ const DEFAULT_DOCUMENTS: AcademicDocument[] = [
     documentNumber: 'CERT-041/COMP/2026',
     verificationCode: 'CRT-2026-F2W6Q8',
     issueDate: '2026-03-10',
-    title: 'Sertifikat Kompetensi Digital PKBM Agrabinta',
+    title: 'Sertifikat Kompetensi Digital',
     description: 'Sertifikat kelulusan uji kecakapan komputer dan literasi digital.',
     file: 'sertifikat_komputer_fajar.pdf',
     thumbnail: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
@@ -1706,7 +1722,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
                   </table>
 
                   <p>
-                    Telah dinyatakan <strong className="text-emerald-700 font-black">LULUS</strong> dari satuan pendidikan kesetaraan PKBM Agrabinta berdasarkan Keputusan Kepala Sekolah nomor SK-041/PKBM-AGR/2026 tanggal {selectedDoc.issueDate}. Seluruh kewajiban akademik siswa telah terpenuhi dengan predikat memuaskan.
+                    Telah dinyatakan <strong className="text-emerald-700 font-black">LULUS</strong> dari satuan pendidikan kesetaraan {lembagaIdentitas.namaPkbm} berdasarkan Keputusan Kepala Sekolah nomor SK-041/PKBM-AGR/2026 tanggal {selectedDoc.issueDate}. Seluruh kewajiban akademik siswa telah terpenuhi dengan predikat memuaskan.
                   </p>
                 </div>
 
@@ -1749,7 +1765,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
                     {/* Signature Container - conditional visibility for student on-screen */}
                     <div className={`h-12 flex items-center justify-end ${role === 'siswa' ? 'hidden print:flex' : 'flex'}`}>
                       <img 
-                        src={lembagaIdentitas.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan'} 
+                        src={safeSrc(lembagaIdentitas.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan')} 
                         alt="Tanda Tangan" 
                         className="max-h-full max-w-[120px] object-contain mix-blend-multiply"
                         referrerPolicy="no-referrer"
@@ -1770,7 +1786,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
 
                 {/* VERIFICATION BAR CODE LOGO FOOTER */}
                 <div className="border-t border-slate-200 pt-4 flex items-center justify-between text-[7px] font-black text-slate-400 uppercase tracking-widest">
-                  <span>Sistem Informasi Lulus.id PKBM Agrabinta</span>
+                  <span>Sistem Informasi Lulus.id {lembagaIdentitas.namaPkbm}</span>
                   <span>Verifikasi Elektronik Aktif</span>
                   <span>ID: {selectedDoc.id}</span>
                 </div>

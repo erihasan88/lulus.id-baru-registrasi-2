@@ -59,35 +59,35 @@ export default function RegistrationWizard({
 
   const [createdStudent, setCreatedStudent] = useState<Student | null>(null);
   const [formData, setFormData] = useState<RegistrationData>({
-    nama: 'Fajar Pratama',
-    nik: '3201234567890123',
-    nisn: '0098765432',
-    tempat_lahir: 'Cianjur',
-    tgl_lahir: '2008-04-14',
+    nama: '',
+    nik: '',
+    nisn: '',
+    tempat_lahir: '',
+    tgl_lahir: '',
     jk: 'Laki-laki',
     agama: 'Islam',
     kewarganegaraan: 'WNI',
-    no_hp: '081234567890',
-    email: 'fajar@gmail.com',
-    alamat: 'Kp. Agrabinta RT 03 / RW 04',
-    rt: '03',
-    rw: '04',
-    dusun: 'Agrabinta Hilir',
-    desa: 'Agrabinta',
-    kecamatan: 'Agrabinta',
-    kota: 'Cianjur',
-    provinsi: 'Jawa Barat',
-    kodepos: '43273',
+    no_hp: '',
+    email: '',
+    alamat: '',
+    rt: '',
+    rw: '',
+    dusun: '',
+    desa: '',
+    kecamatan: '',
+    kota: '',
+    provinsi: '',
+    kodepos: '',
     pendidikan: 'SMP',
     sekolah_asal: 'SMP Negeri 1 Agrabinta',
     tahun_lulus: '2024',
     no_ijazah: 'DN-01/D-SMP/21/00123',
     program: 'Paket C',
-    nama_ayah: 'Slamet Rahardjo',
+    nama_ayah: '',
     nik_ayah: '3201234567890456',
     pekerjaan_ayah: 'Tani',
     pendidikan_ayah: 'SMA',
-    nama_ibu: 'Siti Aminah',
+    nama_ibu: '',
     nik_ibu: '3201234567890789',
     pekerjaan_ibu: 'Ibu Rumah Tangga',
     pendidikan_ibu: 'SMA',
@@ -95,10 +95,10 @@ export default function RegistrationWizard({
     nama_wali: '',
     hubungan_wali: '',
     hp_wali: '',
-    doc_foto: 'pas_foto_fajar.jpg',
-    doc_ktp: 'ktp_fajar.png',
-    doc_kk: 'kk_keluarga.pdf',
-    doc_ijazah: 'ijazah_smp.pdf',
+    doc_foto: '',
+    doc_ktp: '',
+    doc_kk: '',
+    doc_ijazah: '',
     doc_akta: '',
     sig_siswa_saved: false,
     sig_ortu_saved: false,
@@ -332,7 +332,8 @@ export default function RegistrationWizard({
           pendaftaranData: formData
         };
 
-        // POST registration to mock backend server
+
+        // Sinkronisasi data pendaftaran ke backend V2
         fetch('/api/registration/public/register/', {
           method: 'POST',
           headers: {
@@ -362,12 +363,8 @@ export default function RegistrationWizard({
               ijazah: formData.doc_ijazah || 'ijazah_default.pdf'
             }
           })
-        })
-        .then(res => {
-          if (!res.ok) console.warn("Gagal sinkronisasi data pendaftaran ke server.");
-        })
-        .catch(err => {
-          console.error("Kesalahan jaringan menyimpan pendaftaran ke server:", err);
+        }).catch(err => {
+          console.error('Gagal sinkronisasi pendaftaran:', err);
         });
 
         setCreatedStudent(newStudentObj);
@@ -1200,6 +1197,7 @@ export default function RegistrationWizard({
                 </li>
               </ol>
             </div>
+
 
             <div className="px-1 py-1">
               <label className="flex items-start gap-2.5 cursor-pointer select-none">
