@@ -423,6 +423,7 @@ export interface DigitalLibraryBook {
   semester: 'Ganjil' | 'Genap' | 'Semua';
   cover?: string;
   file?: string;
+  fileUrl?: string;
   fileType: 'pdf' | 'epub';
   keywords?: string[];
   status: 'Draft' | 'Publish';
@@ -519,6 +520,7 @@ export interface AcademicDocument {
   title: string;
   description?: string;
   file: string;
+  fileUrl?: string;
   thumbnail?: string;
   status: 'Draft' | 'Publish' | 'Dicabut' | 'Diganti';
   uploadedBy: string;

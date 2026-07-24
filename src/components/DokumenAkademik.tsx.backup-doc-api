@@ -59,7 +59,6 @@ interface DokumenAkademikProps {
     id: string;
     nama: string;
     nisn?: string;
-      studentId?: string;
     role: Role;
   };
   showModal: (title: string, desc: string, type?: 'info' | 'warning' | 'success') => void;
@@ -68,9 +67,7 @@ interface DokumenAkademikProps {
 function DocumentQRCode({ code, size = 56 }: { code: string; size?: number }) {
   const [qrSrc, setQrSrc] = useState<string>('');
 
-  
-
-useEffect(() => {
+  useEffect(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id';
     const url = `${origin}/verifikasi/${code}`;
     QRCode.toDataURL(url, {
@@ -266,75 +263,125 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
     };
   });
 
-  const [documents, setDocuments] = useState<AcademicDocument[]>([]);
-    const categories = DEFAULT_CATEGORIES;
+  const [documents, setDocuments] = useState<AcademicDocument[]>(() => {
+    const saved = localStorage.getItem('documentLibrary');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return DEFAULT_DOCUMENTS; }
+    }
+    return DEFAULT_DOCUMENTS;
+  });
 
-    const [searchQuery, setSearchQuery] = useState('' );
-    const [filterType, setFilterType] = useState('all');
-    const [filterStatus, setFilterStatus] = useState('all');
-    const [filterYear, setFilterYear] = useState('all');
-    const [viewState, setViewState] = useState('list');
-    const [formNisn, setFormNisn] = useState('');
-    const [formDocType, setFormDocType] = useState('Ijazah');
-    const [formFileName, setFormFileName] = useState('');
-    const [formFilePdf, setFormFilePdf] = useState<File | null>(null);
-    const [formFileUrl, setFormFileUrl] = useState('');
-    const [formKelas, setFormKelas] = useState('');
-    const [formOrigin, setFormOrigin] = useState('');
-    const [formProgram, setFormProgram] = useState('');
-    const [formStatus, setFormStatus] = useState('Publish');
-    const [formTahunLulus, setFormTahunLulus] = useState('2026');
-    const [formThumbnail, setFormThumbnail] = useState('');
-    const [formStudentId, setFormStudentId] = useState('SIS-1001');
-    const [formDocNumber, setFormDocNumber] = useState('');
-    const [formTitle, setFormTitle] = useState('');
-    const [formIssueDate, setFormIssueDate] = useState('');
-    const [formDescription, setFormDescription] = useState('');
-    const [formFile, setFormFile] = useState<File | null>(null);
-    const [selectedDoc, setSelectedDoc] = useState<any>(null);
-    const [showShareId, setShowShareId] = useState(false);
-    const [pdfFullscreen, setPdfFullscreen] = useState(false);
-    const [pdfSearchQuery, setPdfSearchQuery] = useState('');
-    const [zoomScale, setZoomScale] = useState(1);
-    const [downloadLogs, setDownloadLogs] = useState<any[]>(() => {
-      const saved = localStorage.getItem('studentDocuments');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          return [];
-        }
-      }
-      return [];
+  const [categories, setCategories] = useState<string[]>(() => {
+    const saved = localStorage.getItem('documentCategories');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return DEFAULT_CATEGORIES; }
+    }
+    return DEFAULT_CATEGORIES;
+  });
+
+  const [downloadLogs, setDownloadLogs] = useState<any[]>(() => {
+    const saved = localStorage.getItem('studentDocuments');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return []; }
+    }
+    return [];
+  });
+
+  // Sync to localStorage
+  useEffect(() => {
+    localStorage.setItem('documentLibrary', JSON.stringify(documents));
+  }, [documents]);
+
+  useEffect(() => {
+    localStorage.setItem('documentCategories', JSON.stringify(categories));
+  }, [categories]);
+
+  useEffect(() => {
+    localStorage.setItem('studentDocuments', JSON.stringify(downloadLogs));
+  }, [downloadLogs]);
+
+  // --- SUBVIEWS ---
+  // 'list' | 'add' | 'edit' | 'pdf-viewer'
+  const [viewState, setViewState] = useState<'list' | 'add' | 'edit' | 'pdf-viewer'>('list');
+  const [selectedDoc, setSelectedDoc] = useState<AcademicDocument | null>(null);
+
+  // --- FILTERS & SEARCH ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterYear, setFilterYear] = useState('all');
+
+  // --- FORM STATES (ADMIN) ---
+  const [formStudentId, setFormStudentId] = useState('');
+  const [formNisn, setFormNisn] = useState('');
+  const [formProgram, setFormProgram] = useState('Paket C');
+  const [formKelas, setFormKelas] = useState('');
+  const [formTahunLulus, setFormTahunLulus] = useState('2026');
+  const [formDocType, setFormDocType] = useState('Ijazah');
+  const [formDocNumber, setFormDocNumber] = useState('');
+  const [formIssueDate, setFormIssueDate] = useState('');
+  const [formTitle, setFormTitle] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formStatus, setFormStatus] = useState<'Draft' | 'Publish' | 'Dicabut' | 'Diganti'>('Publish');
+  const [formFilePdf, setFormFilePdf] = useState<File | null>(null);
+  const [formFileName, setFormFileName] = useState('');
+  const [formFileUrl, setFormFileUrl] = useState('');
+  const [formThumbnail, setFormThumbnail] = useState('');
+
+  // --- SHARE STATE ---
+  const [showShareId, setShowShareId] = useState<string | null>(null);
+
+  // --- PDF VIEWER STATES ---
+  const [zoomScale, setZoomScale] = useState(1);
+  const [pdfSearchQuery, setPdfSearchQuery] = useState('');
+  const [pdfFullscreen, setPdfFullscreen] = useState(false);
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
+
+  // --- AUTO COMPLETING NISN & PROGRAM based on Student selection ---
+  const handleStudentSelectChange = (studentId: string) => {
+    setFormStudentId(studentId);
+    const selected = students.find(s => s.id === studentId);
+    if (selected) {
+      setFormNisn(selected.nisn || '');
+      setFormProgram(selected.program || 'Paket C');
+      setFormKelas(selected.kelas || '');
+    } else if (studentId === 'SIS-1001') {
+      // Fallback for Fajar Pratama
+      setFormNisn('0098765432');
+      setFormProgram('Paket C');
+      setFormKelas('Kelas XII - Paket C');
+    }
+  };
+
+  // --- EDIT INITIALIZATION ---
+  const initEditForm = (doc: AcademicDocument) => {
+    setSelectedDoc(doc);
+    setFormStudentId(doc.studentId);
+    setFormNisn(doc.nisn);
+    setFormProgram(doc.program);
+    setFormKelas(doc.kelas);
+    setFormTahunLulus(doc.tahunLulus);
+    setFormDocType(doc.documentType);
+    setFormDocNumber(doc.documentNumber);
+    setFormIssueDate(doc.issueDate);
+    setFormTitle(doc.title);
+    setFormDescription(doc.description || '');
+    setFormStatus(doc.status);
+    setFormFileName(doc.file);
+    setFormThumbnail(doc.thumbnail || '');
+    setViewState('edit');
+  };
+
+  // --- ACTION HANDLERS ---
+  const uploadDocumentFile = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch('/api/documents/upload', {
+      method: 'POST',
+      body: formData
     });
 
-
-
-    const handleStudentSelectChange = (studentId: string) => {
-      setFormStudentId(studentId);
-
-      const student = students.find(s => s.id === studentId);
-
-      if (student) {
-        setFormNisn(student.nisn || '');
-        setFormProgram(student.program || '');
-        setFormKelas(student.kelas || '');
-      } else {
-        setFormNisn('');
-        setFormProgram('');
-        setFormKelas('');
-      }
-    };
-
-
-    const uploadDocumentFile = async (file: File) => {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch('/api/documents/upload', {
-        method: 'POST',
-        body: formData
-      });
     const result = await response.json();
 
     if (!response.ok) {
@@ -344,51 +391,12 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
     return result.file.url;
   };
 
-
-
-
-  const loadDocuments = async () => {
-    try {
-      const endpoint = role === 'siswa'
-        ? `/api/documents/student/${loggedInUser.studentId || loggedInUser.id}`
-        : '/api/documents';
-
-      const response = await fetch(endpoint);
-
-      if (!response.ok) {
-        throw new Error('Gagal mengambil data dokumen');
-      }
-
-      const data = await response.json();
-
-      if (Array.isArray(data)) {
-        setDocuments(data);
-      }
-    } catch (err) {
-      console.error('Load documents:', err);
-    }
-  };
-
-    useEffect(() => {
-      loadDocuments();
-    }, [role]);
-
-
   const handleCreateDocument = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formStudentId || !formDocNumber || !formTitle || !formIssueDate) {
       showModal('Input Tidak Lengkap', 'Nama Siswa, Nomor Dokumen, Judul Dokumen, dan Tanggal Terbit wajib diisi.', 'warning');
       return;
     }
-
-      if (!formFileUrl) {
-        showModal(
-          'Upload Belum Selesai',
-          'Tunggu hingga proses upload PDF selesai sebelum menyimpan dokumen.',
-          'warning'
-        );
-        return;
-      }
 
     const studentName = students.find(s => s.id === formStudentId)?.nama || (formStudentId === 'SIS-1001' ? 'Fajar Pratama' : 'Siswa');
 
@@ -417,26 +425,13 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       views: 0
     };
 
-      const response = await fetch('/api/documents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newDoc)
-      });
-
-      if (!response.ok) {
-        throw new Error('Gagal menyimpan metadata dokumen');
-      }
-
-      await loadDocuments();
-
-      showModal('Berhasil', 'Dokumen akademik berhasil ditambahkan dan disimpan.', 'success');
-      resetForm();
-      setViewState('list');
+    setDocuments(prev => [newDoc, ...prev]);
+    showModal('Berhasil', 'Dokumen akademik berhasil ditambahkan dan disimpan.', 'success');
+    resetForm();
+    setViewState('list');
   };
 
-  const handleUpdateDocument = async (e: React.FormEvent) => {
+  const handleUpdateDocument = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc) return;
     if (!formDocNumber || !formTitle || !formIssueDate) {
@@ -472,46 +467,20 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       return doc;
     });
 
-      const response = await fetch(`/api/documents/${selectedDoc.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updated.find(doc => doc.id === selectedDoc.id))
-      });
-
-      if (!response.ok) {
-        throw new Error('Gagal memperbarui dokumen');
-      }
-
-      await loadDocuments();
-
-      showModal('Berhasil Diperbarui', 'Dokumen akademik berhasil diperbarui.', 'success');
-      resetForm();
-      setViewState('list');
+    setDocuments(updated);
+    showModal('Berhasil Diperbarui', 'Dokumen akademik berhasil diperbarui.', 'success');
+    resetForm();
+    setViewState('list');
   };
 
-  const handleDeleteDocument = async (id: string) => {
-      if (confirm('Apakah Anda yakin ingin menghapus dokumen akademik ini secara permanen?')) {
-        try {
-          const response = await fetch(`/api/documents/${id}`, {
-            method: 'DELETE'
-          });
+  const handleDeleteDocument = (id: string) => {
+    if (confirm('Apakah Anda yakin ingin menghapus dokumen akademik ini secara permanen?')) {
+      setDocuments(prev => prev.filter(doc => doc.id !== id));
+      showModal('Terhapus', 'Dokumen telah dihapus dari sistem.', 'success');
+    }
+  };
 
-          if (!response.ok) {
-            throw new Error('Gagal menghapus dokumen');
-          }
-
-          await loadDocuments();
-
-          showModal('Terhapus', 'Dokumen telah dihapus dari sistem.', 'success');
-        } catch (err) {
-          showModal('Gagal', 'Dokumen tidak berhasil dihapus.', 'warning');
-        }
-      }
-    };
-
-const resetForm = () => {
+  const resetForm = () => {
     setSelectedDoc(null);
     setFormStudentId('');
     setFormNisn('');
@@ -545,7 +514,7 @@ const resetForm = () => {
     const logId = `LOG-${Date.now()}`;
     const newLog = {
       id: logId,
-      studentId: loggedInUser.studentId || loggedInUser.id,
+      studentId: loggedInUser.id,
       docId: doc.id,
       docTitle: doc.title,
       downloadedAt: new Date().toISOString()
@@ -632,7 +601,7 @@ const resetForm = () => {
   };
 
   // Student stats (Fajar Pratama): Total Dokumen, Dokumen Terbaru, Dokumen Sudah Diunduh
-  const studentIdForFilter = loggedInUser.studentId || loggedInUser.id || 'SIS-1001';
+  const studentIdForFilter = loggedInUser.id || 'SIS-1001';
   const myDocs = documents.filter(d => d.studentId === studentIdForFilter && d.status === 'Publish');
   const myDownloadedCount = Array.from(new Set(downloadLogs.filter(l => l.studentId === studentIdForFilter).map(l => l.docId))).length;
   const myLatestDoc = myDocs.length > 0 ? myDocs[0].title : 'Belum Ada';
@@ -659,7 +628,7 @@ const resetForm = () => {
         d.title.toLowerCase().includes(q) ||
         d.documentNumber.toLowerCase().includes(q) ||
         d.studentName.toLowerCase().includes(q) ||
-        (d.nisn || '').toLowerCase().includes(q)
+        d.nisn.toLowerCase().includes(q)
       );
     }
 

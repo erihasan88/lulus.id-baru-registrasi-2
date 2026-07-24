@@ -8,6 +8,7 @@ import {
   Activity, Camera
 } from 'lucide-react';
 import { Subject, Task, TaskSubmission, Teacher, AcademicYear, Exam, Question, Announcement, Role, DigitalLibraryBook } from '../types';
+import DokumenAkademik from './DokumenAkademik';
 import AdminTranscript from '../pages/AdminTranscript';
 
 interface DashboardGuruProps {
@@ -238,7 +239,7 @@ export default function DashboardGuru({
   const [filterStudent, setFilterStudent] = useState<string>('all');
 
   // Teacher Absensi States
-  const [currentView, setCurrentView] = useState<'dashboard' | 'absensi' | 'materi' | 'tugas' | 'cbt' | 'nilai' | 'mading' | 'perpustakaan' | 'transkrip'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'absensi' | 'materi' | 'tugas' | 'cbt' | 'nilai' | 'mading' | 'perpustakaan' | 'dokumen' | 'transkrip'>('dashboard');
   const [materiSubView, setMateriSubView] = useState<'list' | 'add' | 'edit' | 'view'>('list');
   const [selectedMateri, setSelectedMateri] = useState<Subject | null>(null);
   const [showDeleteMateriConfirm, setShowDeleteMateriConfirm] = useState<Subject | null>(null);
@@ -7470,6 +7471,35 @@ export default function DashboardGuru({
                   nama: loggedInTeacher.nama,
                   role: 'guru'
                 }}
+              />
+            </div>
+          </div>
+        ) : currentView === 'dokumen' ? (
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+            {/* Header Area with back button */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 shrink-0 flex items-center gap-2">
+              <button 
+                onClick={() => setCurrentView('dashboard')}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                type="button"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-800">Dokumen Akademik Siswa</h2>
+                <p className="text-[9px] text-slate-400 font-medium">Pemantauan dan Verifikasi Berkas Lulus.id</p>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <DokumenAkademik 
+                role="guru"
+                students={students || []}
+                loggedInUser={{
+                  id: loggedInTeacher.id,
+                  nama: loggedInTeacher.nama,
+                  role: 'guru'
+                }}
+                showModal={showModal}
               />
             </div>
           </div>

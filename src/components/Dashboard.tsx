@@ -3580,6 +3580,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
             id: studentObj.id || 'SIS-1001',
             nama: studentObj.nama || 'Fajar Pratama',
             nisn: studentObj.nisn || '0098765432',
+              studentId: studentObj.id || 'SIS-1001',
             role: 'siswa'
           }}
           showModal={showModal}

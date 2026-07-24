@@ -8780,7 +8780,15 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) {
-                                setBookForm(prev => ({ ...prev, filePdf: file.name }));
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  setBookForm(prev => ({
+                                    ...prev,
+                                    filePdf: file.name,
+                                    fileUrl: reader.result as string
+                                  }));
+                                };
+                                reader.readAsDataURL(file);
                               }
                             }}
                             className="hidden"

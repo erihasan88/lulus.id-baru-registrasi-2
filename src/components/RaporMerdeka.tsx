@@ -415,6 +415,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
   const resolvedWaliKelasNip = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.waliKelasNip : waliKelasNip;
   const resolvedWaliKelasSignature = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.waliKelasSignature : waliKelasSignature;
   const resolvedLembagaIdentitas = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.lembagaIdentitas : lembagaIdentitas;
+  const inst = resolvedLembagaIdentitas || {};
   const resolvedTanggalPengesahan = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.tanggalPengesahan : tanggalPengesahan;
   const resolvedTempatPengesahan = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.tempatPengesahan : tempatPengesahan;
 
