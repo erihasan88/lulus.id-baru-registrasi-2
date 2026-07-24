@@ -9,18 +9,86 @@ import dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
-const PORT = 3001;
+const PORT = Number(process.env.PORT) || 3000;
 const app = express();
 
 app.use(express.json());
 
 const uploadRoot = path.join(process.cwd(), 'uploads');
+const docsFolder = path.join(uploadRoot, 'documents');
 
 if (!fs.existsSync(uploadRoot)) {
   fs.mkdirSync(uploadRoot, { recursive: true });
 }
+if (!fs.existsSync(docsFolder)) {
+  fs.mkdirSync(docsFolder, { recursive: true });
+}
 
-app.use('/uploads', express.static(uploadRoot));
+// Ensure sample PDF files exist for seed documents
+const samplePdfFiles = [
+  'ijazah_paket_c_fajar.pdf',
+  'transkrip_nilai_c_fajar.pdf',
+  'skl_paket_c_fajar.pdf',
+  'sertifikat_komputer_fajar.pdf',
+  'piagam_penghargaan_fajar.pdf'
+];
+
+const MINIMAL_SAMPLE_PDF = `%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 612 792] /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Length 170 >>
+stream
+BT
+/F1 16 Tf
+50 720 Td
+(DOKUMEN AKADEMIK RESMI PKBM AGRABINTA) Tj
+0 -30 Td
+/F1 12 Tf
+(Lulus.id - Verifikasi Dokumen Digital Kesetaraan) Tj
+0 -40 Td
+(Dokumen ini adalah contoh berkas resmi terverifikasi.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000249 00000 n 
+0000000328 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+548
+%%EOF`;
+
+for (const sampleName of samplePdfFiles) {
+  const samplePath = path.join(docsFolder, sampleName);
+  if (!fs.existsSync(samplePath)) {
+    fs.writeFileSync(samplePath, MINIMAL_SAMPLE_PDF);
+  }
+}
+
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('X-Frame-Options', 'ALLOWALL');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  next();
+}, express.static(uploadRoot));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -118,12 +186,167 @@ app.post('/api/documents/upload', upload.single('file'), (req: Request, res: Res
 
 const documentDB = path.join(process.cwd(), 'data', 'documents.json');
 
+const SEED_DOCUMENTS = [
+  {
+    id: 'DOC-001',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Ijazah',
+    documentNumber: 'DN-01/C/0098765432/2026',
+    verificationCode: 'IJZ-2026-H8K2P9',
+    issueDate: '2026-06-20',
+    title: 'Ijazah Pendidikan Kesetaraan Paket C',
+    description: 'Ijazah Kelulusan Jenjang Menengah Atas Paket C Fajar Pratama.',
+    file: 'ijazah_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-06-25T08:00:00.000Z',
+    updatedAt: '2026-06-25T08:00:00.000Z',
+    downloads: 12,
+    views: 45
+  },
+  {
+    id: 'DOC-002',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Transkrip Nilai',
+    documentNumber: 'TR-01/C/0098765432/2026',
+    verificationCode: 'TRK-2026-Y4M7V3',
+    issueDate: '2026-06-20',
+    title: 'Transkrip Nilai Hasil Belajar Kumulatif',
+    description: 'Daftar nilai pencapaian hasil belajar seluruh mata pelajaran Paket C.',
+    file: 'transkrip_nilai_c_fajar.pdf',
+    fileUrl: '/uploads/documents/transkrip_nilai_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-06-25T08:15:00.000Z',
+    updatedAt: '2026-06-25T08:15:00.000Z',
+    downloads: 8,
+    views: 32
+  },
+  {
+    id: 'DOC-003',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'SKL',
+    documentNumber: 'SKL-01/PKBM-AGR/VI/2026',
+    verificationCode: 'SKL-2026-X9N5J1',
+    issueDate: '2026-05-15',
+    title: 'Surat Keterangan Lulus (SKL) Sementara',
+    description: 'Surat keterangan kelulusan sementara sebelum ijazah fisik terbit.',
+    file: 'skl_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/skl_paket_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-05-16T10:00:00.000Z',
+    updatedAt: '2026-05-16T10:00:00.000Z',
+    downloads: 15,
+    views: 52
+  },
+  {
+    id: 'DOC-004',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Sertifikat',
+    documentNumber: 'CERT-041/COMP/2026',
+    verificationCode: 'CRT-2026-F2W6Q8',
+    issueDate: '2026-03-10',
+    title: 'Sertifikat Pelatihan Literasi Digital & Komputer',
+    description: 'Sertifikat keahlian pengoperasian aplikasi perkantoran.',
+    file: 'sertifikat_komputer_fajar.pdf',
+    fileUrl: '/uploads/documents/sertifikat_komputer_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-03-12T09:00:00.000Z',
+    updatedAt: '2026-03-12T09:00:00.000Z',
+    downloads: 5,
+    views: 28
+  },
+  {
+    id: 'DOC-005',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Piagam',
+    documentNumber: 'PGM-012/LKT/2026',
+    verificationCode: 'DOC-2026-P8X3R1',
+    issueDate: '2026-02-18',
+    title: 'Piagam Penghargaan Juara 1 Lomba Karya Tulis',
+    description: 'Piagam penghargaan karya tulis ilmiah kesetaraan tingkat kabupaten.',
+    file: 'piagam_penghargaan_fajar.pdf',
+    fileUrl: '/uploads/documents/piagam_penghargaan_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1567427017947-545c5f8d16ad?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-02-20T11:00:00.000Z',
+    updatedAt: '2026-02-20T11:00:00.000Z',
+    downloads: 3,
+    views: 19
+  }
+];
+
 function readDocuments() {
-  if (!fs.existsSync(documentDB)) {
-    fs.writeFileSync(documentDB, '[]');
+  const dir = path.dirname(documentDB);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 
-  return JSON.parse(fs.readFileSync(documentDB, 'utf-8'));
+  if (!fs.existsSync(documentDB)) {
+    fs.writeFileSync(documentDB, JSON.stringify(SEED_DOCUMENTS, null, 2));
+    return SEED_DOCUMENTS;
+  }
+
+  try {
+    const raw = fs.readFileSync(documentDB, 'utf-8');
+    const documents = JSON.parse(raw);
+    if (!Array.isArray(documents)) {
+      fs.writeFileSync(documentDB, JSON.stringify(SEED_DOCUMENTS, null, 2));
+      return SEED_DOCUMENTS;
+    }
+
+    // Ensure seed documents exist if missing
+    let updated = false;
+    const existingIds = new Set(documents.map((d: any) => d.id));
+    for (const seedDoc of SEED_DOCUMENTS) {
+      if (!existingIds.has(seedDoc.id)) {
+        documents.push(seedDoc);
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      fs.writeFileSync(documentDB, JSON.stringify(documents, null, 2));
+    }
+
+    return documents;
+  } catch (e) {
+    fs.writeFileSync(documentDB, JSON.stringify(SEED_DOCUMENTS, null, 2));
+    return SEED_DOCUMENTS;
+  }
 }
 
 function saveDocuments(data: any[]) {

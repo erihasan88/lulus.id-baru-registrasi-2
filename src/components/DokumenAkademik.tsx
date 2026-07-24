@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { AcademicDocument, Student, Role } from '../types';
+import PdfCanvasViewer from './PdfCanvasViewer';
 
 const safeSrc = (src: string) => {
   if (!src) return '';
@@ -132,6 +133,7 @@ const DEFAULT_DOCUMENTS: AcademicDocument[] = [
     title: 'Ijazah Pendidikan Kesetaraan Paket C',
     description: 'Ijazah Kelulusan Jenjang Menengah Atas Paket C Fajar Pratama.',
     file: 'ijazah_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
     thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
     status: 'Publish',
     uploadedBy: 'Administrator',
@@ -155,6 +157,7 @@ const DEFAULT_DOCUMENTS: AcademicDocument[] = [
     title: 'Transkrip Nilai Hasil Belajar Kumulatif',
     description: 'Daftar nilai pencapaian hasil belajar seluruh mata pelajaran Paket C.',
     file: 'transkrip_nilai_c_fajar.pdf',
+    fileUrl: '/uploads/documents/transkrip_nilai_c_fajar.pdf',
     thumbnail: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
     status: 'Publish',
     uploadedBy: 'Administrator',
@@ -178,6 +181,7 @@ const DEFAULT_DOCUMENTS: AcademicDocument[] = [
     title: 'Surat Keterangan Lulus (SKL) Sementara',
     description: 'Surat keterangan kelulusan sementara sebelum ijazah fisik terbit.',
     file: 'skl_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/skl_paket_c_fajar.pdf',
     thumbnail: 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
     status: 'Publish',
     uploadedBy: 'Administrator',
@@ -201,6 +205,7 @@ const DEFAULT_DOCUMENTS: AcademicDocument[] = [
     title: 'Sertifikat Kompetensi Digital',
     description: 'Sertifikat kelulusan uji kecakapan komputer dan literasi digital.',
     file: 'sertifikat_komputer_fajar.pdf',
+    fileUrl: '/uploads/documents/sertifikat_komputer_fajar.pdf',
     thumbnail: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
     status: 'Publish',
     uploadedBy: 'Administrator',
@@ -224,6 +229,7 @@ const DEFAULT_DOCUMENTS: AcademicDocument[] = [
     title: 'Ijazah Pendidikan Kesetaraan Paket B',
     description: 'Ijazah Kelulusan Jenjang Menengah Pertama Paket B Siti Aminah.',
     file: 'ijazah_paket_b_siti.pdf',
+    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
     thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
     status: 'Publish',
     uploadedBy: 'Administrator',
@@ -296,6 +302,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
     const [pdfFullscreen, setPdfFullscreen] = useState(false);
     const [pdfSearchQuery, setPdfSearchQuery] = useState('');
     const [zoomScale, setZoomScale] = useState(1);
+    const pdfContainerRef = useRef<HTMLDivElement>(null);
     const [downloadLogs, setDownloadLogs] = useState<any[]>(() => {
       const saved = localStorage.getItem('studentDocuments');
       if (saved) {
@@ -319,6 +326,10 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
         setFormNisn(student.nisn || '');
         setFormProgram(student.program || '');
         setFormKelas(student.kelas || '');
+      } else if (studentId === 'SIS-1001') {
+        setFormNisn('0098765432');
+        setFormProgram('Paket C');
+        setFormKelas('Kelas XII - Paket C');
       } else {
         setFormNisn('');
         setFormProgram('');
@@ -349,7 +360,8 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
 
   const loadDocuments = async () => {
     try {
-      const endpoint = role === 'siswa'
+      const isStudent = (role === 'siswa' || (role as string) === 'student') && (loggedInUser.studentId || loggedInUser.id);
+      const endpoint = isStudent
         ? `/api/documents/student/${loggedInUser.studentId || loggedInUser.id}`
         : '/api/documents';
 
@@ -362,16 +374,37 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       const data = await response.json();
 
       if (Array.isArray(data)) {
-        setDocuments(data);
+        if (data.length === 0 && role === 'admin') {
+          // Seed default mock documents if backend storage is initially empty
+          for (const doc of DEFAULT_DOCUMENTS) {
+            await fetch('/api/documents', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(doc)
+            }).catch(() => {});
+          }
+          const retryRes = await fetch(endpoint);
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            if (Array.isArray(retryData)) {
+              setDocuments(retryData);
+              return;
+            }
+          }
+          setDocuments(DEFAULT_DOCUMENTS);
+        } else {
+          setDocuments(data);
+        }
       }
     } catch (err) {
-      console.error('Load documents:', err);
+      console.error('Load documents error:', err);
+      setDocuments(DEFAULT_DOCUMENTS);
     }
   };
 
-    useEffect(() => {
-      loadDocuments();
-    }, [role]);
+  useEffect(() => {
+    loadDocuments();
+  }, [role, loggedInUser.id, loggedInUser.studentId]);
 
 
   const handleCreateDocument = async (e: React.FormEvent) => {
@@ -381,14 +414,21 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       return;
     }
 
-      if (!formFileUrl) {
-        showModal(
-          'Upload Belum Selesai',
-          'Tunggu hingga proses upload PDF selesai sebelum menyimpan dokumen.',
-          'warning'
-        );
+    let finalFileUrl = formFileUrl;
+    if (formFilePdf && !finalFileUrl) {
+      try {
+        finalFileUrl = await uploadDocumentFile(formFilePdf);
+        setFormFileUrl(finalFileUrl);
+      } catch (uploadErr: any) {
+        showModal('Upload PDF Gagal', uploadErr.message || 'Gagal mengunggah berkas PDF.', 'warning');
         return;
       }
+    }
+
+    if (!finalFileUrl) {
+      showModal('Berkas PDF Belum Ada', 'Silakan pilih dan unggah berkas PDF terlebih dahulu.', 'warning');
+      return;
+    }
 
     const studentName = students.find(s => s.id === formStudentId)?.nama || (formStudentId === 'SIS-1001' ? 'Fajar Pratama' : 'Siswa');
 
@@ -407,7 +447,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       title: formTitle,
       description: formDescription,
       file: formFilePdf ? formFilePdf.name : (formFileName || `${formTitle.toLowerCase().replace(/\s+/g, '_')}.pdf`),
-      fileUrl: formFileUrl,
+      fileUrl: finalFileUrl,
       thumbnail: formThumbnail || 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
       status: formStatus,
       uploadedBy: loggedInUser.nama || 'Administrator',
@@ -417,6 +457,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       views: 0
     };
 
+    try {
       const response = await fetch('/api/documents', {
         method: 'POST',
         headers: {
@@ -429,11 +470,20 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
         throw new Error('Gagal menyimpan metadata dokumen');
       }
 
+      // Reset filters and search so newly created document is immediately visible
+      setSearchQuery('');
+      setFilterType('all');
+      setFilterStatus('all');
+      setFilterYear('all');
+
       await loadDocuments();
 
       showModal('Berhasil', 'Dokumen akademik berhasil ditambahkan dan disimpan.', 'success');
       resetForm();
       setViewState('list');
+    } catch (err: any) {
+      showModal('Gagal', err.message || 'Gagal menyimpan dokumen', 'warning');
+    }
   };
 
   const handleUpdateDocument = async (e: React.FormEvent) => {
@@ -444,40 +494,47 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       return;
     }
 
+    let finalFileUrl = formFileUrl;
+    if (formFilePdf) {
+      try {
+        finalFileUrl = await uploadDocumentFile(formFilePdf);
+        setFormFileUrl(finalFileUrl);
+      } catch (uploadErr: any) {
+        showModal('Upload PDF Gagal', uploadErr.message || 'Gagal mengunggah berkas PDF.', 'warning');
+        return;
+      }
+    }
+
     const studentName = students.find(s => s.id === formStudentId)?.nama || selectedDoc.studentName;
 
-    const updated = documents.map(doc => {
-      if (doc.id === selectedDoc.id) {
-        return {
-          ...doc,
-          studentId: formStudentId,
-          studentName,
-          nisn: formNisn,
-          program: formProgram,
-          kelas: formKelas,
-          tahunLulus: formTahunLulus,
-          documentType: formDocType as any,
-          documentNumber: formDocNumber,
-          verificationCode: doc.verificationCode || generateDocVerificationCode(formDocType, formTahunLulus),
-          issueDate: formIssueDate,
-          title: formTitle,
-          description: formDescription,
-          file: formFilePdf ? formFilePdf.name : formFileName,
-          fileUrl: formFileUrl || doc.fileUrl,
-          thumbnail: formThumbnail,
-          status: formStatus,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return doc;
-    });
+    const updatedDoc = {
+      ...selectedDoc,
+      studentId: formStudentId,
+      studentName,
+      nisn: formNisn,
+      program: formProgram,
+      kelas: formKelas,
+      tahunLulus: formTahunLulus,
+      documentType: formDocType as any,
+      documentNumber: formDocNumber,
+      verificationCode: selectedDoc.verificationCode || generateDocVerificationCode(formDocType, formTahunLulus),
+      issueDate: formIssueDate,
+      title: formTitle,
+      description: formDescription,
+      file: formFilePdf ? formFilePdf.name : (formFileName || selectedDoc.file),
+      fileUrl: finalFileUrl || selectedDoc.fileUrl,
+      thumbnail: formThumbnail,
+      status: formStatus,
+      updatedAt: new Date().toISOString()
+    };
 
+    try {
       const response = await fetch(`/api/documents/${selectedDoc.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(updated.find(doc => doc.id === selectedDoc.id))
+        body: JSON.stringify(updatedDoc)
       });
 
       if (!response.ok) {
@@ -489,6 +546,9 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
       showModal('Berhasil Diperbarui', 'Dokumen akademik berhasil diperbarui.', 'success');
       resetForm();
       setViewState('list');
+    } catch (err: any) {
+      showModal('Gagal', err.message || 'Gagal memperbarui dokumen', 'warning');
+    }
   };
 
   const handleDeleteDocument = async (id: string) => {
@@ -527,6 +587,39 @@ const resetForm = () => {
     setFormFilePdf(null);
     setFormFileName('');
     setFormThumbnail('');
+  };
+
+  const initEditForm = (doc: AcademicDocument) => {
+    setSelectedDoc(doc);
+    const studentId = doc.studentId || '';
+    setFormStudentId(studentId);
+    
+    const student = students.find(s => s.id === studentId);
+    if (student) {
+      setFormNisn(student.nisn || doc.nisn || '');
+      setFormProgram(student.program || doc.program || '');
+      setFormKelas(student.kelas || doc.kelas || '');
+    } else if (studentId === 'SIS-1001') {
+      setFormNisn(doc.nisn || '0098765432');
+      setFormProgram(doc.program || 'Paket C');
+      setFormKelas(doc.kelas || 'Kelas XII - Paket C');
+    } else {
+      setFormNisn(doc.nisn || '');
+      setFormProgram(doc.program || '');
+      setFormKelas(doc.kelas || '');
+    }
+
+    setFormTahunLulus(doc.tahunLulus || '2026');
+    setFormDocType(doc.documentType || 'Ijazah');
+    setFormDocNumber(doc.documentNumber || '');
+    setFormTitle(doc.title || '');
+    setFormIssueDate(doc.issueDate || '');
+    setFormDescription(doc.description || '');
+    setFormStatus(doc.status || 'Publish');
+    setFormThumbnail(doc.thumbnail || '');
+    setFormFileUrl(doc.fileUrl || '');
+    setFormFileName(doc.file || '');
+    setViewState('edit');
   };
 
   // --- STUDENT RECORD TRACKING & STATS ---
@@ -591,6 +684,11 @@ const resetForm = () => {
   };
 
   const handleOpenPdfViewer = (doc: AcademicDocument) => {
+    console.log("OPEN PDF DOC:", { id: doc.id, title: doc.title, fileUrl: doc.fileUrl }, doc);
+    if (!doc.fileUrl) {
+      showModal('File PDF Belum Tersedia', 'Dokumen ini tidak memiliki berkas PDF yang dapat ditampilkan.', 'warning');
+      return;
+    }
     setSelectedDoc(doc);
     trackView(doc);
     setZoomScale(1);
@@ -633,7 +731,7 @@ const resetForm = () => {
 
   // Student stats (Fajar Pratama): Total Dokumen, Dokumen Terbaru, Dokumen Sudah Diunduh
   const studentIdForFilter = loggedInUser.studentId || loggedInUser.id || 'SIS-1001';
-  const myDocs = documents.filter(d => d.studentId === studentIdForFilter && d.status === 'Publish');
+  const myDocs = documents.filter(d => (d.studentId === studentIdForFilter || (loggedInUser.nisn && d.nisn === loggedInUser.nisn)) && d.status === 'Publish');
   const myDownloadedCount = Array.from(new Set(downloadLogs.filter(l => l.studentId === studentIdForFilter).map(l => l.docId))).length;
   const myLatestDoc = myDocs.length > 0 ? myDocs[0].title : 'Belum Ada';
 
@@ -648,17 +746,17 @@ const resetForm = () => {
     let result = [...documents];
 
     // Siswa only sees their own PUBLISHED documents
-    if (role === 'siswa') {
-      result = result.filter(d => d.studentId === studentIdForFilter && d.status === 'Publish');
+    if (role === 'siswa' || (role as string) === 'student') {
+      result = result.filter(d => (d.studentId === studentIdForFilter || (loggedInUser.nisn && d.nisn === loggedInUser.nisn)) && d.status === 'Publish');
     }
 
     // Search query: title, documentNumber, studentName, nisn
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(d => 
-        d.title.toLowerCase().includes(q) ||
-        d.documentNumber.toLowerCase().includes(q) ||
-        d.studentName.toLowerCase().includes(q) ||
+        (d.title || '').toLowerCase().includes(q) ||
+        (d.documentNumber || '').toLowerCase().includes(q) ||
+        (d.studentName || '').toLowerCase().includes(q) ||
         (d.nisn || '').toLowerCase().includes(q)
       );
     }
@@ -669,7 +767,7 @@ const resetForm = () => {
     }
 
     // Filter by status (Admin / Guru only)
-    if (role !== 'siswa' && filterStatus !== 'all') {
+    if (role !== 'siswa' && (role as string) !== 'student' && filterStatus !== 'all') {
       result = result.filter(d => d.status === filterStatus);
     }
 
@@ -687,105 +785,117 @@ const resetForm = () => {
   const yearsList = Array.from(new Set<string>(documents.map(d => d.tahunLulus || ''))).filter(Boolean).sort((a: string, b: string) => b.localeCompare(a));
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden text-[11px] h-full">
+    <div className="flex-1 flex flex-col bg-slate-50/60 overflow-hidden text-xs h-full">
       
       {/* 1. TOP HEADER PANEL */}
-      <div className="bg-white px-5 py-3 border-b border-slate-150 shrink-0">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div className="bg-white px-6 py-5 border-b border-slate-200/80 shrink-0 shadow-2xs">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h1 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-rose-600" />
-              Pusat Dokumen Akademik
-            </h1>
-            <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
-              "Semua dokumen resmi akademik Anda dalam satu tempat"
-            </p>
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-rose-50 text-rose-600 rounded-xl border border-rose-100">
+                <Award className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+                  Pusat Dokumen Akademik
+                </h1>
+                <p className="text-xs text-slate-500 font-medium">
+                  Pengelolaan, Penerbitan &amp; Verifikasi Legalisir Berkas Resmi
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* Compact Mini Stats Row */}
-          <div className="flex flex-wrap items-center gap-2.5 text-[9px] font-bold">
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/60 px-2.5 py-1 rounded-xl shadow-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
-              <div>
-                <span className="text-slate-400 block font-extrabold uppercase text-[7px] tracking-wider">Total Dokumen</span>
-                <span className="text-slate-800 font-black text-[10.5px] block leading-none mt-0.5">
-                  {role === 'siswa' ? studentStats.total : adminStats.total} Berkas
-                </span>
-              </div>
-            </div>
+          {/* Admin Upload Trigger CTA */}
+          {role === 'admin' && viewState === 'list' && (
+            <button
+              onClick={() => setViewState('add')}
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-2 shadow-xs hover:shadow transition-all duration-200 cursor-pointer self-start lg:self-auto"
+            >
+              <Plus className="w-4 h-4" />
+              Unggah Dokumen Baru
+            </button>
+          )}
+        </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/60 px-2.5 py-1 rounded-xl shadow-xs max-w-[150px] sm:max-w-[180px]">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></div>
-              <div className="min-w-0">
-                <span className="text-slate-400 block font-extrabold uppercase text-[7px] tracking-wider">Terbaru</span>
-                <span className="text-slate-800 font-black text-[9.5px] block truncate leading-none mt-0.5" title={role === 'siswa' ? studentStats.latest : (filteredDocs[0]?.title || 'Belum Ada')}>
-                  {role === 'siswa' ? studentStats.latest : (filteredDocs[0]?.title || 'Belum Ada')}
-                </span>
-              </div>
+        {/* Professional Stats Cards Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3">
+            <div className="p-2.5 bg-slate-200/70 text-slate-700 rounded-xl shrink-0">
+              <FileText className="w-4 h-4" />
             </div>
-
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/60 px-2.5 py-1 rounded-xl shadow-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
-              <div>
-                <span className="text-slate-400 block font-extrabold uppercase text-[7px] tracking-wider">Dokumen Resmi</span>
-                <span className="text-slate-800 font-black text-[10.5px] block leading-none mt-0.5">
-                  {role === 'siswa' ? studentStats.total : adminStats.publish} Berkas
-                </span>
-              </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Dokumen</span>
+              <span className="text-sm font-bold text-slate-900 block leading-tight mt-0.5">
+                {role === 'siswa' ? studentStats.total : adminStats.total} Berkas
+              </span>
             </div>
+          </div>
 
-            {/* Admin Upload Trigger inline with stats */}
-            {role === 'admin' && viewState === 'list' && (
-              <button
-                onClick={() => setViewState('add')}
-                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-[9px] flex items-center justify-center gap-1 shadow-xs transition-all duration-200 cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                Unggah Baru
-              </button>
-            )}
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3">
+            <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-xl shrink-0">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Dokumen Resmi</span>
+              <span className="text-sm font-bold text-slate-900 block leading-tight mt-0.5">
+                {role === 'siswa' ? studentStats.total : adminStats.publish} Terbit
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3 col-span-2 sm:col-span-1">
+            <div className="p-2.5 bg-blue-100 text-blue-700 rounded-xl shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Terbaru</span>
+              <span className="text-xs font-bold text-slate-800 truncate block mt-0.5" title={role === 'siswa' ? studentStats.latest : (filteredDocs[0]?.title || 'Belum Ada')}>
+                {role === 'siswa' ? studentStats.latest : (filteredDocs[0]?.title || 'Belum Ada')}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3 hidden lg:flex">
+            <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Sistem Verifikasi</span>
+              <span className="text-xs font-bold text-emerald-600 block mt-0.5">
+                QR Code Aktif
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* 2. CONTENT AREA */}
-      <div className="flex-1 p-4 overflow-hidden flex flex-col">
-
-        {role === 'guru' && (
-          <div className="mb-3.5 p-3 bg-amber-50/80 border border-amber-200 rounded-2xl flex items-center gap-2.5 text-[9.5px] text-amber-800 font-semibold shrink-0">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <div>
-              <span className="font-extrabold text-amber-900 block uppercase">Mode Lihat-Saja (Read-Only)</span>
-              <p className="font-medium text-[8.5px] leading-relaxed">
-                Anda login sebagai Guru. Sesuai kebijakan Lulus.id, Anda hanya diperkenankan memantau dokumen akademik resmi siswa. Seluruh fitur tambah, ubah, dan hapus berkas dinonaktifkan dan hanya dapat dioperasikan oleh Administrator.
-              </p>
-            </div>
-          </div>
-        )}
+      <div className="flex-1 p-5 overflow-hidden flex flex-col">
 
         {/* VIEW: MAIN LIST OF DOCUMENTS */}
         {viewState === 'list' && (
-          <div className="flex-1 bg-white rounded-2xl border border-slate-150 shadow-xs flex flex-col overflow-hidden">
+          <div className="flex-1 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col overflow-hidden">
             
-            {/* Search & Category Filter Bar */}
-            <div className="p-3 bg-slate-50/50 border-b border-slate-150 flex flex-col gap-2 shrink-0">
+            {/* Search & Category Filter Toolbar */}
+            <div className="p-4 bg-slate-50/60 border-b border-slate-200/80 flex flex-col gap-3 shrink-0">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 
                 {/* Left: Category pills (Filter) */}
-                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-                  <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider hidden md:inline mr-1">Filter:</span>
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider hidden md:inline mr-1 shrink-0">Filter:</span>
                   <div className="flex items-center gap-1.5">
-                    {['all', 'Ijazah', 'SKL', 'Sertifikat', 'Piagam', 'Surat Keterangan'].map((cat) => {
+                    {['all', ...categories].map((cat) => {
                       const label = cat === 'all' ? 'Semua' : cat;
                       const isActive = filterType === cat;
                       return (
                         <button
                           key={cat}
                           onClick={() => setFilterType(cat)}
-                          className={`px-3 py-1 rounded-full text-[9px] font-black transition-all whitespace-nowrap cursor-pointer ${
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
                             isActive
-                              ? 'bg-rose-600 text-white shadow-xs'
-                              : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'
+                              ? 'bg-slate-900 text-white shadow-xs'
+                              : 'bg-white hover:bg-slate-200/70 text-slate-600 border border-slate-200'
                           }`}
                         >
                           {label}
@@ -795,33 +905,41 @@ const resetForm = () => {
                   </div>
                 </div>
 
-                {/* Right: Search Input (Compact) */}
-                <div className="relative w-full md:w-60">
-                  <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-2.5" />
+                {/* Right: Search Input */}
+                <div className="relative w-full md:w-64 shrink-0">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
-                    placeholder="Cari dokumen..."
+                    placeholder="Cari nama, NISN, atau judul..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-2.5 py-1.5 text-[9.5px] font-semibold rounded-xl border border-slate-200 focus:outline-none focus:border-rose-500 bg-white placeholder:text-slate-400 text-slate-700 shadow-xs"
+                    className="w-full pl-9 pr-8 py-2 text-xs font-medium rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 bg-white placeholder:text-slate-400 text-slate-800 shadow-2xs transition-all"
                   />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Advanced filters line (Admin, Guru, or if searching) */}
+              {/* Additional Options Row (Status & Graduation Year) */}
               {(role !== 'siswa' || filterYear !== 'all') && (
-                <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-slate-100">
-                  <span className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wider">Opsi Tambahan:</span>
+                <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-200/60">
+                  <span className="text-[11px] text-slate-500 font-semibold">Filter Tambahan:</span>
                   
                   {/* Status Filter (Admin & Guru Only) */}
                   {role !== 'siswa' && (
                     <select
                       value={filterStatus}
                       onChange={(e) => setFilterStatus(e.target.value)}
-                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[9px] font-bold text-slate-600 focus:outline-none focus:border-rose-500 cursor-pointer shadow-xs"
+                      className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:border-rose-500 cursor-pointer shadow-2xs"
                     >
                       <option value="all">Semua Status</option>
-                      <option value="Publish">Resmi</option>
+                      <option value="Publish">Resmi (Publish)</option>
                       <option value="Draft">Draft</option>
                       <option value="Dicabut">Dicabut</option>
                       <option value="Diganti">Diganti</option>
@@ -832,9 +950,9 @@ const resetForm = () => {
                   <select
                     value={filterYear}
                     onChange={(e) => setFilterYear(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[9px] font-bold text-slate-600 focus:outline-none focus:border-rose-500 cursor-pointer shadow-xs"
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:border-rose-500 cursor-pointer shadow-2xs"
                   >
-                    <option value="all">Semua Tahun</option>
+                    <option value="all">Semua Tahun Lulus</option>
                     {yearsList.map(yr => (
                       <option key={yr} value={yr}>Tahun {yr}</option>
                     ))}
@@ -849,128 +967,139 @@ const resetForm = () => {
                         setFilterStatus('all');
                         setFilterYear('all');
                       }}
-                      className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold text-[8.5px] transition-colors cursor-pointer"
+                      className="px-3 py-1.5 bg-slate-200/70 hover:bg-slate-300/70 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
                     >
-                      Atur Ulang
+                      Atur Ulang Filter
                     </button>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Documents content - Compact Grid layout */}
-            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/30">
+            {/* Documents Content Area */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/40">
               {filteredDocs.length === 0 ? (
-                <div className="h-64 flex flex-col items-center justify-center text-center text-slate-400 space-y-2">
-                  <div className="w-12 h-12 bg-white rounded-full border border-slate-150 flex items-center justify-center shadow-xs">
-                    <FileText className="w-5 h-5 text-slate-300 stroke-[1.5]" />
+                <div className="h-64 flex flex-col items-center justify-center text-center text-slate-400 space-y-3">
+                  <div className="w-14 h-14 bg-white rounded-2xl border border-slate-200 flex items-center justify-center shadow-2xs">
+                    <FileText className="w-6 h-6 text-slate-300" />
                   </div>
-                  <div className="font-extrabold text-slate-700 text-xs">Belum ada dokumen akademik</div>
-                  <div className="text-[9.5px] text-slate-400 font-semibold max-w-xs leading-normal">
-                    Dokumen yang diterbitkan lembaga akan muncul di sini.
+                  <div>
+                    <div className="font-bold text-slate-700 text-sm">Tidak Ada Dokumen Akademik</div>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5 max-w-xs">
+                      Dokumen tidak ditemukan atau belum ada berkas yang diunggah.
+                    </p>
                   </div>
                 </div>
               ) : (
-                /* COMPACT TABLE FOR ADMIN & GURU, CARDS FOR STUDENTS */
+                /* PROFESSIONAL TABLE FOR ADMIN & GURU */
                 role !== 'siswa' ? (
-                  <div className="bg-white border border-slate-200/85 rounded-xl overflow-hidden shadow-xs">
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 text-[9px] font-black uppercase tracking-wider">
-                            <th className="px-3 py-2">No. Dokumen & Judul</th>
-                            <th className="px-3 py-2">Tipe & Kategori</th>
-                            <th className="px-3 py-2">Pemilik / Siswa</th>
-                            <th className="px-3 py-2">Tanggal Terbit</th>
-                            <th className="px-3 py-2 text-center">Status</th>
-                            <th className="px-3 py-2 text-right">Aksi</th>
+                          <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                            <th className="px-4 py-3.5">Dokumen &amp; No. Seri</th>
+                            <th className="px-4 py-3.5">Kategori</th>
+                            <th className="px-4 py-3.5">Pemilik / Siswa</th>
+                            <th className="px-4 py-3.5">Tanggal Terbit</th>
+                            <th className="px-4 py-3.5 text-center">Status</th>
+                            <th className="px-4 py-3.5 text-right">Aksi</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 text-[10px] font-semibold text-slate-600">
+                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700 font-medium">
                           {filteredDocs.map((doc) => (
-                            <tr key={doc.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-3 py-2">
-                                <span className="font-extrabold text-slate-800 block leading-tight">{doc.title}</span>
-                                <code className="text-[8px] text-slate-400 font-mono block mt-0.5">No: {doc.documentNumber}</code>
+                            <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="px-4 py-3.5">
+                                <span 
+                                  onClick={() => handleOpenPdfViewer(doc)}
+                                  className="font-bold text-slate-900 block leading-snug hover:text-rose-600 transition-colors cursor-pointer text-xs"
+                                >
+                                  {doc.title}
+                                </span>
+                                <span className="inline-block text-[10px] font-mono font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/60 mt-1">
+                                  No: {doc.documentNumber}
+                                </span>
                               </td>
-                              <td className="px-3 py-2">
-                                <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-slate-50 text-slate-600 border border-slate-200/60 uppercase">
+                              <td className="px-4 py-3.5">
+                                <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/60 uppercase tracking-wide">
                                   {doc.documentType}
                                 </span>
                               </td>
-                              <td className="px-3 py-2">
-                                <span className="font-black text-slate-800 block leading-tight">{doc.studentName}</span>
-                                <span className="text-[8px] text-slate-400 block font-bold mt-0.5">NISN: {doc.nisn} • {doc.kelas}</span>
+                              <td className="px-4 py-3.5">
+                                <span className="font-bold text-slate-900 block leading-tight">{doc.studentName}</span>
+                                <span className="text-[11px] text-slate-500 font-medium block mt-0.5">NISN: {doc.nisn} • {doc.kelas}</span>
                               </td>
-                              <td className="px-3 py-2 text-slate-400 text-[9px]">
+                              <td className="px-4 py-3.5 text-slate-600 font-medium text-xs">
                                 {doc.issueDate}
                               </td>
-                              <td className="px-3 py-2 text-center">
-                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase inline-block ${
+                              <td className="px-4 py-3.5 text-center">
+                                <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1 ${
                                   doc.status === 'Publish' 
-                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-150/20'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
                                     : doc.status === 'Draft'
-                                    ? 'bg-amber-50 text-amber-600 border border-amber-150/20'
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200/80'
                                     : doc.status === 'Dicabut'
-                                    ? 'bg-red-50 text-red-600 border border-red-150/20'
-                                    : 'bg-pink-50 text-pink-600 border border-pink-150/20'
+                                    ? 'bg-red-50 text-red-700 border border-red-200/80'
+                                    : 'bg-pink-50 text-pink-700 border border-pink-200/80'
                                 }`}>
                                   {doc.status === 'Publish' ? '✓ Resmi' : doc.status}
                                 </span>
                               </td>
-                              <td className="px-3 py-2 text-right">
+                              <td className="px-4 py-3.5 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     onClick={() => handleOpenPdfViewer(doc)}
-                                    className="px-2 py-0.5 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded border border-slate-200 text-[8.5px] font-black cursor-pointer transition-all flex items-center gap-0.5"
+                                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl border border-slate-200 text-xs font-semibold cursor-pointer transition-all flex items-center gap-1 shadow-2xs"
                                     title="Pratinjau Dokumen"
                                   >
-                                    <Eye className="w-2.5 h-2.5" /> Lihat
+                                    <Eye className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Lihat</span>
                                   </button>
                                   
                                   <button
                                     onClick={() => handleDownload(doc)}
-                                    className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[8.5px] font-black shadow-xs cursor-pointer transition-all flex items-center gap-0.5"
+                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/70 rounded-xl text-xs font-semibold cursor-pointer transition-all flex items-center gap-1"
                                     title="Unduh PDF"
                                   >
-                                    <Download className="w-2.5 h-2.5" /> Unduh
+                                    <Download className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Unduh</span>
                                   </button>
 
-                                  {/* Share Menu with Inline Dropdown */}
+                                  {/* Share Menu */}
                                   <div className="relative">
                                     <button
                                       onClick={() => setShowShareId(showShareId === doc.id ? null : doc.id)}
-                                      className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded border border-slate-200 transition-all flex items-center justify-center cursor-pointer"
+                                      className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 transition-all flex items-center justify-center cursor-pointer"
                                       title="Bagikan"
                                     >
-                                      <Share2 className="w-3 h-3" />
+                                      <Share2 className="w-3.5 h-3.5" />
                                     </button>
 
                                     {showShareId === doc.id && (
-                                      <div className="absolute bottom-full mb-2 right-0 bg-white border border-slate-200 rounded-xl shadow-lg p-2 flex flex-col gap-1 z-30 w-36 text-left animate-fade-in">
-                                        <div className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider px-2 py-0.5">Kanal Bagikan</div>
+                                      <div className="absolute bottom-full mb-2 right-0 bg-white border border-slate-200 rounded-xl shadow-xl p-2 flex flex-col gap-1 z-30 w-40 text-left animate-fade-in">
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-0.5">Kanal Bagikan</div>
                                         <button
                                           type="button"
                                           onClick={() => copyShareLink(doc)}
-                                          className="w-full text-left px-2 py-1.5 hover:bg-slate-50 rounded-lg text-[9px] font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer"
+                                          className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-700 flex items-center gap-2 cursor-pointer"
                                         >
-                                          <Copy className="w-3 h-3 text-slate-400" />
+                                          <Copy className="w-3.5 h-3.5 text-slate-400" />
                                           Salin Link
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => shareWhatsApp(doc)}
-                                          className="w-full text-left px-2 py-1.5 hover:bg-emerald-50 rounded-lg text-[9px] font-bold text-emerald-700 flex items-center gap-1.5 cursor-pointer"
+                                          className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 rounded-lg text-xs font-semibold text-emerald-700 flex items-center gap-2 cursor-pointer"
                                         >
-                                          <Send className="w-3 h-3 text-emerald-500" />
+                                          <Send className="w-3.5 h-3.5 text-emerald-500" />
                                           WhatsApp
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => shareEmail(doc)}
-                                          className="w-full text-left px-2 py-1.5 hover:bg-blue-50 rounded-lg text-[9px] font-bold text-blue-700 flex items-center gap-1.5 cursor-pointer"
+                                          className="w-full text-left px-2.5 py-1.5 hover:bg-blue-50 rounded-lg text-xs font-semibold text-blue-700 flex items-center gap-2 cursor-pointer"
                                         >
-                                          <Mail className="w-3 h-3 text-blue-500" />
+                                          <Mail className="w-3.5 h-3.5 text-blue-500" />
                                           Kirim Email
                                         </button>
                                       </div>
@@ -979,20 +1108,20 @@ const resetForm = () => {
 
                                   {/* Admin Actions */}
                                   {role === 'admin' && (
-                                    <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-150">
+                                    <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
                                       <button
                                         onClick={() => initEditForm(doc)}
-                                        className="p-1 text-blue-600 hover:bg-blue-50 rounded border border-slate-150 transition-colors cursor-pointer"
+                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl border border-slate-200 transition-colors cursor-pointer"
                                         title="Edit"
                                       >
-                                        <Edit className="w-3 h-3" />
+                                        <Edit className="w-3.5 h-3.5" />
                                       </button>
                                       <button
                                         onClick={() => handleDeleteDocument(doc.id)}
-                                        className="p-1 text-red-500 hover:bg-red-50 rounded border border-slate-150 transition-colors cursor-pointer"
+                                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-slate-200 transition-colors cursor-pointer"
                                         title="Hapus"
                                       >
-                                        <Trash2 className="w-3 h-3" />
+                                        <Trash2 className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
                                   )}
@@ -1005,77 +1134,55 @@ const resetForm = () => {
                     </div>
                   </div>
                 ) : (
-                  /* COMPACT CARD GRID FOR STUDENTS */
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                  /* CARD GRID FOR STUDENTS */
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {filteredDocs.map((doc) => (
                       <div 
                         key={doc.id} 
-                        className="bg-white border border-slate-150 rounded-2xl p-3 hover:shadow-md hover:border-rose-400 transition-all duration-300 flex flex-col justify-between h-full relative group shadow-2xs"
+                        className="bg-white border border-slate-200/80 rounded-2xl p-4 hover:shadow-md hover:border-rose-300 transition-all duration-300 flex flex-col justify-between h-full relative group shadow-2xs"
                       >
                         <div>
                           {/* Top layout: Icon + Status */}
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2">
-                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                                doc.documentType === 'Ijazah' ? 'bg-emerald-50 text-emerald-600' :
-                                doc.documentType === 'SKL' ? 'bg-blue-50 text-blue-600' :
-                                doc.documentType === 'Transkrip Nilai' ? 'bg-orange-50 text-orange-600' :
-                                doc.documentType === 'Sertifikat' ? 'bg-pink-50 text-pink-600' :
-                                doc.documentType === 'Piagam' ? 'bg-purple-50 text-purple-600' :
-                                'bg-slate-50 text-slate-600'
+                              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                                doc.documentType === 'Ijazah' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                doc.documentType === 'SKL' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
+                                doc.documentType === 'Transkrip Nilai' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                'bg-slate-100 text-slate-600 border border-slate-200'
                               }`}>
-                                {doc.documentType === 'Ijazah' ? <Award className="w-3.5 h-3.5" /> :
-                                 doc.documentType === 'SKL' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
-                                 doc.documentType === 'Transkrip Nilai' ? <BookOpen className="w-3.5 h-3.5" /> :
-                                 doc.documentType === 'Sertifikat' ? <Sparkles className="w-3.5 h-3.5" /> :
-                                 doc.documentType === 'Piagam' ? <Award className="w-3.5 h-3.5" /> :
-                                 <FileText className="w-3.5 h-3.5" />}
+                                {doc.documentType === 'Ijazah' ? <Award className="w-4 h-4" /> :
+                                 doc.documentType === 'SKL' ? <CheckCircle2 className="w-4 h-4" /> :
+                                 doc.documentType === 'Transkrip Nilai' ? <BookOpen className="w-4 h-4" /> :
+                                 <FileText className="w-4 h-4" />}
                               </div>
                               <div>
-                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                                   {doc.documentType}
                                 </span>
                               </div>
                             </div>
                             
-                            {/* Status Badge */}
-                            <span className={`px-2 py-0.5 rounded-full font-black text-[7.5px] uppercase tracking-wider border ${
-                              doc.status === 'Publish' 
-                                ? 'bg-teal-50 text-teal-700 border-teal-100'
-                                : doc.status === 'Draft'
-                                ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                : doc.status === 'Dicabut'
-                                ? 'bg-red-50 text-red-700 border-red-100'
-                                : 'bg-pink-50 text-pink-700 border-pink-100'
-                            }`}>
-                              {doc.status === 'Publish' ? '✓ Resmi' : doc.status}
+                            <span className="px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                              ✓ Resmi
                             </span>
                           </div>
 
                           {/* Title and details */}
-                          <div className="mt-2.5 space-y-1.5">
-                            <h4 className="font-extrabold text-slate-800 text-[10.5px] leading-snug line-clamp-2 h-7" title={doc.title}>
+                          <div className="mt-3 space-y-2">
+                            <h4 className="font-bold text-slate-900 text-xs leading-snug line-clamp-2 h-8" title={doc.title}>
                               {doc.title}
                             </h4>
-                            
-                            {/* Owner info (Admin / Guru view only) */}
-                            {role !== 'siswa' && (
-                              <div className="bg-slate-50 border border-slate-100 p-1.5 rounded-xl text-[8.5px] font-semibold text-slate-600 space-y-0.5 mt-1.5">
-                                <span className="text-slate-400 block text-[7.5px] uppercase tracking-wider font-extrabold">Pemilik Dokumen:</span>
-                                <span className="text-slate-800 font-black truncate block">{doc.studentName}</span>
-                                <span className="text-slate-400 text-[8px] block">NISN: {doc.nisn} • {doc.kelas}</span>
-                              </div>
-                            )}
 
-                            <div className="space-y-1 text-[9px] text-slate-500 font-semibold pt-1">
+                            <div className="space-y-1 text-xs text-slate-500 font-medium pt-1">
                               <p className="flex items-center gap-1.5">
-                                <span className="text-slate-400">No. Dok:</span>
-                                <code className="bg-slate-50 border border-slate-100/80 px-1 py-0.5 rounded font-mono text-[8px] font-bold text-slate-600 max-w-[150px] truncate block" title={doc.documentNumber}>
+                                <span className="text-slate-400 text-[11px]">No. Dok:</span>
+                                <code className="bg-slate-50 border border-slate-200/60 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold text-slate-700 truncate max-w-[170px] block" title={doc.documentNumber}>
                                   {doc.documentNumber}
                                 </code>
                               </p>
-                              <p className="flex items-center gap-1.5">
-                                <Calendar className="w-3 h-3 text-slate-400" />
+                              <p className="flex items-center gap-1.5 text-[11px]">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
                                 <span>Terbit: {doc.issueDate}</span>
                               </p>
                             </div>
@@ -1083,60 +1190,57 @@ const resetForm = () => {
                         </div>
 
                         {/* Bottom action bar */}
-                        <div className="border-t border-slate-100 pt-2 mt-2.5 flex items-center gap-1.5">
+                        <div className="border-t border-slate-100 pt-3 mt-3 flex items-center gap-2">
                           <button
                             onClick={() => handleOpenPdfViewer(doc)}
-                            className="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg font-bold border border-slate-200 transition-all flex items-center justify-center gap-1 cursor-pointer text-[9px]"
-                            title="Pratinjau Dokumen"
+                            className="flex-1 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-semibold border border-slate-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs shadow-2xs"
                           >
-                            <Eye className="w-3 h-3" />
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
                             <span>Lihat</span>
                           </button>
                           
                           <button
                             onClick={() => handleDownload(doc)}
-                            className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer text-[9px]"
-                            title="Unduh Berkas PDF"
+                            className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs"
                           >
-                            <Download className="w-3 h-3" />
+                            <Download className="w-3.5 h-3.5" />
                             <span>Unduh</span>
                           </button>
 
-                          {/* Share Button with Inline Dropdown */}
                           <div className="relative">
                             <button
                               onClick={() => setShowShareId(showShareId === doc.id ? null : doc.id)}
-                              className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg font-bold border border-slate-200 transition-all flex items-center justify-center cursor-pointer"
-                              title="Bagikan Dokumen"
+                              className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-xl font-semibold border border-slate-200 transition-all flex items-center justify-center cursor-pointer"
+                              title="Bagikan"
                             >
-                              <Share2 className="w-3 h-3" />
+                              <Share2 className="w-3.5 h-3.5" />
                             </button>
 
                             {showShareId === doc.id && (
-                              <div className="absolute bottom-full mb-2 right-0 bg-white border border-slate-200 rounded-xl shadow-lg p-2 flex flex-col gap-1 z-30 w-36 text-left animate-fade-in">
-                                <div className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider px-2 py-0.5">Kanal Bagikan</div>
+                              <div className="absolute bottom-full mb-2 right-0 bg-white border border-slate-200 rounded-xl shadow-xl p-2 flex flex-col gap-1 z-30 w-40 text-left animate-fade-in">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-0.5">Kanal Bagikan</div>
                                 <button
                                   type="button"
                                   onClick={() => copyShareLink(doc)}
-                                  className="w-full text-left px-2 py-1.5 hover:bg-slate-50 rounded-lg text-[9px] font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer"
+                                  className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-700 flex items-center gap-2 cursor-pointer"
                                 >
-                                  <Copy className="w-3 h-3 text-slate-400" />
+                                  <Copy className="w-3.5 h-3.5 text-slate-400" />
                                   Salin Link
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => shareWhatsApp(doc)}
-                                  className="w-full text-left px-2 py-1.5 hover:bg-emerald-50 rounded-lg text-[9px] font-bold text-emerald-700 flex items-center gap-1.5 cursor-pointer"
+                                  className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 rounded-lg text-xs font-semibold text-emerald-700 flex items-center gap-2 cursor-pointer"
                                 >
-                                  <Send className="w-3 h-3 text-emerald-500" />
+                                  <Send className="w-3.5 h-3.5 text-emerald-500" />
                                   WhatsApp
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => shareEmail(doc)}
-                                  className="w-full text-left px-2 py-1.5 hover:bg-blue-50 rounded-lg text-[9px] font-bold text-blue-700 flex items-center gap-1.5 cursor-pointer"
+                                  className="w-full text-left px-2.5 py-1.5 hover:bg-blue-50 rounded-lg text-xs font-semibold text-blue-700 flex items-center gap-2 cursor-pointer"
                                 >
-                                  <Mail className="w-3 h-3 text-blue-500" />
+                                  <Mail className="w-3.5 h-3.5 text-blue-500" />
                                   Kirim Email
                                 </button>
                               </div>
@@ -1192,14 +1296,13 @@ const resetForm = () => {
 
                 {/* NISN */}
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">NISN *</label>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">NISN</label>
                   <input
                     type="text"
-                    required
-                    placeholder="Masukkan NISN Siswa"
+                    readOnly
+                    placeholder="Auto dari data siswa"
                     value={formNisn}
-                    onChange={(e) => setFormNisn(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-slate-50 focus:outline-none focus:border-rose-500 shadow-inner"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed shadow-inner"
                   />
                 </div>
 
@@ -1429,14 +1532,13 @@ const resetForm = () => {
 
                 {/* NISN */}
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">NISN *</label>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">NISN</label>
                   <input
                     type="text"
-                    required
-                    placeholder="Masukkan NISN Siswa"
+                    readOnly
+                    placeholder="Auto dari data siswa"
                     value={formNisn}
-                    onChange={(e) => setFormNisn(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-slate-50 focus:outline-none focus:border-rose-500 shadow-inner"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed shadow-inner"
                   />
                 </div>
 
@@ -1723,17 +1825,15 @@ const resetForm = () => {
             </div>
 
             {/* Real PDF Viewer / Digital Preview */}
-            {selectedDoc.fileUrl ? (
-              <div className="flex-1 bg-slate-950 overflow-hidden relative">
-                <iframe
-                    src={
-                      selectedDoc.fileUrl.startsWith('http')
-                        ? selectedDoc.fileUrl
-                        : `${window.location.origin}${selectedDoc.fileUrl}`
-                    }
-                    title={selectedDoc.title}
-                    className="w-full h-full border-0"
-                  />
+            {selectedDoc?.fileUrl ? (
+              <div className="flex-1 bg-slate-950 overflow-hidden relative flex flex-col">
+                <PdfCanvasViewer
+                  key={`${selectedDoc.id}_${selectedDoc.fileUrl}`}
+                  url={selectedDoc.fileUrl}
+                  zoomScale={zoomScale}
+                  title={selectedDoc.title}
+                  onDownload={() => handleDownload(selectedDoc)}
+                />
               </div>
             ) : (
             <div 

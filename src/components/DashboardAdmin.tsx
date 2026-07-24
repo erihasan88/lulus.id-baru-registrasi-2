@@ -8824,24 +8824,14 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
 
           {/* TAB: DOKUMEN AKADEMIK */}
           {activeTab === 'dokumen_akademik' && (
-            <div className="space-y-4 animate-fade-in text-slate-800 h-full overflow-hidden flex flex-col">
+            <div className="space-y-3 animate-fade-in text-slate-800 h-full overflow-hidden flex flex-col">
               <button
                 onClick={() => setActiveTab('dashboard')}
-                className="mb-1 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black transition-all cursor-pointer w-fit"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all cursor-pointer w-fit"
               >
                 <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
               </button>
-              <div className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
-                    <FileText className="w-5 h-5 text-indigo-600" /> Pusat Dokumen Akademik Siswa
-                  </h3>
-                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                    Unggah, edit, hapus, publikasikan, atau draf surat kelulusan, transkrip nilai, rapor, ijazah, dan sertifikat prestasi siswa secara tersentralisasi.
-                  </p>
-                </div>
-              </div>
-              <div className="flex-1 overflow-hidden min-h-[600px] border border-slate-200/50 rounded-3xl bg-slate-50">
+              <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs flex flex-col min-h-[650px]">
                 <DokumenAkademik 
                   role="admin"
                   students={students || []}

@@ -174,6 +174,16 @@ export const api = {
 
 
   /**
+   * Update/save draft pendaftaran
+   */
+  async updateMyRegistration(data: any): Promise<any> {
+    return fetchWithAuth('/api/registration/me/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
    * Submit pendaftaran
    */
   async submitRegistration(): Promise<any> {
@@ -182,6 +192,11 @@ export const api = {
     });
   },
 
+  async submitMyRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/submit/', {
+      method: 'POST',
+    });
+  },
 
   /**
    * Mendapatkan invoice pembayaran
@@ -190,14 +205,16 @@ export const api = {
     return fetchWithAuth('/api/registration/invoice/me/');
   },
 
-
   /**
    * Upload bukti pembayaran
    */
-  async uploadPaymentProof(data: any): Promise<any> {
+  async uploadPaymentProof(bukti_transfer: string | any, metode_pembayaran?: string): Promise<any> {
+    const payload = typeof bukti_transfer === 'object' 
+      ? bukti_transfer 
+      : { bukti_transfer, metode_pembayaran };
     return fetchWithAuth('/api/registration/invoice/upload-proof/', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
   },
 
