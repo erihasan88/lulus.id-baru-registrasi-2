@@ -1,0 +1,7 @@
+{
+  "name": "LMS Lulus.id",
+  "description": "LMS Lulus.id - PKBM Online Learning Platform featuring automated activity tracking, student keaktifan belajar monitoring, and curriculum merdeka e-Rapor integration.",
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

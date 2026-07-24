@@ -1,0 +1,460 @@
+import express, { Request, Response } from 'express';
+import path from 'path';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+const PORT = 3001;
+const app = express();
+
+app.use(express.json());
+
+// Lazy Gemini AI initialization to prevent crashing if environment is not set up yet
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+      throw new Error('GEMINI_API_KEY belum dikonfigurasi di secrets panel AI Studio.');
+    }
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return aiClient;
+}
+
+// API Routes
+app.post('/api/gemini', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { prompt, systemInstruction, history } = req.body;
+    
+    if (!prompt) {
+      res.status(400).json({ error: 'Prompt is required' });
+      return;
+    }
+
+    const ai = getAiClient();
+    
+    // Construct request contents based on optional conversation history
+    const contents: any[] = [];
+    if (history && Array.isArray(history)) {
+      history.forEach((msg: any) => {
+        contents.push({
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.text }]
+        });
+      });
+    }
+    contents.push({
+      role: 'user',
+      parts: [{ text: prompt }]
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents,
+      config: {
+        systemInstruction: systemInstruction || 'Kamu adalah Lulus AI, asisten dan guru pendamping Lulus.id yang sangat ramah, penyabar, dan suportif. Jawab pertanyaan siswa dengan bahasa Indonesia yang santun, sederhana, mudah dipahami anak sekolah non-formal, serta berikan contoh konkret bila perlu. Jangan terlalu panjang lebar, langsung ke inti penjelasan.',
+        temperature: 0.7,
+      }
+    });
+
+    res.json({ text: response.text });
+  } catch (error: any) {
+    console.error('Gemini API Error:', error);
+    res.status(500).json({ error: error.message || 'Gagal memproses dengan Gemini AI.' });
+  }
+});
+
+// Mock In-Memory Database for Registration V2
+interface StudentRegistration {
+  id: string;
+  username: string;
+  email: string;
+  program_paket: string;
+  tipe_kelas: string;
+  registration_status: 'DRAFT' | 'MENUNGGU_VERIFIKASI' | 'PERBAIKAN_DOKUMEN' | 'KLARIFIKASI_DATA' | 'DITERIMA' | 'DITOLAK_PERMANEN' | 'AKTIF';
+  biodata: any;
+  dokumen: any;
+  catatan_admin: string;
+  rejection_reason?: string;
+  rejection_category?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface PaymentInvoice {
+  id: string;
+  registration_id: string;
+  invoice_number: string;
+  amount: number;
+  payment_status: 'NONE' | 'UNPAID' | 'WAITING_CONFIRMATION' | 'PAID' | 'EXPIRED';
+  metode_pembayaran?: string;
+  bukti_transfer?: string;
+  expired_at: string;
+  paid_at?: string;
+  created_at: string;
+}
+
+let mockRegistrations: StudentRegistration[] = [];
+
+let mockInvoices: PaymentInvoice[] = [];
+
+const getUsernameFromAuth = (req: Request): string => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Token ')) {
+    const val = authHeader.substring(6);
+    if (val.startsWith('mock-token-')) {
+      return val.substring(11);
+    }
+    return val;
+  }
+  return '';
+};
+
+// GET /api/registration/me/
+app.get('/api/registration/me/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  let reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    // If it's a legacy student (e.g. fajar_pratama or general users other than aditya_perkasa/siti_rahma), we seed them as AKTIF
+    const isNewRegistrationUser = username === 'aditya_perkasa' || username === 'siti_rahma' || username.startsWith('reg-') || username.startsWith('new_');
+    
+    reg = {
+      id: `reg-${Math.floor(Math.random() * 10000)}`,
+      username: username,
+      email: `${username}@gmail.com`,
+      program_paket: "Paket C",
+      tipe_kelas: "Reguler",
+      registration_status: isNewRegistrationUser ? "DRAFT" : "AKTIF",
+      biodata: {
+        nama: username.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        kelas_plotted: !isNewRegistrationUser
+      },
+      dokumen: {},
+      catatan_admin: "",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    mockRegistrations.push(reg);
+
+    if (!isNewRegistrationUser) {
+      // Seed a PAID invoice for legacy students to ensure they instantly bypass all onboarding checks
+      mockInvoices.push({
+        id: `inv-${Math.floor(Math.random() * 10000)}`,
+        registration_id: reg.id,
+        invoice_number: `INV/2026/07/${reg.id.toUpperCase()}`,
+        amount: 300000,
+        payment_status: "PAID",
+        created_at: new Date().toISOString(),
+        expired_at: new Date().toISOString()
+      });
+    }
+  }
+
+  const invoice = mockInvoices.find(i => i.registration_id === reg?.id);
+  res.json({ ...reg, invoice });
+});
+
+// POST /api/registration/me/
+app.post('/api/registration/me/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const { program_paket, tipe_kelas, biodata, dokumen } = req.body;
+  let reg = mockRegistrations.find(r => r.username === username);
+
+  if (reg) {
+    reg.program_paket = program_paket || reg.program_paket;
+    reg.tipe_kelas = tipe_kelas || reg.tipe_kelas;
+    reg.biodata = { ...reg.biodata, ...biodata };
+    reg.dokumen = { ...reg.dokumen, ...dokumen };
+    reg.updated_at = new Date().toISOString();
+  } else {
+    reg = {
+      id: `reg-${Math.floor(Math.random() * 10000)}`,
+      username,
+      email: `${username}@gmail.com`,
+      program_paket: program_paket || "Paket C",
+      tipe_kelas: tipe_kelas || "Reguler",
+      registration_status: "DRAFT",
+      biodata: biodata || {},
+      dokumen: dokumen || {},
+      catatan_admin: "",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    mockRegistrations.push(reg);
+  }
+
+  res.json(reg);
+});
+
+// POST /api/registration/me/submit/
+app.post('/api/registration/me/submit/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  reg.registration_status = "MENUNGGU_VERIFIKASI";
+  reg.updated_at = new Date().toISOString();
+  res.json(reg);
+});
+
+// POST /api/registration/public/register/ (Public API to save newly registered student from wizard)
+app.post('/api/registration/public/register/', (req: Request, res: Response) => {
+  const { username, email, program_paket, tipe_kelas, biodata, dokumen } = req.body;
+  if (!username) {
+    res.status(400).json({ detail: "Username wajib diisi." });
+    return;
+  }
+
+  // Check if already exists to avoid duplicates
+  let reg = mockRegistrations.find(r => r.username === username);
+  if (reg) {
+    res.status(400).json({ detail: "Username sudah terdaftar." });
+    return;
+  }
+
+  // Create Registration
+  const regId = `reg-${Math.floor(1000 + Math.random() * 9000)}`;
+  reg = {
+    id: regId,
+    username: username,
+    email: email || `${username}@gmail.com`,
+    program_paket: program_paket || "Paket C",
+    tipe_kelas: tipe_kelas || "Reguler",
+    registration_status: "MENUNGGU_VERIFIKASI", // Set to MENUNGGU_VERIFIKASI as they submitted from wizard
+    biodata: biodata || {},
+    dokumen: dokumen || {},
+    catatan_admin: "",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  mockRegistrations.push(reg);
+
+  // Create Invoice
+  const invoiceAmount = tipe_kelas === 'Karyawan' ? 500000 : 300000;
+  const invoiceId = `inv-${Math.floor(1000 + Math.random() * 9000)}`;
+  const invoiceNumber = `INV/2026/07/${Math.floor(1000 + Math.random() * 9000)}`;
+  const invoice: PaymentInvoice = {
+    id: invoiceId,
+    registration_id: regId,
+    invoice_number: invoiceNumber,
+    amount: invoiceAmount,
+    payment_status: "UNPAID",
+    expired_at: new Date(Date.now() + 3600000 * 24).toISOString(),
+    created_at: new Date().toISOString()
+  };
+
+  mockInvoices.push(invoice);
+
+  res.json({ registration: reg, invoice });
+});
+
+// GET /api/payment/invoice/
+app.get('/api/payment/invoice/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  const invoice = mockInvoices.find(i => i.registration_id === reg.id);
+  if (!invoice) {
+    res.status(404).json({ detail: "Tagihan belum diterbitkan oleh Admin." });
+    return;
+  }
+
+  res.json(invoice);
+});
+
+// POST /api/payment/invoice/upload-proof/
+app.post('/api/payment/invoice/upload-proof/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  const invoice = mockInvoices.find(i => i.registration_id === reg.id);
+  if (!invoice) {
+    res.status(404).json({ detail: "Tagihan belum diterbitkan." });
+    return;
+  }
+
+  const { bukti_transfer, metode_pembayaran } = req.body;
+  if (!bukti_transfer) {
+    res.status(400).json({ detail: "Bukti transfer wajib diunggah." });
+    return;
+  }
+
+  invoice.bukti_transfer = bukti_transfer;
+  invoice.metode_pembayaran = metode_pembayaran || "Transfer Virtual Account Mandiri";
+  invoice.payment_status = "WAITING_CONFIRMATION";
+  res.json(invoice);
+});
+
+// GET /api/admin/registrations/
+app.get('/api/admin/registrations/', (req: Request, res: Response) => {
+  const list = mockRegistrations.map(r => {
+    const invoice = mockInvoices.find(i => i.registration_id === r.id);
+    return { ...r, invoice };
+  });
+  res.json(list);
+});
+
+// POST /api/admin/registrations/:id/plot/
+app.post('/api/admin/registrations/:id/plot/', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { kelas_plotted, rombel_nama } = req.body;
+
+  const reg = mockRegistrations.find(r => r.id === id);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  reg.biodata = {
+    ...reg.biodata,
+    kelas_plotted: kelas_plotted !== undefined ? kelas_plotted : true,
+    rombel_nama: rombel_nama || reg.biodata.rombel_nama
+  };
+  reg.registration_status = "AKTIF";
+  reg.updated_at = new Date().toISOString();
+
+  res.json(reg);
+});
+
+// PATCH /api/admin/registrations/:id/verify/
+app.patch('/api/admin/registrations/:id/verify/', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { action, category, reason } = req.body; // action: 'ACCEPT' | 'REJECT'
+
+  const reg = mockRegistrations.find(r => r.id === id);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  if (action === 'ACCEPT') {
+    reg.registration_status = "DITERIMA";
+    reg.catatan_admin = "Berkas lengkap dan lolos seleksi.";
+    reg.updated_at = new Date().toISOString();
+
+    // Auto generate invoice
+    const isKaryawan = reg.tipe_kelas === 'Karyawan';
+    const amount = isKaryawan ? 500000 : 300000;
+    const invNum = `INV/2026/07/00${Math.floor(10 + Math.random() * 89)}`;
+
+    // Delete existing unpaid if any, and create new
+    mockInvoices = mockInvoices.filter(i => i.registration_id !== id);
+    const newInv: PaymentInvoice = {
+      id: `inv-${Math.floor(Math.random() * 10000)}`,
+      registration_id: id,
+      invoice_number: invNum,
+      amount,
+      payment_status: "UNPAID",
+      expired_at: new Date(Date.now() + 3600000 * 72).toISOString(),
+      created_at: new Date().toISOString()
+    };
+    mockInvoices.push(newInv);
+
+  } else if (action === 'REJECT') {
+    reg.registration_status = category || "PERBAIKAN_DOKUMEN";
+    reg.catatan_admin = reason || "Terdapat dokumen yang kurang lengkap/jelas.";
+    reg.updated_at = new Date().toISOString();
+  }
+
+  res.json(reg);
+});
+
+// PATCH /api/admin/payment/:id/verify/
+app.patch('/api/admin/payment/:id/verify/', (req: Request, res: Response) => {
+  const { id } = req.params; // Invoice ID
+  const { action } = req.body; // 'APPROVE' | 'DECLINE'
+
+  const invoice = mockInvoices.find(i => i.id === id);
+  if (!invoice) {
+    res.status(404).json({ detail: "Tagihan tidak ditemukan." });
+    return;
+  }
+
+  if (action === 'APPROVE') {
+    invoice.payment_status = "PAID";
+    invoice.paid_at = new Date().toISOString();
+  } else {
+    invoice.payment_status = "UNPAID";
+    invoice.bukti_transfer = undefined;
+  }
+
+  res.json(invoice);
+});
+
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({ status: 'healthy', time: new Date().toISOString() });
+});
+
+// Configure Vite integration or static file serving
+const startServer = async () => {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req: Request, res: Response) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`lulus.id server running at http://0.0.0.0:${PORT}`);
+  });
+};
+
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+});

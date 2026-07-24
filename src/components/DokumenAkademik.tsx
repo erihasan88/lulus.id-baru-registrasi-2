@@ -1,0 +1,2024 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  FileText, Download, Share2, Search, Filter, Plus, Edit, Trash2, 
+  Check, Eye, X, Award, Send, Copy, Mail, Maximize2, Minimize2, 
+  ZoomIn, ZoomOut, ArrowLeft, RefreshCw, Calendar, File, Layers, 
+  BookOpen, Clock, AlertCircle, Sparkles, CheckCircle2, ChevronRight, User,
+  ShieldCheck
+} from 'lucide-react';
+import QRCode from 'qrcode';
+import { AcademicDocument, Student, Role } from '../types';
+import PdfCanvasViewer from './PdfCanvasViewer';
+
+const safeSrc = (src: string) => {
+  if (!src) return '';
+  if (src.startsWith('data:image/svg+xml;utf8,') || src.startsWith('data:image/svg+xml;utf-8,')) {
+    const isUtf8 = src.startsWith('data:image/svg+xml;utf8,');
+    const prefix = isUtf8 ? 'data:image/svg+xml;utf8,' : 'data:image/svg+xml;utf-8,';
+    const svgContent = src.substring(prefix.length);
+    try {
+      return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgContent)))}`;
+    } catch (e) {
+      return src.replace(/"/g, '&quot;');
+    }
+  }
+  return src;
+};
+
+export function generateDocVerificationCode(docType: string, year: string = '2026'): string {
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let randomPart = '';
+  for (let i = 0; i < 6; i++) {
+    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  
+  let prefix = 'DOC';
+  const typeUpper = docType.toUpperCase();
+  if (typeUpper.includes('IJAZAH')) {
+    prefix = 'IJZ';
+  } else if (typeUpper.includes('RAPOR')) {
+    prefix = 'RPR';
+  } else if (typeUpper.includes('TRANSKRIP') || typeUpper.includes('NILAI')) {
+    prefix = 'TRK';
+  } else if (typeUpper.includes('SKL')) {
+    prefix = 'SKL';
+  } else if (typeUpper.includes('SERTIFIKAT')) {
+    prefix = 'CRT';
+  } else if (typeUpper.includes('PIAGAM')) {
+    prefix = 'PGM';
+  } else if (typeUpper.includes('SURAT') && typeUpper.includes('KETERANGAN')) {
+    prefix = 'SKT';
+  }
+  
+  return `${prefix}-${year}-${randomPart}`;
+}
+
+interface DokumenAkademikProps {
+  role: Role;
+  students: Student[];
+  loggedInUser: {
+    id: string;
+    nama: string;
+    nisn?: string;
+      studentId?: string;
+    role: Role;
+  };
+  showModal: (title: string, desc: string, type?: 'info' | 'warning' | 'success') => void;
+}
+
+function DocumentQRCode({ code, size = 56 }: { code: string; size?: number }) {
+  const [qrSrc, setQrSrc] = useState<string>('');
+
+  
+
+useEffect(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id';
+    const url = `${origin}/verifikasi/${code}`;
+    QRCode.toDataURL(url, {
+      margin: 1,
+      width: size * 2,
+      errorCorrectionLevel: 'H',
+      color: {
+        dark: '#0f172a', // slate-900
+        light: '#ffffff'
+      }
+    })
+      .then(src => setQrSrc(src))
+      .catch(err => console.error('Failed to generate document QR Code', err));
+  }, [code, size]);
+
+  return (
+    <div className="relative p-1 bg-white rounded-lg border border-slate-300 shadow-xs flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+      {qrSrc ? (
+        <img 
+          src={qrSrc} 
+          alt="QR Code" 
+          className="w-full h-full object-contain animate-fade-in"
+        />
+      ) : (
+        <div className="w-full h-full bg-slate-100 animate-pulse rounded" />
+      )}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="p-0.5 bg-white rounded border border-slate-100 shadow-xs">
+          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const DEFAULT_CATEGORIES = [
+  'Ijazah',
+  'SKL',
+  'Transkrip Nilai',
+  'Sertifikat',
+  'Piagam',
+  'Surat Keterangan',
+  'Dokumen Lainnya'
+];
+
+const DEFAULT_DOCUMENTS: AcademicDocument[] = [
+  {
+    id: 'DOC-001',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Ijazah',
+    documentNumber: 'DN-01/C/0098765432/2026',
+    verificationCode: 'IJZ-2026-H8K2P9',
+    issueDate: '2026-06-20',
+    title: 'Ijazah Pendidikan Kesetaraan Paket C',
+    description: 'Ijazah Kelulusan Jenjang Menengah Atas Paket C Fajar Pratama.',
+    file: 'ijazah_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-06-25T08:00:00.000Z',
+    updatedAt: '2026-06-25T08:00:00.000Z',
+    downloads: 12,
+    views: 45
+  },
+  {
+    id: 'DOC-002',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Transkrip Nilai',
+    documentNumber: 'TR-01/C/0098765432/2026',
+    verificationCode: 'TRK-2026-Y4M7V3',
+    issueDate: '2026-06-20',
+    title: 'Transkrip Nilai Hasil Belajar Kumulatif',
+    description: 'Daftar nilai pencapaian hasil belajar seluruh mata pelajaran Paket C.',
+    file: 'transkrip_nilai_c_fajar.pdf',
+    fileUrl: '/uploads/documents/transkrip_nilai_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-06-25T08:15:00.000Z',
+    updatedAt: '2026-06-25T08:15:00.000Z',
+    downloads: 8,
+    views: 32
+  },
+  {
+    id: 'DOC-003',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'SKL',
+    documentNumber: 'SKL-01/PKBM-AGR/VI/2026',
+    verificationCode: 'SKL-2026-X9N5J1',
+    issueDate: '2026-05-15',
+    title: 'Surat Keterangan Lulus (SKL) Sementara',
+    description: 'Surat keterangan kelulusan sementara sebelum ijazah fisik terbit.',
+    file: 'skl_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/skl_paket_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-05-16T10:00:00.000Z',
+    updatedAt: '2026-05-16T10:00:00.000Z',
+    downloads: 15,
+    views: 52
+  },
+  {
+    id: 'DOC-004',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Sertifikat',
+    documentNumber: 'CERT-041/COMP/2026',
+    verificationCode: 'CRT-2026-F2W6Q8',
+    issueDate: '2026-03-10',
+    title: 'Sertifikat Kompetensi Digital',
+    description: 'Sertifikat kelulusan uji kecakapan komputer dan literasi digital.',
+    file: 'sertifikat_komputer_fajar.pdf',
+    fileUrl: '/uploads/documents/sertifikat_komputer_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-03-12T09:00:00.000Z',
+    updatedAt: '2026-03-12T09:00:00.000Z',
+    downloads: 5,
+    views: 18
+  },
+  {
+    id: 'DOC-005',
+    studentId: 'SIS-1002',
+    studentName: 'Siti Aminah',
+    nisn: '0087654321',
+    program: 'Paket B',
+    kelas: 'Kelas IX - Paket B',
+    tahunLulus: '2025',
+    documentType: 'Ijazah',
+    documentNumber: 'DN-02/B/0087654321/2025',
+    verificationCode: 'IJZ-2025-E7Z3C4',
+    issueDate: '2025-06-22',
+    title: 'Ijazah Pendidikan Kesetaraan Paket B',
+    description: 'Ijazah Kelulusan Jenjang Menengah Pertama Paket B Siti Aminah.',
+    file: 'ijazah_paket_b_siti.pdf',
+    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2025-06-25T08:00:00.000Z',
+    updatedAt: '2025-06-25T08:00:00.000Z',
+    downloads: 2,
+    views: 12
+  }
+];
+
+export default function DokumenAkademik({ role, students, loggedInUser, showModal }: DokumenAkademikProps) {
+  // --- STATE PERSISTENCE ---
+  const [lembagaIdentitas] = useState(() => {
+    const saved = localStorage.getItem('lulus_lembaga_identitas');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { }
+    }
+    return {
+      namaPkbm: 'PKBM Agrabinta Lulus.id',
+      namaYayasan: 'Yayasan Pendidikan Agrabinta Sukabumi',
+      npsn: 'P9961234',
+      nis: '400120',
+      alamat: 'Jl. Raya Agrabinta No. 45, RT 02/RW 03',
+      kecamatan: 'Agrabinta',
+      kabupaten: 'Cianjur',
+      provinsi: 'Jawa Barat',
+      kodePos: '43273',
+      nomorTelepon: '0263-221144',
+      emailLembaga: 'pkbm@lulus.id',
+      website: 'https://pkbm.lulus.id',
+      logoPkbm: 'https://placehold.co/150x150/00a884/ffffff?text=PKBM',
+      logoYayasan: 'https://placehold.co/150x150/1e3a8a/ffffff?text=YAYASAN',
+      namaKepalaSekolah: 'Drs. H. Mulyadi, M.Pd.',
+      nipKepalaSekolah: '197205121998031002',
+      qrTandaTanganKepalaSekolah: 'https://placehold.co/150x150/ffffff/000000?text=QR+TTE+Kepsek',
+      capStempelDigital: 'https://placehold.co/150x150/e11d48/ffffff?text=CAP+RESMI',
+      tandaTanganKepalaSekolah: 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan',
+      namaPejabatTtd: 'Drs. H. Mulyadi, M.Pd.',
+      jabatanPejabatTtd: 'Kepala PKBM'
+    };
+  });
+
+  const [documents, setDocuments] = useState<AcademicDocument[]>([]);
+    const categories = DEFAULT_CATEGORIES;
+
+    const [searchQuery, setSearchQuery] = useState('' );
+    const [filterType, setFilterType] = useState('all');
+    const [filterStatus, setFilterStatus] = useState('all');
+    const [filterYear, setFilterYear] = useState('all');
+    const [viewState, setViewState] = useState('list');
+    const [formNisn, setFormNisn] = useState('');
+    const [formDocType, setFormDocType] = useState('Ijazah');
+    const [formFileName, setFormFileName] = useState('');
+    const [formFilePdf, setFormFilePdf] = useState<File | null>(null);
+    const [formFileUrl, setFormFileUrl] = useState('');
+    const [formKelas, setFormKelas] = useState('');
+    const [formOrigin, setFormOrigin] = useState('');
+    const [formProgram, setFormProgram] = useState('');
+    const [formStatus, setFormStatus] = useState('Publish');
+    const [formTahunLulus, setFormTahunLulus] = useState('2026');
+    const [formThumbnail, setFormThumbnail] = useState('');
+    const [formStudentId, setFormStudentId] = useState('SIS-1001');
+    const [formDocNumber, setFormDocNumber] = useState('');
+    const [formTitle, setFormTitle] = useState('');
+    const [formIssueDate, setFormIssueDate] = useState('');
+    const [formDescription, setFormDescription] = useState('');
+    const [formFile, setFormFile] = useState<File | null>(null);
+    const [selectedDoc, setSelectedDoc] = useState<any>(null);
+    const [showShareId, setShowShareId] = useState(false);
+    const [pdfFullscreen, setPdfFullscreen] = useState(false);
+    const [pdfSearchQuery, setPdfSearchQuery] = useState('');
+    const [zoomScale, setZoomScale] = useState(1);
+    const pdfContainerRef = useRef<HTMLDivElement>(null);
+    const [downloadLogs, setDownloadLogs] = useState<any[]>(() => {
+      const saved = localStorage.getItem('studentDocuments');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          return [];
+        }
+      }
+      return [];
+    });
+
+
+
+    const handleStudentSelectChange = (studentId: string) => {
+      setFormStudentId(studentId);
+
+      const student = students.find(s => s.id === studentId);
+
+      if (student) {
+        setFormNisn(student.nisn || '');
+        setFormProgram(student.program || '');
+        setFormKelas(student.kelas || '');
+      } else if (studentId === 'SIS-1001') {
+        setFormNisn('0098765432');
+        setFormProgram('Paket C');
+        setFormKelas('Kelas XII - Paket C');
+      } else {
+        setFormNisn('');
+        setFormProgram('');
+        setFormKelas('');
+      }
+    };
+
+
+    const uploadDocumentFile = async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData
+      });
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Upload dokumen gagal');
+    }
+
+    return result.file.url;
+  };
+
+
+
+
+  const loadDocuments = async () => {
+    try {
+      const isStudent = (role === 'siswa' || (role as string) === 'student') && (loggedInUser.studentId || loggedInUser.id);
+      const endpoint = isStudent
+        ? `/api/documents/student/${loggedInUser.studentId || loggedInUser.id}`
+        : '/api/documents';
+
+      const response = await fetch(endpoint);
+
+      if (!response.ok) {
+        throw new Error('Gagal mengambil data dokumen');
+      }
+
+      const data = await response.json();
+
+      if (Array.isArray(data)) {
+        if (data.length === 0 && role === 'admin') {
+          // Seed default mock documents if backend storage is initially empty
+          for (const doc of DEFAULT_DOCUMENTS) {
+            await fetch('/api/documents', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(doc)
+            }).catch(() => {});
+          }
+          const retryRes = await fetch(endpoint);
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            if (Array.isArray(retryData)) {
+              setDocuments(retryData);
+              return;
+            }
+          }
+          setDocuments(DEFAULT_DOCUMENTS);
+        } else {
+          setDocuments(data);
+        }
+      }
+    } catch (err) {
+      console.error('Load documents error:', err);
+      setDocuments(DEFAULT_DOCUMENTS);
+    }
+  };
+
+  useEffect(() => {
+    loadDocuments();
+  }, [role, loggedInUser.id, loggedInUser.studentId]);
+
+
+  const handleCreateDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formStudentId || !formDocNumber || !formTitle || !formIssueDate) {
+      showModal('Input Tidak Lengkap', 'Nama Siswa, Nomor Dokumen, Judul Dokumen, dan Tanggal Terbit wajib diisi.', 'warning');
+      return;
+    }
+
+    let finalFileUrl = formFileUrl;
+    if (formFilePdf && !finalFileUrl) {
+      try {
+        finalFileUrl = await uploadDocumentFile(formFilePdf);
+        setFormFileUrl(finalFileUrl);
+      } catch (uploadErr: any) {
+        showModal('Upload PDF Gagal', uploadErr.message || 'Gagal mengunggah berkas PDF.', 'warning');
+        return;
+      }
+    }
+
+    if (!finalFileUrl) {
+      showModal('Berkas PDF Belum Ada', 'Silakan pilih dan unggah berkas PDF terlebih dahulu.', 'warning');
+      return;
+    }
+
+    const studentName = students.find(s => s.id === formStudentId)?.nama || (formStudentId === 'SIS-1001' ? 'Fajar Pratama' : 'Siswa');
+
+    const newDoc: AcademicDocument = {
+      id: `DOC-${Date.now()}`,
+      studentId: formStudentId,
+      studentName,
+      nisn: formNisn,
+      program: formProgram,
+      kelas: formKelas,
+      tahunLulus: formTahunLulus,
+      documentType: formDocType as any,
+      documentNumber: formDocNumber,
+      verificationCode: generateDocVerificationCode(formDocType, formTahunLulus),
+      issueDate: formIssueDate,
+      title: formTitle,
+      description: formDescription,
+      file: formFilePdf ? formFilePdf.name : (formFileName || `${formTitle.toLowerCase().replace(/\s+/g, '_')}.pdf`),
+      fileUrl: finalFileUrl,
+      thumbnail: formThumbnail || 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+      status: formStatus,
+      uploadedBy: loggedInUser.nama || 'Administrator',
+      uploadedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      downloads: 0,
+      views: 0
+    };
+
+    try {
+      const response = await fetch('/api/documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(newDoc)
+      });
+
+      if (!response.ok) {
+        throw new Error('Gagal menyimpan metadata dokumen');
+      }
+
+      // Reset filters and search so newly created document is immediately visible
+      setSearchQuery('');
+      setFilterType('all');
+      setFilterStatus('all');
+      setFilterYear('all');
+
+      await loadDocuments();
+
+      showModal('Berhasil', 'Dokumen akademik berhasil ditambahkan dan disimpan.', 'success');
+      resetForm();
+      setViewState('list');
+    } catch (err: any) {
+      showModal('Gagal', err.message || 'Gagal menyimpan dokumen', 'warning');
+    }
+  };
+
+  const handleUpdateDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDoc) return;
+    if (!formDocNumber || !formTitle || !formIssueDate) {
+      showModal('Input Tidak Lengkap', 'Nomor Dokumen, Judul Dokumen, dan Tanggal Terbit wajib diisi.', 'warning');
+      return;
+    }
+
+    let finalFileUrl = formFileUrl;
+    if (formFilePdf) {
+      try {
+        finalFileUrl = await uploadDocumentFile(formFilePdf);
+        setFormFileUrl(finalFileUrl);
+      } catch (uploadErr: any) {
+        showModal('Upload PDF Gagal', uploadErr.message || 'Gagal mengunggah berkas PDF.', 'warning');
+        return;
+      }
+    }
+
+    const studentName = students.find(s => s.id === formStudentId)?.nama || selectedDoc.studentName;
+
+    const updatedDoc = {
+      ...selectedDoc,
+      studentId: formStudentId,
+      studentName,
+      nisn: formNisn,
+      program: formProgram,
+      kelas: formKelas,
+      tahunLulus: formTahunLulus,
+      documentType: formDocType as any,
+      documentNumber: formDocNumber,
+      verificationCode: selectedDoc.verificationCode || generateDocVerificationCode(formDocType, formTahunLulus),
+      issueDate: formIssueDate,
+      title: formTitle,
+      description: formDescription,
+      file: formFilePdf ? formFilePdf.name : (formFileName || selectedDoc.file),
+      fileUrl: finalFileUrl || selectedDoc.fileUrl,
+      thumbnail: formThumbnail,
+      status: formStatus,
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      const response = await fetch(`/api/documents/${selectedDoc.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updatedDoc)
+      });
+
+      if (!response.ok) {
+        throw new Error('Gagal memperbarui dokumen');
+      }
+
+      await loadDocuments();
+
+      showModal('Berhasil Diperbarui', 'Dokumen akademik berhasil diperbarui.', 'success');
+      resetForm();
+      setViewState('list');
+    } catch (err: any) {
+      showModal('Gagal', err.message || 'Gagal memperbarui dokumen', 'warning');
+    }
+  };
+
+  const handleDeleteDocument = async (id: string) => {
+      if (confirm('Apakah Anda yakin ingin menghapus dokumen akademik ini secara permanen?')) {
+        try {
+          const response = await fetch(`/api/documents/${id}`, {
+            method: 'DELETE'
+          });
+
+          if (!response.ok) {
+            throw new Error('Gagal menghapus dokumen');
+          }
+
+          await loadDocuments();
+
+          showModal('Terhapus', 'Dokumen telah dihapus dari sistem.', 'success');
+        } catch (err) {
+          showModal('Gagal', 'Dokumen tidak berhasil dihapus.', 'warning');
+        }
+      }
+    };
+
+const resetForm = () => {
+    setSelectedDoc(null);
+    setFormStudentId('');
+    setFormNisn('');
+    setFormProgram('Paket C');
+    setFormKelas('');
+    setFormTahunLulus('2026');
+    setFormDocType('Ijazah');
+    setFormDocNumber('');
+    setFormIssueDate('');
+    setFormTitle('');
+    setFormDescription('');
+    setFormStatus('Publish');
+    setFormFilePdf(null);
+    setFormFileName('');
+    setFormThumbnail('');
+  };
+
+  const initEditForm = (doc: AcademicDocument) => {
+    setSelectedDoc(doc);
+    const studentId = doc.studentId || '';
+    setFormStudentId(studentId);
+    
+    const student = students.find(s => s.id === studentId);
+    if (student) {
+      setFormNisn(student.nisn || doc.nisn || '');
+      setFormProgram(student.program || doc.program || '');
+      setFormKelas(student.kelas || doc.kelas || '');
+    } else if (studentId === 'SIS-1001') {
+      setFormNisn(doc.nisn || '0098765432');
+      setFormProgram(doc.program || 'Paket C');
+      setFormKelas(doc.kelas || 'Kelas XII - Paket C');
+    } else {
+      setFormNisn(doc.nisn || '');
+      setFormProgram(doc.program || '');
+      setFormKelas(doc.kelas || '');
+    }
+
+    setFormTahunLulus(doc.tahunLulus || '2026');
+    setFormDocType(doc.documentType || 'Ijazah');
+    setFormDocNumber(doc.documentNumber || '');
+    setFormTitle(doc.title || '');
+    setFormIssueDate(doc.issueDate || '');
+    setFormDescription(doc.description || '');
+    setFormStatus(doc.status || 'Publish');
+    setFormThumbnail(doc.thumbnail || '');
+    setFormFileUrl(doc.fileUrl || '');
+    setFormFileName(doc.file || '');
+    setViewState('edit');
+  };
+
+  // --- STUDENT RECORD TRACKING & STATS ---
+  const trackView = (doc: AcademicDocument) => {
+    const updated = documents.map(d => {
+      if (d.id === doc.id) {
+        return { ...d, views: d.views + 1 };
+      }
+      return d;
+    });
+    setDocuments(updated);
+  };
+
+  const handleDownload = (doc: AcademicDocument) => {
+    // Record log
+    const logId = `LOG-${Date.now()}`;
+    const newLog = {
+      id: logId,
+      studentId: loggedInUser.studentId || loggedInUser.id,
+      docId: doc.id,
+      docTitle: doc.title,
+      downloadedAt: new Date().toISOString()
+    };
+    setDownloadLogs(prev => [newLog, ...prev]);
+
+    // Increment downloads count in document
+    const updated = documents.map(d => {
+      if (d.id === doc.id) {
+        return { ...d, downloads: d.downloads + 1 };
+      }
+      return d;
+    });
+    setDocuments(updated);
+
+    // Real download trigger
+    if (!doc.fileUrl) {
+      showModal(
+        'File Tidak Tersedia',
+        `Dokumen "${doc.file}" belum memiliki file PDF asli.`,
+        'warning'
+      );
+      return;
+    }
+
+    const fileUrl = doc.fileUrl.startsWith('http')
+      ? doc.fileUrl
+      : `${window.location.origin}${doc.fileUrl}`;
+
+    const link = document.createElement('a');
+    link.href = fileUrl;
+    link.download = doc.file;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showModal(
+      'Berhasil',
+      `Berkas "${doc.file}" berhasil diunduh.`,
+      'success'
+    );
+  };
+
+  const handleOpenPdfViewer = (doc: AcademicDocument) => {
+    console.log("OPEN PDF DOC:", { id: doc.id, title: doc.title, fileUrl: doc.fileUrl }, doc);
+    if (!doc.fileUrl) {
+      showModal('File PDF Belum Tersedia', 'Dokumen ini tidak memiliki berkas PDF yang dapat ditampilkan.', 'warning');
+      return;
+    }
+    setSelectedDoc(doc);
+    trackView(doc);
+    setZoomScale(1);
+    setPdfSearchQuery('');
+    setViewState('pdf-viewer');
+  };
+
+  // --- SHARING ---
+  const copyShareLink = (doc: AcademicDocument) => {
+    const simulatedLink = `https://lulus.id/verify/doc/${doc.id}/token=${btoa(doc.documentNumber)}`;
+    navigator.clipboard.writeText(simulatedLink);
+    showModal('Tautan Disalin', 'Tautan verifikasi resmi dokumen akademik berhasil disalin ke clipboard Anda.', 'success');
+    setShowShareId(null);
+  };
+
+  const shareWhatsApp = (doc: AcademicDocument) => {
+    const text = encodeURIComponent(`Halo, berikut adalah dokumen akademik resmi Lulus.id milik saya:\n\n*${doc.title}*\nNomor Dokumen: ${doc.documentNumber}\n\nVerifikasi dokumen secara real-time di: https://lulus.id/verify/doc/${doc.id}`);
+    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    setShowShareId(null);
+  };
+
+  const shareEmail = (doc: AcademicDocument) => {
+    const subject = encodeURIComponent(`Dokumen Akademik Resmi Lulus.id - ${doc.studentName}`);
+    const body = encodeURIComponent(`Halo,\n\nBerikut terlampir rincian dokumen akademik resmi dari Lulus.id:\n\nNama Siswa: ${doc.studentName}\nNISN: ${doc.nisn}\nDokumen: ${doc.title}\nNomor Dokumen: ${doc.documentNumber}\nTanggal Terbit: ${doc.issueDate}\n\nAnda dapat memverifikasi keabsahan dokumen ini di portal Lulus.id menggunakan tautan berikut:\nhttps://lulus.id/verify/doc/${doc.id}\n\nSalam,\nLulus.id Academic Center`);
+    window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+    setShowShareId(null);
+  };
+
+  // --- STATS CALCULATIONS ---
+  // Admin stats: Jumlah Dokumen, Ijazah, SKL, Transkrip, Sertifikat, Draft, Publish
+  const adminStats = {
+    total: documents.length,
+    ijazah: documents.filter(d => d.documentType === 'Ijazah').length,
+    skl: documents.filter(d => d.documentType === 'SKL').length,
+    transkrip: documents.filter(d => d.documentType === 'Transkrip Nilai').length,
+    sertifikat: documents.filter(d => d.documentType === 'Sertifikat').length,
+    draft: documents.filter(d => d.status === 'Draft').length,
+    publish: documents.filter(d => d.status === 'Publish').length,
+  };
+
+  // Student stats (Fajar Pratama): Total Dokumen, Dokumen Terbaru, Dokumen Sudah Diunduh
+  const studentIdForFilter = loggedInUser.studentId || loggedInUser.id || 'SIS-1001';
+  const myDocs = documents.filter(d => (d.studentId === studentIdForFilter || (loggedInUser.nisn && d.nisn === loggedInUser.nisn)) && d.status === 'Publish');
+  const myDownloadedCount = Array.from(new Set(downloadLogs.filter(l => l.studentId === studentIdForFilter).map(l => l.docId))).length;
+  const myLatestDoc = myDocs.length > 0 ? myDocs[0].title : 'Belum Ada';
+
+  const studentStats = {
+    total: myDocs.length,
+    latest: myLatestDoc,
+    downloaded: myDownloadedCount
+  };
+
+  // --- FILTERED DATA RESOLUTION ---
+  const getFilteredDocuments = () => {
+    let result = [...documents];
+
+    // Siswa only sees their own PUBLISHED documents
+    if (role === 'siswa' || (role as string) === 'student') {
+      result = result.filter(d => (d.studentId === studentIdForFilter || (loggedInUser.nisn && d.nisn === loggedInUser.nisn)) && d.status === 'Publish');
+    }
+
+    // Search query: title, documentNumber, studentName, nisn
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(d => 
+        (d.title || '').toLowerCase().includes(q) ||
+        (d.documentNumber || '').toLowerCase().includes(q) ||
+        (d.studentName || '').toLowerCase().includes(q) ||
+        (d.nisn || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Filter by type
+    if (filterType !== 'all') {
+      result = result.filter(d => d.documentType === filterType);
+    }
+
+    // Filter by status (Admin / Guru only)
+    if (role !== 'siswa' && (role as string) !== 'student' && filterStatus !== 'all') {
+      result = result.filter(d => d.status === filterStatus);
+    }
+
+    // Filter by graduation year
+    if (filterYear !== 'all') {
+      result = result.filter(d => d.tahunLulus === filterYear);
+    }
+
+    return result;
+  };
+
+  const filteredDocs = getFilteredDocuments();
+
+  // Get list of unique graduation years for filter
+  const yearsList = Array.from(new Set<string>(documents.map(d => d.tahunLulus || ''))).filter(Boolean).sort((a: string, b: string) => b.localeCompare(a));
+
+  return (
+    <div className="flex-1 flex flex-col bg-slate-50/60 overflow-hidden text-xs h-full">
+      
+      {/* 1. TOP HEADER PANEL */}
+      <div className="bg-white px-6 py-5 border-b border-slate-200/80 shrink-0 shadow-2xs">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-rose-50 text-rose-600 rounded-xl border border-rose-100">
+                <Award className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+                  Pusat Dokumen Akademik
+                </h1>
+                <p className="text-xs text-slate-500 font-medium">
+                  Pengelolaan, Penerbitan &amp; Verifikasi Legalisir Berkas Resmi
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Admin Upload Trigger CTA */}
+          {role === 'admin' && viewState === 'list' && (
+            <button
+              onClick={() => setViewState('add')}
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-2 shadow-xs hover:shadow transition-all duration-200 cursor-pointer self-start lg:self-auto"
+            >
+              <Plus className="w-4 h-4" />
+              Unggah Dokumen Baru
+            </button>
+          )}
+        </div>
+
+        {/* Professional Stats Cards Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3">
+            <div className="p-2.5 bg-slate-200/70 text-slate-700 rounded-xl shrink-0">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Dokumen</span>
+              <span className="text-sm font-bold text-slate-900 block leading-tight mt-0.5">
+                {role === 'siswa' ? studentStats.total : adminStats.total} Berkas
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3">
+            <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-xl shrink-0">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Dokumen Resmi</span>
+              <span className="text-sm font-bold text-slate-900 block leading-tight mt-0.5">
+                {role === 'siswa' ? studentStats.total : adminStats.publish} Terbit
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3 col-span-2 sm:col-span-1">
+            <div className="p-2.5 bg-blue-100 text-blue-700 rounded-xl shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Terbaru</span>
+              <span className="text-xs font-bold text-slate-800 truncate block mt-0.5" title={role === 'siswa' ? studentStats.latest : (filteredDocs[0]?.title || 'Belum Ada')}>
+                {role === 'siswa' ? studentStats.latest : (filteredDocs[0]?.title || 'Belum Ada')}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-50/80 border border-slate-200/70 p-3 rounded-2xl flex items-center gap-3 hidden lg:flex">
+            <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Sistem Verifikasi</span>
+              <span className="text-xs font-bold text-emerald-600 block mt-0.5">
+                QR Code Aktif
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. CONTENT AREA */}
+      <div className="flex-1 p-5 overflow-hidden flex flex-col">
+
+        {/* VIEW: MAIN LIST OF DOCUMENTS */}
+        {viewState === 'list' && (
+          <div className="flex-1 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col overflow-hidden">
+            
+            {/* Search & Category Filter Toolbar */}
+            <div className="p-4 bg-slate-50/60 border-b border-slate-200/80 flex flex-col gap-3 shrink-0">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                
+                {/* Left: Category pills (Filter) */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider hidden md:inline mr-1 shrink-0">Filter:</span>
+                  <div className="flex items-center gap-1.5">
+                    {['all', ...categories].map((cat) => {
+                      const label = cat === 'all' ? 'Semua' : cat;
+                      const isActive = filterType === cat;
+                      return (
+                        <button
+                          key={cat}
+                          onClick={() => setFilterType(cat)}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                            isActive
+                              ? 'bg-slate-900 text-white shadow-xs'
+                              : 'bg-white hover:bg-slate-200/70 text-slate-600 border border-slate-200'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Right: Search Input */}
+                <div className="relative w-full md:w-64 shrink-0">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama, NISN, atau judul..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 text-xs font-medium rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 bg-white placeholder:text-slate-400 text-slate-800 shadow-2xs transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Additional Options Row (Status & Graduation Year) */}
+              {(role !== 'siswa' || filterYear !== 'all') && (
+                <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-200/60">
+                  <span className="text-[11px] text-slate-500 font-semibold">Filter Tambahan:</span>
+                  
+                  {/* Status Filter (Admin & Guru Only) */}
+                  {role !== 'siswa' && (
+                    <select
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:border-rose-500 cursor-pointer shadow-2xs"
+                    >
+                      <option value="all">Semua Status</option>
+                      <option value="Publish">Resmi (Publish)</option>
+                      <option value="Draft">Draft</option>
+                      <option value="Dicabut">Dicabut</option>
+                      <option value="Diganti">Diganti</option>
+                    </select>
+                  )}
+
+                  {/* Tahun Lulus */}
+                  <select
+                    value={filterYear}
+                    onChange={(e) => setFilterYear(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:border-rose-500 cursor-pointer shadow-2xs"
+                  >
+                    <option value="all">Semua Tahun Lulus</option>
+                    {yearsList.map(yr => (
+                      <option key={yr} value={yr}>Tahun {yr}</option>
+                    ))}
+                  </select>
+
+                  {/* Reset Button */}
+                  {(searchQuery || filterType !== 'all' || filterStatus !== 'all' || filterYear !== 'all') && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setFilterType('all');
+                        setFilterStatus('all');
+                        setFilterYear('all');
+                      }}
+                      className="px-3 py-1.5 bg-slate-200/70 hover:bg-slate-300/70 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
+                    >
+                      Atur Ulang Filter
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Documents Content Area */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/40">
+              {filteredDocs.length === 0 ? (
+                <div className="h-64 flex flex-col items-center justify-center text-center text-slate-400 space-y-3">
+                  <div className="w-14 h-14 bg-white rounded-2xl border border-slate-200 flex items-center justify-center shadow-2xs">
+                    <FileText className="w-6 h-6 text-slate-300" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-700 text-sm">Tidak Ada Dokumen Akademik</div>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5 max-w-xs">
+                      Dokumen tidak ditemukan atau belum ada berkas yang diunggah.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* PROFESSIONAL TABLE FOR ADMIN & GURU */
+                role !== 'siswa' ? (
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                            <th className="px-4 py-3.5">Dokumen &amp; No. Seri</th>
+                            <th className="px-4 py-3.5">Kategori</th>
+                            <th className="px-4 py-3.5">Pemilik / Siswa</th>
+                            <th className="px-4 py-3.5">Tanggal Terbit</th>
+                            <th className="px-4 py-3.5 text-center">Status</th>
+                            <th className="px-4 py-3.5 text-right">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700 font-medium">
+                          {filteredDocs.map((doc) => (
+                            <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="px-4 py-3.5">
+                                <span 
+                                  onClick={() => handleOpenPdfViewer(doc)}
+                                  className="font-bold text-slate-900 block leading-snug hover:text-rose-600 transition-colors cursor-pointer text-xs"
+                                >
+                                  {doc.title}
+                                </span>
+                                <span className="inline-block text-[10px] font-mono font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/60 mt-1">
+                                  No: {doc.documentNumber}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/60 uppercase tracking-wide">
+                                  {doc.documentType}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <span className="font-bold text-slate-900 block leading-tight">{doc.studentName}</span>
+                                <span className="text-[11px] text-slate-500 font-medium block mt-0.5">NISN: {doc.nisn} • {doc.kelas}</span>
+                              </td>
+                              <td className="px-4 py-3.5 text-slate-600 font-medium text-xs">
+                                {doc.issueDate}
+                              </td>
+                              <td className="px-4 py-3.5 text-center">
+                                <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1 ${
+                                  doc.status === 'Publish' 
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                                    : doc.status === 'Draft'
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200/80'
+                                    : doc.status === 'Dicabut'
+                                    ? 'bg-red-50 text-red-700 border border-red-200/80'
+                                    : 'bg-pink-50 text-pink-700 border border-pink-200/80'
+                                }`}>
+                                  {doc.status === 'Publish' ? '✓ Resmi' : doc.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3.5 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenPdfViewer(doc)}
+                                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl border border-slate-200 text-xs font-semibold cursor-pointer transition-all flex items-center gap-1 shadow-2xs"
+                                    title="Pratinjau Dokumen"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Lihat</span>
+                                  </button>
+                                  
+                                  <button
+                                    onClick={() => handleDownload(doc)}
+                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/70 rounded-xl text-xs font-semibold cursor-pointer transition-all flex items-center gap-1"
+                                    title="Unduh PDF"
+                                  >
+                                    <Download className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Unduh</span>
+                                  </button>
+
+                                  {/* Share Menu */}
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setShowShareId(showShareId === doc.id ? null : doc.id)}
+                                      className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 transition-all flex items-center justify-center cursor-pointer"
+                                      title="Bagikan"
+                                    >
+                                      <Share2 className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {showShareId === doc.id && (
+                                      <div className="absolute bottom-full mb-2 right-0 bg-white border border-slate-200 rounded-xl shadow-xl p-2 flex flex-col gap-1 z-30 w-40 text-left animate-fade-in">
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-0.5">Kanal Bagikan</div>
+                                        <button
+                                          type="button"
+                                          onClick={() => copyShareLink(doc)}
+                                          className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-700 flex items-center gap-2 cursor-pointer"
+                                        >
+                                          <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                          Salin Link
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => shareWhatsApp(doc)}
+                                          className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 rounded-lg text-xs font-semibold text-emerald-700 flex items-center gap-2 cursor-pointer"
+                                        >
+                                          <Send className="w-3.5 h-3.5 text-emerald-500" />
+                                          WhatsApp
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => shareEmail(doc)}
+                                          className="w-full text-left px-2.5 py-1.5 hover:bg-blue-50 rounded-lg text-xs font-semibold text-blue-700 flex items-center gap-2 cursor-pointer"
+                                        >
+                                          <Mail className="w-3.5 h-3.5 text-blue-500" />
+                                          Kirim Email
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Admin Actions */}
+                                  {role === 'admin' && (
+                                    <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
+                                      <button
+                                        onClick={() => initEditForm(doc)}
+                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+                                        title="Edit"
+                                      >
+                                        <Edit className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteDocument(doc.id)}
+                                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+                                        title="Hapus"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  /* CARD GRID FOR STUDENTS */
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {filteredDocs.map((doc) => (
+                      <div 
+                        key={doc.id} 
+                        className="bg-white border border-slate-200/80 rounded-2xl p-4 hover:shadow-md hover:border-rose-300 transition-all duration-300 flex flex-col justify-between h-full relative group shadow-2xs"
+                      >
+                        <div>
+                          {/* Top layout: Icon + Status */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                                doc.documentType === 'Ijazah' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                doc.documentType === 'SKL' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
+                                doc.documentType === 'Transkrip Nilai' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                'bg-slate-100 text-slate-600 border border-slate-200'
+                              }`}>
+                                {doc.documentType === 'Ijazah' ? <Award className="w-4 h-4" /> :
+                                 doc.documentType === 'SKL' ? <CheckCircle2 className="w-4 h-4" /> :
+                                 doc.documentType === 'Transkrip Nilai' ? <BookOpen className="w-4 h-4" /> :
+                                 <FileText className="w-4 h-4" />}
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                  {doc.documentType}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <span className="px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                              ✓ Resmi
+                            </span>
+                          </div>
+
+                          {/* Title and details */}
+                          <div className="mt-3 space-y-2">
+                            <h4 className="font-bold text-slate-900 text-xs leading-snug line-clamp-2 h-8" title={doc.title}>
+                              {doc.title}
+                            </h4>
+
+                            <div className="space-y-1 text-xs text-slate-500 font-medium pt-1">
+                              <p className="flex items-center gap-1.5">
+                                <span className="text-slate-400 text-[11px]">No. Dok:</span>
+                                <code className="bg-slate-50 border border-slate-200/60 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold text-slate-700 truncate max-w-[170px] block" title={doc.documentNumber}>
+                                  {doc.documentNumber}
+                                </code>
+                              </p>
+                              <p className="flex items-center gap-1.5 text-[11px]">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Terbit: {doc.issueDate}</span>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bottom action bar */}
+                        <div className="border-t border-slate-100 pt-3 mt-3 flex items-center gap-2">
+                          <button
+                            onClick={() => handleOpenPdfViewer(doc)}
+                            className="flex-1 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-semibold border border-slate-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs shadow-2xs"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Lihat</span>
+                          </button>
+                          
+                          <button
+                            onClick={() => handleDownload(doc)}
+                            className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer text-xs"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Unduh</span>
+                          </button>
+
+                          <div className="relative">
+                            <button
+                              onClick={() => setShowShareId(showShareId === doc.id ? null : doc.id)}
+                              className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-xl font-semibold border border-slate-200 transition-all flex items-center justify-center cursor-pointer"
+                              title="Bagikan"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                            </button>
+
+                            {showShareId === doc.id && (
+                              <div className="absolute bottom-full mb-2 right-0 bg-white border border-slate-200 rounded-xl shadow-xl p-2 flex flex-col gap-1 z-30 w-40 text-left animate-fade-in">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-0.5">Kanal Bagikan</div>
+                                <button
+                                  type="button"
+                                  onClick={() => copyShareLink(doc)}
+                                  className="w-full text-left px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-700 flex items-center gap-2 cursor-pointer"
+                                >
+                                  <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                  Salin Link
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => shareWhatsApp(doc)}
+                                  className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 rounded-lg text-xs font-semibold text-emerald-700 flex items-center gap-2 cursor-pointer"
+                                >
+                                  <Send className="w-3.5 h-3.5 text-emerald-500" />
+                                  WhatsApp
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => shareEmail(doc)}
+                                  className="w-full text-left px-2.5 py-1.5 hover:bg-blue-50 rounded-lg text-xs font-semibold text-blue-700 flex items-center gap-2 cursor-pointer"
+                                >
+                                  <Mail className="w-3.5 h-3.5 text-blue-500" />
+                                  Kirim Email
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: ADD DOCUMENT FORM (ADMIN ONLY) */}
+        {role === 'admin' && viewState === 'add' && (
+          <div className="flex-1 bg-white rounded-3xl border border-slate-150 shadow-sm flex flex-col overflow-hidden animate-fade-in">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { resetForm(); setViewState('list'); }}
+                  className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <h3 className="font-extrabold text-slate-800">Unggah Dokumen Akademik Baru</h3>
+              </div>
+            </div>
+
+            <form onSubmit={handleCreateDocument} className="flex-1 overflow-y-auto p-5 space-y-4 max-w-2xl mx-auto w-full">
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Siswa */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Nama Siswa *</label>
+                  <select
+                    required
+                    value={formStudentId}
+                    onChange={(e) => handleStudentSelectChange(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  >
+                    <option value="">-- Pilih Siswa --</option>
+                    <option value="SIS-1001">Fajar Pratama (SIS-1001)</option>
+                    {students.filter(s => s.id !== 'SIS-1001').map(student => (
+                      <option key={student.id} value={student.id}>
+                        {student.nama} ({student.id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* NISN */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">NISN</label>
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder="Auto dari data siswa"
+                    value={formNisn}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed shadow-inner"
+                  />
+                </div>
+
+                {/* Program */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Program Pendidikan</label>
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder="Auto dari data siswa"
+                    value={formProgram}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed shadow-inner"
+                  />
+                </div>
+
+                {/* Kelas */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Kelas</label>
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder="Auto dari data siswa"
+                    value={formKelas}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed shadow-inner"
+                  />
+                </div>
+
+                {/* Tahun Lulus */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Tahun Lulus *</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={4}
+                    placeholder="Contoh: 2026"
+                    value={formTahunLulus}
+                    onChange={(e) => setFormTahunLulus(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Jenis Dokumen */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Jenis Dokumen *</label>
+                  <select
+                    value={formDocType}
+                    onChange={(e) => setFormDocType(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  >
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Nomor Dokumen */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Nomor Dokumen *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: DN-01/C/0098765432/2026"
+                    value={formDocNumber}
+                    onChange={(e) => setFormDocNumber(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Tanggal Terbit */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Tanggal Terbit *</label>
+                  <input
+                    type="date"
+                    required
+                    value={formIssueDate}
+                    onChange={(e) => setFormIssueDate(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Judul Dokumen */}
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Judul Dokumen *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: Ijazah Pendidikan Kesetaraan Paket C Fajar Pratama"
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Deskripsi */}
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Keterangan / Deskripsi</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Keterangan opsional mengenai dokumen ini..."
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm resize-none"
+                  />
+                </div>
+
+                {/* Upload PDF */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Berkas PDF *</label>
+                  <div className="border-2 border-dashed border-slate-200 hover:border-rose-400 rounded-2xl p-4 text-center cursor-pointer relative bg-slate-50 hover:bg-slate-100 transition-all">
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setFormFilePdf(file);
+                          setFormFileName(file.name);
+                            uploadDocumentFile(file)
+                              .then(url => {
+                                setFormFileUrl(url);
+                              })
+                              .catch(err => {
+                                showModal('Upload Gagal', err.message, 'warning');
+                              });
+
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <File className="w-6 h-6 text-slate-400 mx-auto mb-1" />
+                    <span className="text-[9.5px] font-bold text-slate-600 block">
+                      {formFileName ? formFileName : 'Pilih Berkas PDF atau Seret Ke Sini'}
+                    </span>
+                    <span className="text-[8px] text-slate-400 font-medium block mt-0.5">Hanya mendukung format PDF</span>
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Status Dokumen *</label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as any)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  >
+                    <option value="Publish">Publish</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Dicabut">Dicabut</option>
+                    <option value="Diganti">Diganti</option>
+                  </select>
+                </div>
+
+                {/* Thumbnail Image URL */}
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">URL Gambar Pratinjau / Thumbnail (Opsional)</label>
+                  <input
+                    type="text"
+                    placeholder="https://..."
+                    value={formThumbnail}
+                    onChange={(e) => setFormThumbnail(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                  <p className="text-[8px] text-slate-400 font-semibold mt-1">
+                    Gunakan tautan gambar (Unsplash, dsb.) untuk cover kartu dokumen. Jika dikosongkan, akan otomatis menggunakan ilustrasi standar.
+                  </p>
+                </div>
+
+              </div>
+
+              {/* Form Actions */}
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => { resetForm(); setViewState('list'); }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-sm transition-all"
+                >
+                  Simpan Dokumen
+                </button>
+              </div>
+
+            </form>
+          </div>
+        )}
+
+        {/* VIEW: EDIT DOCUMENT FORM (ADMIN ONLY) */}
+        {role === 'admin' && viewState === 'edit' && selectedDoc && (
+          <div className="flex-1 bg-white rounded-3xl border border-slate-150 shadow-sm flex flex-col overflow-hidden animate-fade-in">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { resetForm(); setViewState('list'); }}
+                  className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <h3 className="font-extrabold text-slate-800">Edit Dokumen Akademik: {selectedDoc.title}</h3>
+              </div>
+            </div>
+
+            <form onSubmit={handleUpdateDocument} className="flex-1 overflow-y-auto p-5 space-y-4 max-w-2xl mx-auto w-full">
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Siswa */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Nama Siswa *</label>
+                  <select
+                    required
+                    value={formStudentId}
+                    onChange={(e) => handleStudentSelectChange(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  >
+                    <option value="SIS-1001">Fajar Pratama (SIS-1001)</option>
+                    {students.filter(s => s.id !== 'SIS-1001').map(student => (
+                      <option key={student.id} value={student.id}>
+                        {student.nama} ({student.id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* NISN */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">NISN</label>
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder="Auto dari data siswa"
+                    value={formNisn}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed shadow-inner"
+                  />
+                </div>
+
+                {/* Program */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Program Pendidikan</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={formProgram}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed"
+                  />
+                </div>
+
+                {/* Kelas */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Kelas</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={formKelas}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-500 bg-slate-100 cursor-not-allowed"
+                  />
+                </div>
+
+                {/* Tahun Lulus */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Tahun Lulus *</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={4}
+                    placeholder="Contoh: 2026"
+                    value={formTahunLulus}
+                    onChange={(e) => setFormTahunLulus(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Jenis Dokumen */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Jenis Dokumen *</label>
+                  <select
+                    value={formDocType}
+                    onChange={(e) => setFormDocType(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  >
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Nomor Dokumen */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Nomor Dokumen *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: DN-01/C/0098765432/2026"
+                    value={formDocNumber}
+                    onChange={(e) => setFormDocNumber(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Tanggal Terbit */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Tanggal Terbit *</label>
+                  <input
+                    type="date"
+                    required
+                    value={formIssueDate}
+                    onChange={(e) => setFormIssueDate(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Judul Dokumen */}
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Judul Dokumen *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: Ijazah Pendidikan Kesetaraan Paket C Fajar Pratama"
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Deskripsi */}
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Keterangan / Deskripsi</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Keterangan opsional mengenai dokumen ini..."
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm resize-none"
+                  />
+                </div>
+
+                {/* Upload PDF */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Ganti Berkas PDF (Opsional)</label>
+                  <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 text-center cursor-pointer relative bg-slate-50 hover:bg-slate-100 transition-all">
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setFormFilePdf(file);
+                          setFormFileName(file.name);
+                            uploadDocumentFile(file)
+                              .then(url => {
+                                setFormFileUrl(url);
+                              })
+                              .catch(err => {
+                                showModal('Upload Gagal', err.message, 'warning');
+                              });
+
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <File className="w-6 h-6 text-slate-400 mx-auto mb-1" />
+                    <span className="text-[9.5px] font-bold text-slate-600 block">
+                      {formFileName ? formFileName : 'Biarkan kosong untuk mempertahankan berkas saat ini'}
+                    </span>
+                    <span className="text-[8px] text-slate-400 font-medium block mt-0.5">Mendukung format PDF</span>
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Status Dokumen *</label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as any)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  >
+                    <option value="Publish">Publish</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Dicabut">Dicabut</option>
+                    <option value="Diganti">Diganti</option>
+                  </select>
+                </div>
+
+                {/* Thumbnail Image URL */}
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">URL Gambar Pratinjau / Thumbnail</label>
+                  <input
+                    type="text"
+                    placeholder="https://..."
+                    value={formThumbnail}
+                    onChange={(e) => setFormThumbnail(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
+                  />
+                </div>
+
+              </div>
+
+              {/* Form Actions */}
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => { resetForm(); setViewState('list'); }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition-all"
+                >
+                  Simpan Perubahan
+                </button>
+              </div>
+
+            </form>
+          </div>
+        )}
+
+        {/* VIEW: PDF VIEWER (FULL PAGE COMPLIANT) */}
+        {viewState === 'pdf-viewer' && selectedDoc && (
+          <div className="flex-1 bg-slate-900 rounded-3xl overflow-hidden flex flex-col shadow-xl animate-fade-in text-white h-full">
+            
+            {/* PDF Viewer Header Panel */}
+            <div className="px-5 py-3 bg-slate-800 border-b border-slate-700 flex flex-wrap items-center justify-between shrink-0 gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setViewState('list')}
+                  className="p-1.5 hover:bg-slate-700 rounded-xl text-slate-300 hover:text-white transition-colors"
+                  title="Kembali ke Daftar"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div className="min-w-0">
+                  <h4 className="font-extrabold text-white text-xs truncate max-w-md" title={selectedDoc.title}>
+                    {selectedDoc.title}
+                  </h4>
+                  <p className="text-[9.5px] text-slate-400 font-semibold truncate">
+                    Berkas: {selectedDoc.file} • No: {selectedDoc.documentNumber}
+                  </p>
+                </div>
+              </div>
+
+              {/* PDF Interaction Controls */}
+              <div className="flex items-center gap-2">
+                
+                {/* Search Term Bar */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Cari kata/angka..."
+                    value={pdfSearchQuery}
+                    onChange={(e) => setPdfSearchQuery(e.target.value)}
+                    className="bg-slate-700 text-white border border-slate-600 focus:border-emerald-500 focus:outline-none rounded-lg px-2.5 py-1 text-[9.5px] font-bold placeholder-slate-400 w-32 md:w-44"
+                  />
+                  {pdfSearchQuery && (
+                    <button 
+                      onClick={() => setPdfSearchQuery('')}
+                      className="absolute right-2 top-1.5 p-0.5 hover:bg-slate-600 rounded-full text-slate-300"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Zoom out */}
+                <button
+                  onClick={() => setZoomScale(prev => Math.max(0.6, prev - 0.15))}
+                  className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
+                  title="Perkecil"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Zoom indicator */}
+                <span className="text-[9.5px] font-bold text-slate-300 min-w-[32px] text-center">
+                  {Math.round(zoomScale * 100)}%
+                </span>
+
+                {/* Zoom in */}
+                <button
+                  onClick={() => setZoomScale(prev => Math.min(1.8, prev + 0.15))}
+                  className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
+                  title="Perbesar"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Reset Zoom */}
+                <button
+                  onClick={() => setZoomScale(1)}
+                  className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
+                  title="Ukuran Asli"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Simulate Fullscreen Toggle */}
+                <button
+                  onClick={() => setPdfFullscreen(!pdfFullscreen)}
+                  className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors hidden md:inline-block"
+                  title={pdfFullscreen ? "Keluar Layar Penuh" : "Layar Penuh"}
+                >
+                  {pdfFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                </button>
+
+                {/* Action Trigger inside PDF Viewer */}
+                {role === 'siswa' && (
+                  <button
+                    onClick={() => handleDownload(selectedDoc)}
+                    className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-bold flex items-center gap-1 shadow transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">Unduh PDF</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Real PDF Viewer / Digital Preview */}
+            {selectedDoc?.fileUrl ? (
+              <div className="flex-1 bg-slate-950 overflow-hidden relative flex flex-col">
+                <PdfCanvasViewer
+                  key={`${selectedDoc.id}_${selectedDoc.fileUrl}`}
+                  url={selectedDoc.fileUrl}
+                  zoomScale={zoomScale}
+                  title={selectedDoc.title}
+                  onDownload={() => handleDownload(selectedDoc)}
+                />
+              </div>
+            ) : (
+            <div 
+              ref={pdfContainerRef}
+              className={`flex-1 bg-slate-950 overflow-auto p-6 flex justify-center items-start relative select-none ${
+                pdfFullscreen ? 'fixed inset-0 z-50 p-12 bg-slate-950' : ''
+              }`}
+            >
+              {/* Fullscreen Back Overlay Trigger */}
+              {pdfFullscreen && (
+                <button
+                  onClick={() => setPdfFullscreen(false)}
+                  className="absolute top-5 right-5 p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full shadow-lg z-50 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Realistic Formal Certificate Canvas with variable Scaling */}
+              <div 
+                style={{ transform: `scale(${zoomScale})`, transformOrigin: 'top center' }}
+                className="bg-white text-slate-900 p-14 shadow-2xl rounded-sm border-8 border-slate-300 relative w-[620px] shrink-0 my-4 text-center space-y-6 transition-transform duration-200"
+              >
+                {/* Legalisasi stamp watermark overlay */}
+                <div className="absolute top-10 right-10 w-24 h-24 border-4 border-dashed border-emerald-600/25 rounded-full flex items-center justify-center text-emerald-600/25 font-black text-[9px] uppercase tracking-wider rotate-12 select-none pointer-events-none">
+                  VERIFIED LULUS.ID
+                </div>
+
+                {/* COP SURAT KEMENTERIAN */}
+                <div className="border-b-4 double border-slate-800 pb-4 space-y-1">
+                  <h3 className="text-[10px] font-black tracking-widest text-slate-800 uppercase">
+                    REPUBLIK INDONESIA
+                  </h3>
+                  <h2 className="text-xs font-black tracking-wider text-slate-800 uppercase">
+                    KEMENTERIAN PENDIDIKAN, KEBUDAYAAN, RISET, DAN TEKNOLOGI
+                  </h2>
+                  <h4 className="text-[10px] font-extrabold text-emerald-600 uppercase">
+                    PKBM AGRABINTA - KABUPATEN CIANJUR
+                  </h4>
+                  <p className="text-[8px] text-slate-400 font-semibold tracking-wider">
+                    Izin Operasional: 421.9/2312/Bid.PAUD-Dikmas/2020 • NPSN: P9960234
+                  </p>
+                </div>
+
+                {/* DOCUMENT TYPE NAME & HIGHLIGHTS */}
+                <div className="space-y-1 py-2">
+                  <h1 className="text-sm font-black text-slate-900 tracking-wider uppercase border-b-2 border-slate-950 w-fit mx-auto px-4 pb-0.5">
+                    {selectedDoc.documentType === 'Ijazah' ? 'IJAZAH' : selectedDoc.documentType === 'SKL' ? 'SURAT KETERANGAN LULUS' : selectedDoc.title.toUpperCase()}
+                  </h1>
+                  <p className="text-[8.5px] text-slate-500 font-bold tracking-widest">
+                    NOMOR: {selectedDoc.documentNumber}
+                  </p>
+                </div>
+
+                {/* FORMAL TEXT CONTENT WITH SEARCH TERMS HIGHLIGHTING */}
+                <div className="text-[9.5px] text-slate-800 font-medium leading-relaxed text-justify space-y-3 px-2">
+                  <p>
+                    Yang bertanda tangan di bawah ini, Kepala Pusat Kegiatan Belajar Masyarakat (PKBM) Agrabinta menerangkan dengan sesungguhnya bahwa siswa di bawah ini:
+                  </p>
+
+                  <table className="w-full text-left my-4 border-collapse text-[9.5px]">
+                    <tbody>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1.5 font-bold text-slate-500 w-1/3">Nama Lengkap</td>
+                        <td className="py-1.5 font-black text-slate-800">
+                          {pdfSearchQuery && selectedDoc.studentName.toLowerCase().includes(pdfSearchQuery.toLowerCase()) ? (
+                            <mark className="bg-yellow-200 text-slate-900 font-black px-0.5">{selectedDoc.studentName}</mark>
+                          ) : (
+                            selectedDoc.studentName
+                          )}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1.5 font-bold text-slate-500">NISN (Nomor Induk Siswa Nasional)</td>
+                        <td className="py-1.5 font-black text-slate-800">
+                          {pdfSearchQuery && selectedDoc.nisn.includes(pdfSearchQuery) ? (
+                            <mark className="bg-yellow-200 text-slate-900 font-black px-0.5">{selectedDoc.nisn}</mark>
+                          ) : (
+                            selectedDoc.nisn
+                          )}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1.5 font-bold text-slate-500">Program Kesetaraan</td>
+                        <td className="py-1.5 font-bold text-slate-700">{selectedDoc.program} ({selectedDoc.kelas})</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1.5 font-bold text-slate-500">Tahun Kelulusan</td>
+                        <td className="py-1.5 font-bold text-slate-700">Tahun Ajaran {Number(selectedDoc.tahunLulus) - 1}/{selectedDoc.tahunLulus}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <p>
+                    Telah dinyatakan <strong className="text-emerald-700 font-black">LULUS</strong> dari satuan pendidikan kesetaraan {lembagaIdentitas.namaPkbm} berdasarkan Keputusan Kepala Sekolah nomor SK-041/PKBM-AGR/2026 tanggal {selectedDoc.issueDate}. Seluruh kewajiban akademik siswa telah terpenuhi dengan predikat memuaskan.
+                  </p>
+                </div>
+
+                {/* SIGNATURES SECTION */}
+                <div className="pt-6 grid grid-cols-2 gap-6 items-start text-left border-t border-slate-100 text-[10px]">
+                  
+                  {/* Left Column: Digital Notice & QR Code */}
+                  <div className="space-y-4">
+                    <div className="text-left space-y-1.5">
+                      <p className="font-black text-slate-900 leading-normal">
+                        Dokumen ini diterbitkan secara digital.
+                      </p>
+                      <p className="text-[9px] text-slate-500 font-semibold leading-normal">
+                        Verifikasi keaslian dokumen dilakukan secara real-time dengan memindai QR Code di samping.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <DocumentQRCode code={selectedDoc.verificationCode || selectedDoc.documentNumber} size={56} />
+                      <div className="space-y-0.5 text-left">
+                        <p className="text-[8px] font-black text-slate-800 tracking-wider">
+                          Kode: <span className="font-mono uppercase">{selectedDoc.verificationCode || selectedDoc.documentNumber}</span>
+                        </p>
+                        <p className="text-[7.5px] font-extrabold text-emerald-600 font-mono break-all max-w-[130px]">
+                          {(typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id').replace(/^https?:\/\//, '')}/verifikasi/{selectedDoc.verificationCode || selectedDoc.documentNumber}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Area Pengesahan */}
+                  <div className="text-right flex flex-col items-end space-y-1 pr-2">
+                    <p className="font-semibold text-slate-700">
+                      Cianjur, {new Date(selectedDoc.issueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                    <p className="font-black text-slate-950 uppercase tracking-wide">
+                      {lembagaIdentitas.jabatanPejabatTtd || 'Kepala PKBM'}
+                    </p>
+                    
+                    {/* Signature Container - conditional visibility for student on-screen */}
+                    <div className={`h-12 flex items-center justify-end ${role === 'siswa' ? 'hidden print:flex' : 'flex'}`}>
+                      <img 
+                        src={safeSrc(lembagaIdentitas.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan')} 
+                        alt="Tanda Tangan" 
+                        className="max-h-full max-w-[120px] object-contain mix-blend-multiply"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    {role === 'siswa' && (
+                      <div className="h-12 flex items-center justify-end text-[8px] font-bold text-slate-400 italic print:hidden">
+                        [Tanda Tangan Digital Terverifikasi]
+                      </div>
+                    )}
+
+                    <p className="font-black text-slate-950 underline mt-1 text-[10px]">
+                      {lembagaIdentitas.namaPejabatTtd || lembagaIdentitas.namaKepalaSekolah}
+                    </p>
+                  </div>
+
+                </div>
+
+                {/* VERIFICATION BAR CODE LOGO FOOTER */}
+                <div className="border-t border-slate-200 pt-4 flex items-center justify-between text-[7px] font-black text-slate-400 uppercase tracking-widest">
+                  <span>Sistem Informasi Lulus.id {lembagaIdentitas.namaPkbm}</span>
+                  <span>Verifikasi Elektronik Aktif</span>
+                  <span>ID: {selectedDoc.id}</span>
+                </div>
+
+              </div>
+            </div>
+            )}
+
+            {/* PDF Viewer Footer Panel */}
+            <div className="px-5 py-3 bg-slate-800 border-t border-slate-700 flex justify-between items-center shrink-0">
+              <div className="text-[10px] text-slate-400 font-bold">
+                * Dokumen ini terdaftar secara resmi di database Lulus.id Academic Center.
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewState('list')}
+                className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold transition-all"
+              >
+                Tutup Viewer
+              </button>
+            </div>
+
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
