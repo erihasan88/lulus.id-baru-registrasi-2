@@ -3,16 +3,20 @@ import {
   LayoutDashboard, Users, UserCheck, School, Activity, Database, 
   FileSpreadsheet, Bell, ChevronRight, Plus, Edit, Search, Filter, 
   Check, CheckCircle, X, Download, Lock, Settings, RefreshCw, Sliders, ShieldAlert, Upload, Building, Mail, Phone, Globe, Printer,
-  ArrowLeft, ArrowRight, FileText, BarChart2, Eye, ClipboardList, Sparkles, Bot, Send,
+  ArrowLeft, ArrowRight, FileText, BarChart2, Eye,
+  EyeOff, ClipboardList, Sparkles, Bot, Send,
   Wallet, QrCode, Trash2, TrendingUp, DollarSign, CreditCard, Award, Calendar, MessageSquare, Megaphone, BookOpen, Layers
 } from 'lucide-react';
-import { Student, Teacher, ClassData, SystemNotification, Subject, ChatMessage, PaymentMethod, AcademicYear, Announcement, LibraryBook, ProgramBelajar, BebanBelajar } from '../types';
+import { Student, Teacher, ClassData, SystemNotification, Subject, Task, Exam, ChatMessage, PaymentMethod, AcademicYear, Announcement, LibraryBook, ProgramBelajar, BebanBelajar } from '../types';
 import UnifiedChat from './UnifiedChat';
 import DokumenAkademik from './DokumenAkademik';
 import AdminTranscript from '../pages/AdminTranscript';
 import FormulirPendaftaranModal from './FormulirPendaftaranModal';
 import BankVerifikasi from './BankVerifikasi';
 import { AdminRegistrationManager } from './AdminRegistrationManager';
+import { api } from '../lib/api';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
 
 interface DashboardAdminProps {
   students: Student[];
@@ -25,6 +29,9 @@ interface DashboardAdminProps {
   setNotifications: React.Dispatch<React.SetStateAction<SystemNotification[]>>;
   subjects: Subject[];
   setSubjects: React.Dispatch<React.SetStateAction<Subject[]>>;
+  tasks: Task[];
+  taskSubmissions: TaskSubmission[];
+  exams: Exam[];
   onBackToLogin: () => void;
   showModal: (title: string, desc: string, type?: 'info' | 'warning' | 'success') => void;
   regFeeReguler?: number;
@@ -58,6 +65,9 @@ export default function DashboardAdmin({
   setNotifications,
   subjects,
   setSubjects,
+  tasks = [],
+  taskSubmissions = [],
+  exams = [],
   onBackToLogin,
   showModal,
   regFeeReguler = 300000,
@@ -80,6 +90,130 @@ export default function DashboardAdmin({
   activeAcademicYear
 }: DashboardAdminProps) {
   // Tabs: 'dashboard' | 'siswa' | 'guru' | 'kelas' | 'monitoring' | 'verifikasi' | 'dapodik' | 'laporan' | 'setting'
+  const loadFinancialTransactions = async () => {
+    try {
+      const bills = await api.getAdminStudentBills();
+
+      const statusMap: Record<string, string> = {
+        PAID: 'Lunas',
+        WAITING_CONFIRMATION: 'Menunggu Verifikasi',
+        UNPAID: 'Belum Dibayar',
+        DECLINED: 'Ditolak',
+        EXPIRED: 'Kedaluwarsa'
+      };
+
+      const transactions = (bills || []).map((bill: any) => ({
+        id: bill.id,
+        displayId: `${bill.bill_type || 'TAG'}-${bill.year || ''}${String(bill.month || '').padStart(2, '0')}-${String(bill.id).slice(0, 6).toUpperCase()}`,
+        billId: bill.id,
+        studentId: bill.student,
+        studentName:
+          bill.student_name ||
+          bill.student_username ||
+          'Siswa',
+        type: bill.title,
+        billType: bill.bill_type,
+        month: bill.month,
+        year: bill.year,
+        amount: Number(bill.amount || 0),
+        method: bill.payment_method || '-',
+        date: bill.created_at?.split('T')[0] || '',
+        dueDate: bill.due_date,
+        status: statusMap[bill.status] || bill.status,
+        buktiUrl: bill.payment_proof || '',
+        rejectionReason: bill.rejection_reason || '',
+        paidAt: bill.paid_at || null
+      }));
+
+      onUpdateTransactions?.(transactions);
+    } catch (err) {
+      console.error('Gagal memuat tagihan siswa:', err);
+    }
+  };
+
+  React.useEffect(() => {
+    loadFinancialTransactions();
+  }, []);
+
+  React.useEffect(() => {
+    const loadPaymentMethods = async () => {
+      try {
+        const methods = await api.getPaymentMethods();
+
+        onUpdatePaymentMethods?.(
+          (methods || []).map((m: any) => ({
+            id: m.id,
+            name: m.name,
+            provider: m.provider,
+            isActive: m.is_active
+          }))
+        );
+      } catch (err) {
+        console.error('Gagal memuat metode pembayaran:', err);
+      }
+    };
+
+    loadPaymentMethods();
+  }, []);
+
+  React.useEffect(() => {
+    const loadInstitutionSettings = async () => {
+      try {
+        const saved = await api.getInstitutionSettings();
+
+        setLembagaIdentitas({
+          namaPkbm: saved.nama_pkbm || '',
+          namaYayasan: saved.nama_yayasan || '',
+          npsn: saved.npsn || '',
+          nomorIzinOperasional: saved.nomor_izin_operasional || '',
+          alamat: saved.alamat || '',
+          kecamatan: saved.kecamatan || '',
+          kabupaten: saved.kabupaten || '',
+          provinsi: saved.provinsi || '',
+          kodePos: saved.kode_pos || '',
+          nomorTelepon: saved.nomor_telepon || '',
+          emailLembaga: saved.email_lembaga || '',
+          website: saved.website || '',
+          logoPkbm: saved.logo_pkbm || '',
+          logoYayasan: saved.logo_yayasan || '',
+          namaKepalaSekolah: saved.nama_kepala_sekolah || '',
+          nipKepalaSekolah: saved.nip_kepala_sekolah || '',
+          atributPengesahanDigital:
+            saved.atribut_pengesahan_digital || '',
+          
+          
+          namaPenandatangan: saved.nama_penandatangan || '',
+          
+        });
+      } catch (err) {
+        console.error('Gagal memuat Identitas Lembaga:', err);
+      }
+    };
+
+    loadInstitutionSettings();
+  }, []);
+
+  React.useEffect(() => {
+    const loadManualPaymentSettings = async () => {
+      try {
+        const saved = await api.getManualPaymentSettings();
+
+        setAdminPaymentSettings({
+          namaBank: saved.nama_bank || '',
+          noRekening: saved.no_rekening || '',
+          pemilikRekening: saved.pemilik_rekening || '',
+          qrisUrl: saved.qris_url || '',
+          instruksi: saved.instruksi || ''
+        });
+      } catch (err) {
+        console.error('Gagal memuat pengaturan rekening:', err);
+      }
+    };
+
+    loadManualPaymentSettings();
+  }, []);
+
+
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [printingStudent, setPrintingStudent] = useState<Student | null>(null);
 
@@ -88,6 +222,34 @@ export default function DashboardAdmin({
   const [inputRegFeeKaryawan, setInputRegFeeKaryawan] = useState<number>(regFeeKaryawan);
   const [inputSppReguler, setInputSppReguler] = useState<number>(sppReguler);
   const [inputSppKaryawan, setInputSppKaryawan] = useState<number>(sppKaryawan);
+
+  // Keringanan biaya pendaftaran
+  const [inputDiscountTypeReguler, setInputDiscountTypeReguler] = useState<string>('NONE');
+  const [inputDiscountValueReguler, setInputDiscountValueReguler] = useState<number>(0);
+
+  const [inputDiscountTypeKaryawan, setInputDiscountTypeKaryawan] = useState<string>('NONE');
+  const [inputDiscountValueKaryawan, setInputDiscountValueKaryawan] = useState<number>(0);
+
+  // Keringanan SPP bulanan
+  const [inputSppDiscountTypeReguler, setInputSppDiscountTypeReguler] = useState<string>('NONE');
+  const [inputSppDiscountValueReguler, setInputSppDiscountValueReguler] = useState<number>(0);
+
+  const [inputSppDiscountTypeKaryawan, setInputSppDiscountTypeKaryawan] = useState<string>('NONE');
+  const [inputSppDiscountValueKaryawan, setInputSppDiscountValueKaryawan] = useState<number>(0);
+
+  const calculateFinalPrice = (
+    amount: number,
+    type: string,
+    value: number
+  ) => {
+    if (type === 'SCHOLARSHIP') return 0;
+    if (type === 'DISCOUNT') {
+      const safeValue = Math.min(100, Math.max(0, value));
+      return Math.max(0, Math.round(amount - (amount * safeValue / 100)));
+    }
+    return amount;
+  };
+
 
   // Global Academic Year and Semester Filters for all dashboards
   const [filterTA, setFilterTA] = useState<string>('Semua');
@@ -113,20 +275,13 @@ export default function DashboardAdmin({
   const [txStatusFilter, setTxStatusFilter] = useState<string>('Semua');
 
   // Manual payment account & verification settings
-  const [adminPaymentSettings, setAdminPaymentSettings] = useState(() => {
-    const saved = localStorage.getItem('lulus_admin_payment_settings');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return {
-      namaBank: 'Bank Central Asia (BCA)',
-      noRekening: '52203049182',
-      pemilikRekening: 'PKBM Agrabinta Lulus.id',
-      qrisUrl: 'https://placehold.co/200x200/ffffff/000000?text=QRIS+LULUS+ID',
-      instruksi: '1. Buka aplikasi M-Banking atau E-Wallet pilihan Anda.\n2. Lakukan transfer ke rekening di atas atau scan QRIS.\n3. Masukkan nominal yang sesuai dengan tagihan Anda.\n4. Simpan bukti pembayaran berupa struk atau screenshot.\n5. Upload bukti pembayaran di halaman ini untuk diverifikasi Admin.'
-    };
+  // Sumber utama data adalah Django melalui getManualPaymentSettings().
+  const [adminPaymentSettings, setAdminPaymentSettings] = useState({
+    namaBank: '',
+    noRekening: '',
+    pemilikRekening: '',
+    qrisUrl: '',
+    instruksi: ''
   });
   const [verifyingTx, setVerifyingTx] = useState<any | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
@@ -286,15 +441,7 @@ export default function DashboardAdmin({
     }
   ];
 
-  const [cpList, setCpList] = useState<any[]>(() => {
-    const saved = localStorage.getItem('lulus_master_cp');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return defaultCPList;
-  });
+  const [cpList, setCpList] = useState<any[]>(defaultCPList);
 
   const [cpSearch, setCpSearch] = useState<string>('');
   const [cpProgramFilter, setCpProgramFilter] = useState<string>('Semua');
@@ -318,110 +465,103 @@ export default function DashboardAdmin({
     status_aktif: true
   });
 
-  const [programs, setPrograms] = useState<ProgramBelajar[]>(() => {
-    const saved = localStorage.getItem('lulus_programs');
-    if (saved) {
+  const [programs, setPrograms] = useState<ProgramBelajar[]>([]);
+  const [programsLoading, setProgramsLoading] = useState<boolean>(true);
+
+  React.useEffect(() => {
+    const loadPrograms = async () => {
       try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [
-      {
-        id: 'PRG-C-REG',
-        nama: 'Paket C Reguler',
-        jenjang: 'Paket C',
-        sistemBelajar: 'Reguler',
-        lamaBelajar: '3 Tahun',
-        totalSkk: 80,
-        distribusiSkk: { 'Ganjil': 14, 'Genap': 14 },
-        mapelWajib: ['Bahasa Indonesia', 'Matematika', 'PPKn', 'Bahasa Inggris', 'Pendidikan Agama', 'Sejarah Indonesia'],
-        mapelPilihan: ['Sosiologi', 'Geografi', 'Ekonomi', 'Antropologi']
-      },
-      {
-        id: 'PRG-C-KAR',
-        nama: 'Paket C Karyawan',
-        jenjang: 'Paket C',
-        sistemBelajar: 'Karyawan',
-        lamaBelajar: '2 Tahun (Percepatan)',
-        totalSkk: 80,
-        distribusiSkk: { 'Ganjil': 20, 'Genap': 20 },
-        mapelWajib: ['Bahasa Indonesia', 'Matematika', 'PPKn', 'Bahasa Inggris', 'Pendidikan Agama', 'Sejarah Indonesia'],
-        mapelPilihan: ['Sosiologi', 'Geografi', 'Ekonomi']
-      },
-      {
-        id: 'PRG-B-REG',
-        nama: 'Paket B Reguler',
-        jenjang: 'Paket B',
-        sistemBelajar: 'Reguler',
-        lamaBelajar: '3 Tahun',
-        totalSkk: 40,
-        distribusiSkk: { 'Ganjil': 7, 'Genap': 7 },
-        mapelWajib: ['Bahasa Indonesia', 'Matematika', 'IPA', 'IPS', 'PPKn', 'Bahasa Inggris'],
-        mapelPilihan: ['Prakarya', 'Seni Budaya']
-      },
-      {
-        id: 'PRG-A-REG',
-        nama: 'Paket A Reguler',
-        jenjang: 'Paket A',
-        sistemBelajar: 'Reguler',
-        lamaBelajar: '6 Tahun',
-        totalSkk: 30,
-        distribusiSkk: { 'Ganjil': 5, 'Genap': 5 },
-        mapelWajib: ['Bahasa Indonesia', 'Matematika', 'IPA', 'IPS', 'PPKn'],
-        mapelPilihan: ['Seni Tari', 'Keterampilan']
+        setProgramsLoading(true);
+
+        const data = await api.adminGetProgramBelajar();
+
+        const mappedPrograms: ProgramBelajar[] = data.map((item: any) => ({
+          id: item.id,
+          nama: item.nama,
+          jenjang: item.paket,
+          sistemBelajar: item.jalur,
+          totalSkk: Number(item.target_total_skk),
+          statusAktif: item.status === 'Aktif'
+        }));
+
+        setPrograms(mappedPrograms);
+      } catch (error) {
+        console.error('Gagal mengambil Program Belajar:', error);
+        showModal(
+          'Gagal Memuat Program',
+          'Data Program Belajar tidak dapat diambil dari server.',
+          'error'
+        );
+      } finally {
+        setProgramsLoading(false);
       }
-    ];
-  });
+    };
+
+    loadPrograms();
+  }, []);
 
   React.useEffect(() => {
-    localStorage.setItem('lulus_master_cp', JSON.stringify(cpList));
-  }, [cpList]);
-
-  React.useEffect(() => {
-    localStorage.setItem('lulus_programs', JSON.stringify(programs));
-  }, [programs]);
-
-  const [bebanBelajars, setBebanBelajars] = useState<BebanBelajar[]>(() => {
-    const saved = localStorage.getItem('lulus_beban_belajar');
-    if (saved) {
+    const loadCpFromDatabase = async () => {
       try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [
-      // Paket C Reguler (PRG-C-REG)
-      { id: 'BB-001', programBelajarId: 'PRG-C-REG', programBelajarNama: 'Paket C Reguler', jenjang: 'Paket C', sistemBelajar: 'Reguler', tingkat: 'Kelas 10', semester: 'Semester 1', targetSkk: 14, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-002', programBelajarId: 'PRG-C-REG', programBelajarNama: 'Paket C Reguler', jenjang: 'Paket C', sistemBelajar: 'Reguler', tingkat: 'Kelas 10', semester: 'Semester 2', targetSkk: 14, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-003', programBelajarId: 'PRG-C-REG', programBelajarNama: 'Paket C Reguler', jenjang: 'Paket C', sistemBelajar: 'Reguler', tingkat: 'Kelas 11', semester: 'Semester 3', targetSkk: 13, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-004', programBelajarId: 'PRG-C-REG', programBelajarNama: 'Paket C Reguler', jenjang: 'Paket C', sistemBelajar: 'Reguler', tingkat: 'Kelas 11', semester: 'Semester 4', targetSkk: 13, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-005', programBelajarId: 'PRG-C-REG', programBelajarNama: 'Paket C Reguler', jenjang: 'Paket C', sistemBelajar: 'Reguler', tingkat: 'Kelas 12', semester: 'Semester 5', targetSkk: 13, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-006', programBelajarId: 'PRG-C-REG', programBelajarNama: 'Paket C Reguler', jenjang: 'Paket C', sistemBelajar: 'Reguler', tingkat: 'Kelas 12', semester: 'Semester 6', targetSkk: 13, tahunBerlaku: '2026/2027', statusAktif: true },
-      // Paket C Karyawan (PRG-C-KAR)
-      { id: 'BB-007', programBelajarId: 'PRG-C-KAR', programBelajarNama: 'Paket C Karyawan', jenjang: 'Paket C', sistemBelajar: 'Karyawan', tingkat: 'Kelas 11', semester: 'Semester 3', targetSkk: 26, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-008', programBelajarId: 'PRG-C-KAR', programBelajarNama: 'Paket C Karyawan', jenjang: 'Paket C', sistemBelajar: 'Karyawan', tingkat: 'Kelas 12', semester: 'Semester 4', targetSkk: 27, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-009', programBelajarId: 'PRG-C-KAR', programBelajarNama: 'Paket C Karyawan', jenjang: 'Paket C', sistemBelajar: 'Karyawan', tingkat: 'Kelas 12', semester: 'Semester 5', targetSkk: 27, tahunBerlaku: '2026/2027', statusAktif: true },
-      // Paket B Reguler (PRG-B-REG)
-      { id: 'BB-010', programBelajarId: 'PRG-B-REG', programBelajarNama: 'Paket B Reguler', jenjang: 'Paket B', sistemBelajar: 'Reguler', tingkat: 'Kelas 7', semester: 'Semester 1', targetSkk: 7, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-011', programBelajarId: 'PRG-B-REG', programBelajarNama: 'Paket B Reguler', jenjang: 'Paket B', sistemBelajar: 'Reguler', tingkat: 'Kelas 7', semester: 'Semester 2', targetSkk: 7, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-012', programBelajarId: 'PRG-B-REG', programBelajarNama: 'Paket B Reguler', jenjang: 'Paket B', sistemBelajar: 'Reguler', tingkat: 'Kelas 8', semester: 'Semester 3', targetSkk: 7, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-013', programBelajarId: 'PRG-B-REG', programBelajarNama: 'Paket B Reguler', jenjang: 'Paket B', sistemBelajar: 'Reguler', tingkat: 'Kelas 8', semester: 'Semester 4', targetSkk: 7, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-014', programBelajarId: 'PRG-B-REG', programBelajarNama: 'Paket B Reguler', jenjang: 'Paket B', sistemBelajar: 'Reguler', tingkat: 'Kelas 9', semester: 'Semester 5', targetSkk: 6, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-015', programBelajarId: 'PRG-B-REG', programBelajarNama: 'Paket B Reguler', jenjang: 'Paket B', sistemBelajar: 'Reguler', tingkat: 'Kelas 9', semester: 'Semester 6', targetSkk: 6, tahunBerlaku: '2026/2027', statusAktif: true },
-      // Paket A Reguler (PRG-A-REG)
-      { id: 'BB-016', programBelajarId: 'PRG-A-REG', programBelajarNama: 'Paket A Reguler', jenjang: 'Paket A', sistemBelajar: 'Reguler', tingkat: 'Kelas 4', semester: 'Semester 1', targetSkk: 5, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-017', programBelajarId: 'PRG-A-REG', programBelajarNama: 'Paket A Reguler', jenjang: 'Paket A', sistemBelajar: 'Reguler', tingkat: 'Kelas 4', semester: 'Semester 2', targetSkk: 5, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-018', programBelajarId: 'PRG-A-REG', programBelajarNama: 'Paket A Reguler', jenjang: 'Paket A', sistemBelajar: 'Reguler', tingkat: 'Kelas 5', semester: 'Semester 3', targetSkk: 5, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-019', programBelajarId: 'PRG-A-REG', programBelajarNama: 'Paket A Reguler', jenjang: 'Paket A', sistemBelajar: 'Reguler', tingkat: 'Kelas 5', semester: 'Semester 4', targetSkk: 5, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-020', programBelajarId: 'PRG-A-REG', programBelajarNama: 'Paket A Reguler', jenjang: 'Paket A', sistemBelajar: 'Reguler', tingkat: 'Kelas 6', semester: 'Semester 5', targetSkk: 5, tahunBerlaku: '2026/2027', statusAktif: true },
-      { id: 'BB-021', programBelajarId: 'PRG-A-REG', programBelajarNama: 'Paket A Reguler', jenjang: 'Paket A', sistemBelajar: 'Reguler', tingkat: 'Kelas 6', semester: 'Semester 6', targetSkk: 5, tahunBerlaku: '2026/2027', statusAktif: true },
-    ];
-  });
+        const response = await api.adminGetCP();
+
+        const databaseItems = Array.isArray(response)
+          ? response
+          : response?.results || [];
+
+        const cpDatabase = databaseItems.map((item: any) => ({
+          id: item.id,
+          kode_cp: item.kode_cp || '',
+          program:
+            item.program ||
+            item.mata_pelajaran_program ||
+            item.paket ||
+            'Paket C',
+          fase: item.fase || '',
+          kelas:
+            item.kelas ||
+            item.mata_pelajaran_kelas ||
+            '',
+          subject:
+            item.mata_pelajaran_nama ||
+            item.subject ||
+            item.nama_mata_pelajaran ||
+            'Mata Pelajaran',
+          elemen: item.elemen || '',
+          deskripsi: item.deskripsi || '',
+          isActive: item.aktif !== false,
+          isDefault: false,
+          tahun_regulasi: item.tahun || '2025',
+          sumber_cp: item.sumber_cp || 'Lembaga',
+          status_aktif: item.aktif !== false
+        }));
+
+        setCpList([
+          ...defaultCPList,
+          ...cpDatabase
+        ]);
+
+        localStorage.removeItem('lulus_master_cp');
+      } catch (error) {
+        console.error(
+          'Gagal mengambil CP dari database:',
+          error
+        );
+
+        setCpList(defaultCPList);
+      }
+    };
+
+    loadCpFromDatabase();
+  }, []);
+
+  const [bebanBelajars, setBebanBelajars] = useState<BebanBelajar[]>([]);
 
   const [selectedProgramForBB, setSelectedProgramForBB] = useState<ProgramBelajar | null>(null);
   const [showAddBBModal, setShowAddBBModal] = useState<boolean>(false);
   const [editingBB, setEditingBB] = useState<BebanBelajar | null>(null);
   const [newBB, setNewBB] = useState({
-    tingkat: 'Kelas 10',
+    fase: 'Fase E',
     semester: 'Semester 1',
     targetSkk: 10,
     tahunBerlaku: '2026/2027',
@@ -429,8 +569,40 @@ export default function DashboardAdmin({
   });
 
   React.useEffect(() => {
-    localStorage.setItem('lulus_beban_belajar', JSON.stringify(bebanBelajars));
-  }, [bebanBelajars]);
+    const loadBebanBelajar = async () => {
+      try {
+        const response = await api.adminGetBebanBelajar();
+
+        const items = Array.isArray(response)
+          ? response
+          : response?.results || [];
+
+        const mappedItems: BebanBelajar[] = items.map((item: any) => ({
+          id: item.id,
+          programBelajarId: item.program_belajar,
+          programBelajarNama:
+            item.program_belajar_nama || 'Program Belajar',
+          jenjang: item.paket || 'Paket C',
+          sistemBelajar: item.jalur || 'Reguler',
+          fase: item.fase || '',
+          semester: item.semester || '',
+          targetSkk: Number(item.target_skk) || 0,
+          tahunBerlaku: item.tahun_berlaku || '',
+          statusAktif: item.aktif !== false
+        }));
+
+        setBebanBelajars(mappedItems);
+        localStorage.removeItem('lulus_beban_belajar');
+      } catch (error) {
+        console.error(
+          'Gagal memuat Beban Belajar dari Django:',
+          error
+        );
+      }
+    };
+
+    loadBebanBelajar();
+  }, []);
 
   // Helper to determine semester name from class level and academic year semester (Ganjil/Genap)
   const getSemesterString = (tingkat: string | undefined | null, semesterName: 'Ganjil' | 'Genap' | string): string => {
@@ -453,21 +625,21 @@ export default function DashboardAdmin({
       if (sistemBelajar === 'Karyawan') {
         const share = Math.floor(totalSkk / 3);
         const rem = totalSkk % 3;
-        configs.push({ id: `BB-${Date.now()}-1`, programBelajarId: prgId, programBelajarNama: name, jenjang, sistemBelajar, tingkat: 'Kelas 11', semester: 'Semester 3', targetSkk: share + (rem > 0 ? 1 : 0), tahunBerlaku: '2026/2027', statusAktif: true });
-        configs.push({ id: `BB-${Date.now()}-2`, programBelajarId: prgId, programBelajarNama: name, jenjang, sistemBelajar, tingkat: 'Kelas 12', semester: 'Semester 4', targetSkk: share + (rem > 1 ? 1 : 0), tahunBerlaku: '2026/2027', statusAktif: true });
-        configs.push({ id: `BB-${Date.now()}-3`, programBelajarId: prgId, programBelajarNama: name, jenjang, sistemBelajar, tingkat: 'Kelas 12', semester: 'Semester 5', targetSkk: share, tahunBerlaku: '2026/2027', statusAktif: true });
+        configs.push({ id: `BB-${Date.now()}-1`, programBelajarId: prgId, programBelajarNama: name, jenjang, sistemBelajar, fase: 'Fase F', semester: 'Semester 3', targetSkk: share + (rem > 0 ? 1 : 0), tahunBerlaku: '2026/2027', statusAktif: true });
+        configs.push({ id: `BB-${Date.now()}-2`, programBelajarId: prgId, programBelajarNama: name, jenjang, sistemBelajar, fase: 'Fase F', semester: 'Semester 4', targetSkk: share + (rem > 1 ? 1 : 0), tahunBerlaku: '2026/2027', statusAktif: true });
+        configs.push({ id: `BB-${Date.now()}-3`, programBelajarId: prgId, programBelajarNama: name, jenjang, sistemBelajar, fase: 'Fase F', semester: 'Semester 5', targetSkk: share, tahunBerlaku: '2026/2027', statusAktif: true });
       } else {
         const share = Math.floor(totalSkk / 6);
         const rem = totalSkk % 6;
         for (let i = 1; i <= 6; i++) {
-          const tingkat = i <= 2 ? 'Kelas 10' : i <= 4 ? 'Kelas 11' : 'Kelas 12';
+          const fase = i <= 2 ? 'Fase E' : 'Fase F';
           configs.push({
             id: `BB-${Date.now()}-${i}`,
             programBelajarId: prgId,
             programBelajarNama: name,
             jenjang,
             sistemBelajar,
-            tingkat,
+            fase,
             semester: `Semester ${i}`,
             targetSkk: share + (rem >= i ? 1 : 0),
             tahunBerlaku: '2026/2027',
@@ -479,14 +651,14 @@ export default function DashboardAdmin({
       const share = Math.floor(totalSkk / 6);
       const rem = totalSkk % 6;
       for (let i = 1; i <= 6; i++) {
-        const tingkat = i <= 2 ? 'Kelas 7' : i <= 4 ? 'Kelas 8' : 'Kelas 9';
+        const fase = 'Fase D';
         configs.push({
           id: `BB-${Date.now()}-${i}`,
           programBelajarId: prgId,
           programBelajarNama: name,
           jenjang,
           sistemBelajar,
-          tingkat,
+          fase,
           semester: `Semester ${i}`,
           targetSkk: share + (rem >= i ? 1 : 0),
           tahunBerlaku: '2026/2027',
@@ -497,14 +669,14 @@ export default function DashboardAdmin({
       const share = Math.floor(totalSkk / 6);
       const rem = totalSkk % 6;
       for (let i = 1; i <= 6; i++) {
-        const tingkat = i <= 2 ? 'Kelas 4' : i <= 4 ? 'Kelas 5' : 'Kelas 6';
+        const fase = 'Fase A';
         configs.push({
           id: `BB-${Date.now()}-${i}`,
           programBelajarId: prgId,
           programBelajarNama: name,
           jenjang,
           sistemBelajar,
-          tingkat,
+          fase,
           semester: `Semester ${i}`,
           targetSkk: share + (rem >= i ? 1 : 0),
           tahunBerlaku: '2026/2027',
@@ -515,48 +687,148 @@ export default function DashboardAdmin({
     return configs;
   };
 
-  const handleCreateBBSubmit = (e: React.FormEvent) => {
+  const handleCreateBBSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProgramForBB) return;
 
-    if (editingBB) {
-      setBebanBelajars(prev => prev.map(bb => bb.id === editingBB.id ? {
-        ...bb,
-        tingkat: newBB.tingkat,
-        semester: newBB.semester,
-        targetSkk: Number(newBB.targetSkk),
-        tahunBerlaku: newBB.tahunBerlaku,
-        statusAktif: newBB.statusAktif
-      } : bb));
-      showModal('Beban Belajar Diperbarui', 'Konfigurasi beban belajar semester berhasil diperbarui.', 'success');
-      setEditingBB(null);
-    } else {
-      const isExist = bebanBelajars.some(bb => bb.programBelajarId === selectedProgramForBB.id && bb.tingkat === newBB.tingkat && bb.semester === newBB.semester);
-      if (isExist) {
-        showModal('Duplikasi', 'Konfigurasi untuk tingkat dan semester ini sudah ada.', 'warning');
-        return;
-      }
-      const newBBObj: BebanBelajar = {
-        id: `BB-${Date.now()}`,
-        programBelajarId: selectedProgramForBB.id,
-        programBelajarNama: selectedProgramForBB.nama,
-        jenjang: selectedProgramForBB.jenjang,
-        sistemBelajar: selectedProgramForBB.sistemBelajar,
-        tingkat: newBB.tingkat,
-        semester: newBB.semester,
-        targetSkk: Number(newBB.targetSkk),
-        tahunBerlaku: newBB.tahunBerlaku,
-        statusAktif: newBB.statusAktif
-      };
-      setBebanBelajars(prev => [...prev, newBBObj]);
-      showModal('Beban Belajar Ditambahkan', 'Konfigurasi beban belajar semester baru berhasil ditambahkan.', 'success');
+    if (!selectedProgramForBB?.id) {
+      showModal(
+        'Program Tidak Ditemukan',
+        'Pilih program belajar terlebih dahulu.',
+        'warning'
+      );
+      return;
     }
-    setShowAddBBModal(false);
+
+    const payload = {
+      program_belajar: selectedProgramForBB.id,
+      fase: newBB.fase,
+      semester: newBB.semester,
+      target_skk: Number(newBB.targetSkk),
+      tahun_berlaku: newBB.tahunBerlaku,
+      aktif: newBB.statusAktif
+    };
+
+    try {
+      if (editingBB) {
+        const saved = await api.adminUpdateBebanBelajar(
+          editingBB.id,
+          payload
+        );
+
+        setBebanBelajars(prev =>
+          prev.map(bb =>
+            bb.id === editingBB.id
+              ? {
+                  id: saved.id,
+                  programBelajarId: saved.program_belajar,
+                  programBelajarNama:
+                    saved.program_belajar_nama ||
+                    selectedProgramForBB.nama,
+                  jenjang:
+                    saved.paket ||
+                    selectedProgramForBB.jenjang,
+                  sistemBelajar:
+                    saved.jalur ||
+                    selectedProgramForBB.sistemBelajar,
+                  fase: saved.fase,
+                  semester: saved.semester,
+                  targetSkk: Number(saved.target_skk),
+                  tahunBerlaku: saved.tahun_berlaku,
+                  statusAktif: saved.aktif !== false
+                }
+              : bb
+          )
+        );
+
+        showModal(
+          'Beban Belajar Diperbarui',
+          'Konfigurasi beban belajar berhasil disimpan ke database.',
+          'success'
+        );
+
+        setEditingBB(null);
+      } else {
+        const isExist = bebanBelajars.some(
+          bb =>
+            bb.programBelajarId === selectedProgramForBB.id &&
+            bb.fase === newBB.fase &&
+            bb.semester === newBB.semester &&
+            bb.tahunBerlaku === newBB.tahunBerlaku
+        );
+
+        if (isExist) {
+          showModal(
+            'Duplikasi',
+            'Konfigurasi fase, semester, dan tahun ini sudah ada.',
+            'warning'
+          );
+          return;
+        }
+
+        const saved = await api.adminCreateBebanBelajar(payload);
+
+        const newItem: BebanBelajar = {
+          id: saved.id,
+          programBelajarId: saved.program_belajar,
+          programBelajarNama:
+            saved.program_belajar_nama ||
+            selectedProgramForBB.nama,
+          jenjang:
+            saved.paket ||
+            selectedProgramForBB.jenjang,
+          sistemBelajar:
+            saved.jalur ||
+            selectedProgramForBB.sistemBelajar,
+          fase: saved.fase,
+          semester: saved.semester,
+          targetSkk: Number(saved.target_skk),
+          tahunBerlaku: saved.tahun_berlaku,
+          statusAktif: saved.aktif !== false
+        };
+
+        setBebanBelajars(prev => [...prev, newItem]);
+
+        showModal(
+          'Beban Belajar Ditambahkan',
+          'Konfigurasi beban belajar berhasil disimpan ke database.',
+          'success'
+        );
+      }
+
+      setShowAddBBModal(false);
+    } catch (error: any) {
+      console.error('Gagal menyimpan Beban Belajar:', error);
+
+      showModal(
+        'Gagal',
+        'Konfigurasi beban belajar gagal disimpan ke database.',
+        'warning'
+      );
+    }
   };
 
-  const handleDeleteBB = (bbId: string) => {
-    setBebanBelajars(prev => prev.filter(bb => bb.id !== bbId));
-    showModal('Beban Belajar Dihapus', 'Konfigurasi beban belajar semester berhasil dihapus.', 'success');
+  const handleDeleteBB = async (bbId: string) => {
+    try {
+      await api.adminDeleteBebanBelajar(bbId);
+
+      setBebanBelajars(prev =>
+        prev.filter(bb => bb.id !== bbId)
+      );
+
+      showModal(
+        'Beban Belajar Dihapus',
+        'Konfigurasi beban belajar berhasil dihapus.',
+        'success'
+      );
+    } catch (error) {
+      console.error('Gagal menghapus Beban Belajar:', error);
+
+      showModal(
+        'Gagal',
+        'Konfigurasi beban belajar gagal dihapus.',
+        'warning'
+      );
+    }
   };
 
   // Modal forms states
@@ -566,18 +838,15 @@ export default function DashboardAdmin({
     nama: '',
     jenjang: 'Paket C' as 'Paket A' | 'Paket B' | 'Paket C',
     sistemBelajar: 'Reguler' as 'Reguler' | 'Karyawan',
-    lamaBelajar: '3 Tahun',
-    totalSkk: 80,
-    skkGanjil: 15,
-    skkGenap: 15,
-    mapelWajibText: 'Bahasa Indonesia, Matematika, PPKn, Bahasa Inggris, Pendidikan Agama, Sejarah Indonesia',
-    mapelPilihanText: 'Sosiologi, Geografi, Ekonomi'
+    totalSkk: 80
   });
 
   const [showAddTeacherModal, setShowAddTeacherModal] = useState<boolean>(false);
   const [newTeacher, setNewTeacher] = useState({
     nama: '',
     nip: '',
+    username: '',
+    password: '',
     mapel: 'Bahasa Indonesia',
     kelas: 'Kelas X Paket C'
   });
@@ -585,12 +854,28 @@ export default function DashboardAdmin({
   const [showAddClassModal, setShowAddClassModal] = useState<boolean>(false);
   const [editingClass, setEditingClass] = useState<ClassData | null>(null);
   const [confirmDeleteClassId, setConfirmDeleteClassId] = useState<string | null>(null);
+  const [fases, setFases] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    const loadFase = async () => {
+      try {
+        const data = await api.adminGetFase();
+        setFases(data);
+      } catch (error) {
+        console.error("Gagal mengambil data fase", error);
+      }
+    };
+
+    loadFase();
+  }, []);
+
   const [classForm, setClassForm] = useState({
     nama: '',
     paket: 'Paket C' as 'Paket A' | 'Paket B' | 'Paket C',
-    tingkat: 'Kelas 10',
+    fase: 'Fase E',
+    faseId: '',
     sistemBelajar: 'Reguler' as 'Reguler' | 'Karyawan',
-    waliKelasId: 'GUR-201'
+    waliKelasId: ''
   });
 
   React.useEffect(() => {
@@ -599,6 +884,7 @@ export default function DashboardAdmin({
         nama: editingClass.nama || '',
         paket: editingClass.paket || 'Paket C',
         tingkat: editingClass.tingkat || editingClass.jenjang || 'Kelas 10',
+        faseId: editingClass.faseId || '',
         sistemBelajar: (editingClass.sistemBelajar as 'Reguler' | 'Karyawan') || 'Reguler',
         waliKelasId: editingClass.waliKelasId || (teachers[0]?.id || 'GUR-201')
       });
@@ -606,9 +892,10 @@ export default function DashboardAdmin({
       setClassForm({
         nama: '',
         paket: 'Paket C',
-        tingkat: 'Kelas 10',
+        fase: 'Fase E',
+        faseId: '',
         sistemBelajar: 'Reguler',
-        waliKelasId: 'GUR-201'
+        waliKelasId: ''
       });
     }
   }, [editingClass, showAddClassModal, teachers]);
@@ -616,8 +903,8 @@ export default function DashboardAdmin({
   const [newClass, setNewClass] = useState({
     paket: 'Paket C' as 'Paket A' | 'Paket B' | 'Paket C',
     programId: 'PRG-C-REG',
-    tingkat: 'Kelas 10',
-    waliKelasId: 'GUR-201'
+    fase: 'Fase E',
+    waliKelasId: ''
   });
 
   // Selected student for demographic details
@@ -663,12 +950,7 @@ export default function DashboardAdmin({
     kkm: 75,
     status: 'Aktif',
     cpId: '',
-    bobotSkk: 4,
     isWajib: true,
-    sistemBelajar: 'Reguler',
-    kelas: 'Kelas X',
-    semester: 'Ganjil',
-    tahunAjaran: '2026/2027'
   });
   const [isEditingMapel, setIsEditingMapel] = useState(false);
   const [showMapelFormModal, setShowMapelFormModal] = useState(false);
@@ -697,7 +979,7 @@ export default function DashboardAdmin({
     }
   }, [mapelForm.name, mapelForm.program, mapelForm.fase, cpList]);
 
-  const handleSaveMapel = (e: React.FormEvent) => {
+  const handleSaveMapel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mapelForm.name || !mapelForm.code) {
       showModal('Gagal', 'Nama dan Kode Mata Pelajaran harus diisi.', 'warning');
@@ -762,62 +1044,84 @@ export default function DashboardAdmin({
       }
     }
 
-    if (isEditingMapel) {
-      setSubjects(prev => prev.map(s => {
-        if (s.id === mapelForm.id) {
-          return {
-            ...s,
-            code: mapelForm.code.toUpperCase(),
-            name: mapelForm.name,
-            program: mapelForm.program,
-            fase: mapelForm.fase,
-            category: mapelForm.category,
-            kkm: Number(mapelForm.kkm),
-            status: mapelForm.status,
-            cpId: finalCpId,
-            capaianUtama: dynamicCapaian,
-            isMateri: false,
-            updatedAt: now,
-            bobotSkk: Number(mapelForm.bobotSkk) || 4,
-            isWajib: mapelForm.isWajib ?? true,
-            sistemBelajar: mapelForm.sistemBelajar || 'Reguler',
-            kelas: mapelForm.kelas || 'Kelas X',
-            semester: mapelForm.semester || 'Ganjil',
-            tahunAjaran: mapelForm.tahunAjaran || '2026/2027'
-          };
-        }
-        return s;
-      }));
-      showModal('Berhasil', 'Mata pelajaran berhasil diperbarui.', 'success');
-    } else {
-      const newMapel: Subject = {
-        id: `MAPEL-${Date.now()}`,
-        code: mapelForm.code.toUpperCase(),
-        name: mapelForm.name,
-        program: mapelForm.program,
-        fase: mapelForm.fase,
-        category: mapelForm.category,
-        kkm: Number(mapelForm.kkm),
-        status: mapelForm.status,
+    const payload = {
+      kode: mapelForm.code.toUpperCase(),
+      nama: mapelForm.name.trim(),
+      paket: mapelForm.program,
+      fase: mapelForm.fase,
+      kategori: mapelForm.category,
+      kkm: Number(mapelForm.kkm) || 75,
+      is_wajib: mapelForm.isWajib ?? true,
+      cp_id: finalCpId,
+      capaian_utama: dynamicCapaian,
+      status: mapelForm.status
+    };
+
+    try {
+      const saved = isEditingMapel
+        ? await api.adminUpdateMapel(mapelForm.id, payload)
+        : await api.adminCreateMapel(payload);
+
+      const savedMapel: Subject = {
+        id: saved.id,
+        code: saved.kode || '',
+        name: saved.nama,
+        program: saved.paket,
+        fase: saved.fase || '',
+        category: saved.kategori || 'Umum',
+        kkm: Number(saved.kkm) || 75,
+        status: saved.status || 'Aktif',
         materiCount: 0,
         progress: 0,
-        textBody: `Materi pembelajaran ${mapelForm.name} untuk kesetaraan ${mapelForm.program}`,
-        grade: 0,
-        capaianUtama: dynamicCapaian,
+        textBody: `Materi pembelajaran ${saved.nama} untuk kesetaraan ${saved.paket}`,
+        grade: isEditingMapel
+          ? subjects.find(subject => subject.id === mapelForm.id)?.grade || 0
+          : 0,
+        capaianUtama: saved.capaian_utama || dynamicCapaian,
         bimbinganUtama: 'Belajar mandiri terstruktur',
-        cpId: finalCpId,
+        cpId: saved.cp_id || '',
         isMateri: false,
-        createdAt: now,
-        updatedAt: now,
-        bobotSkk: Number(mapelForm.bobotSkk) || 4,
-        isWajib: mapelForm.isWajib ?? true,
-        sistemBelajar: mapelForm.sistemBelajar || 'Reguler',
-        kelas: mapelForm.kelas || 'Kelas X',
-        semester: mapelForm.semester || 'Ganjil',
-        tahunAjaran: mapelForm.tahunAjaran || '2026/2027'
+        createdAt: saved.created_at || now,
+        updatedAt: saved.updated_at || now,
+        bobotSkk: Number(saved.bobot_skk) || 4,
+        isWajib: saved.is_wajib !== false,
+        sistemBelajar: saved.sistem_belajar || 'Reguler',
+        kelas: saved.kelas || '',
+        semester: saved.semester || 'Ganjil',
+        tahunAjaran: saved.tahun_ajaran || ''
       };
-      setSubjects(prev => [...prev, newMapel]);
-      showModal('Berhasil', 'Mata pelajaran baru berhasil ditambahkan.', 'success');
+
+      if (isEditingMapel) {
+        setSubjects(prev =>
+          prev.map(subject =>
+            subject.id === mapelForm.id ? savedMapel : subject
+          )
+        );
+
+        showModal(
+          'Berhasil',
+          'Mata pelajaran berhasil diperbarui di database.',
+          'success'
+        );
+      } else {
+        setSubjects(prev => [...prev, savedMapel]);
+
+        showModal(
+          'Berhasil',
+          'Mata pelajaran baru berhasil disimpan ke database.',
+          'success'
+        );
+      }
+    } catch (error: any) {
+      console.error('Gagal menyimpan Mata Pelajaran:', error);
+
+      showModal(
+        'Gagal',
+        error?.message || 'Mata pelajaran gagal disimpan.',
+        'warning'
+      );
+
+      return;
     }
 
     setMapelForm({
@@ -830,12 +1134,7 @@ export default function DashboardAdmin({
       kkm: 75,
       status: 'Aktif',
       cpId: '',
-      bobotSkk: 4,
       isWajib: true,
-      sistemBelajar: 'Reguler',
-      kelas: 'Kelas X',
-      semester: 'Ganjil',
-      tahunAjaran: '2026/2027'
     });
     setIsEditingMapel(false);
     setShowMapelFormModal(false);
@@ -852,58 +1151,88 @@ export default function DashboardAdmin({
       kkm: mapel.kkm || 75,
       status: mapel.status === 'Tidak Aktif' ? 'Tidak Aktif' : 'Aktif',
       cpId: mapel.cpId || '',
-      bobotSkk: mapel.bobotSkk ?? 4,
       isWajib: mapel.isWajib ?? true,
-      sistemBelajar: mapel.sistemBelajar || 'Reguler',
-      kelas: mapel.kelas || 'Kelas X',
-      semester: mapel.semester || 'Ganjil',
-      tahunAjaran: mapel.tahunAjaran || '2026/2027'
     });
     setIsEditingMapel(true);
     setShowMapelFormModal(true);
   };
 
-  const handleDeleteMapel = (id: string) => {
-    if (confirm('Apakah Anda yakin ingin menghapus mata pelajaran ini?')) {
-      setSubjects(prev => prev.filter(s => s.id !== id));
-      showModal('Berhasil', 'Mata pelajaran berhasil dihapus.', 'success');
+  const handleDeleteMapel = async (id: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus mata pelajaran ini?')) {
+      return;
+    }
+
+    try {
+      await api.adminDeleteMapel(id);
+      setSubjects(prev => prev.filter(subject => subject.id !== id));
+
+      showModal(
+        'Berhasil',
+        'Mata pelajaran berhasil dihapus dari database.',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal menghapus Mata Pelajaran:', error);
+
+      showModal(
+        'Gagal',
+        error?.message || 'Mata pelajaran gagal dihapus.',
+        'warning'
+      );
     }
   };
 
-  const handleToggleMapelStatus = (id: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'Aktif' ? 'Tidak Aktif' : 'Aktif';
-    setSubjects(prev => prev.map(s => {
-      if (s.id === id) {
-        return {
-          ...s,
-          status: nextStatus,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return s;
-    }));
-    showModal('Berhasil', `Status mata pelajaran berhasil diubah menjadi ${nextStatus}.`, 'success');
+  const handleToggleMapelStatus = async (
+    id: string,
+    currentStatus: string
+  ) => {
+    const nextStatus =
+      currentStatus === 'Aktif' ? 'Tidak Aktif' : 'Aktif';
+
+    try {
+      const updated = await api.adminUpdateMapel(id, {
+        status: nextStatus
+      });
+
+      setSubjects(prev =>
+        prev.map(subject =>
+          subject.id === id
+            ? {
+                ...subject,
+                status: updated.status || nextStatus,
+                updatedAt: updated.updated_at || new Date().toISOString()
+              }
+            : subject
+        )
+      );
+
+      showModal(
+        'Berhasil',
+        `Status mata pelajaran berhasil diubah menjadi ${nextStatus}.`,
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal mengubah status Mata Pelajaran:', error);
+
+      showModal(
+        'Gagal',
+        error?.message || 'Status mata pelajaran gagal diperbarui.',
+        'warning'
+      );
+    }
   };
 
-  // Admin Profile State loaded from/saved to localStorage
-  const [adminProfile, setAdminProfile] = useState(() => {
-    const saved = localStorage.getItem('lulus_admin_profile');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { }
-    }
-    return {
-      namaLengkap: 'Bambang Hermawan, S.Kom.',
-      username: 'admin_lulus',
-      email: 'admin@lulus.id',
-      nomorHp: '081234567890',
-      fotoProfil: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=256'
-    };
+  // Profil admin berasal dari Django.
+  const [adminProfile, setAdminProfile] = useState({
+    namaLengkap: '',
+    username: '',
+    email: ''
   });
 
-  // Current admin password (mocked database sync)
-  const [currentPassword, setCurrentPassword] = useState(() => {
-    return localStorage.getItem('lulus_admin_password') || 'admin123';
-  });
+  // Password visibility controls
+  const [showPasswordLama, setShowPasswordLama] = useState(false);
+  const [showPasswordBaru, setShowPasswordBaru] = useState(false);
+  const [showKonfirmasiPassword, setShowKonfirmasiPassword] = useState(false);
 
   // Password form state
   const [adminPasswordForm, setAdminPasswordForm] = useState({
@@ -913,34 +1242,27 @@ export default function DashboardAdmin({
   });
 
   // Institution Identity State (Identitas Lembaga)
-  const [lembagaIdentitas, setLembagaIdentitas] = useState(() => {
-    const saved = localStorage.getItem('lulus_lembaga_identitas');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { }
-    }
-    return {
-      namaPkbm: 'PKBM Agrabinta Lulus.id',
-      namaYayasan: 'Yayasan Pendidikan Agrabinta Sukabumi',
-      npsn: 'P9961234',
-      nis: '400120',
-      alamat: 'Jl. Raya Agrabinta No. 45, RT 02/RW 03',
-      kecamatan: 'Agrabinta',
-      kabupaten: 'Cianjur',
-      provinsi: 'Jawa Barat',
-      kodePos: '43273',
-      nomorTelepon: '0263-221144',
-      emailLembaga: 'pkbm@lulus.id',
-      website: 'https://pkbm.lulus.id',
-      logoPkbm: 'https://placehold.co/150x150/00a884/ffffff?text=PKBM',
-      logoYayasan: 'https://placehold.co/150x150/1e3a8a/ffffff?text=YAYASAN',
-      namaKepalaSekolah: 'Drs. H. Mulyadi, M.Pd.',
-      nipKepalaSekolah: '197205121998031002',
-      qrTandaTanganKepalaSekolah: 'https://placehold.co/150x150/ffffff/000000?text=QR+TTE+Kepsek',
-      capStempelDigital: 'https://placehold.co/150x150/e11d48/ffffff?text=CAP+RESMI',
-      tandaTanganKepalaSekolah: 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan',
-      namaPejabatTtd: 'Drs. H. Mulyadi, M.Pd.',
-      jabatanPejabatTtd: 'Kepala PKBM'
-    };
+  // Sumber utama data adalah Django.
+  const [lembagaIdentitas, setLembagaIdentitas] = useState({
+    namaPkbm: '',
+    namaYayasan: '',
+    npsn: '',
+    nomorIzinOperasional: '',
+    alamat: '',
+    kecamatan: '',
+    kabupaten: '',
+    provinsi: '',
+    kodePos: '',
+    nomorTelepon: '',
+    emailLembaga: '',
+    website: '',
+    logoPkbm: '',
+    logoYayasan: '',
+    namaKepalaSekolah: '',
+    nipKepalaSekolah: '',
+    atributPengesahanDigital: '',
+    namaPenandatangan: '',
+    
   });
 
   // ==================== MADING & LIBRARY MANAGEMENT STATES & LOGIC ====================
@@ -982,141 +1304,74 @@ export default function DashboardAdmin({
     ];
   });
 
-  const [digitalLibrary, setDigitalLibrary] = useState<any[]>(() => {
-    const saved = localStorage.getItem('lulus_perpustakaan');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.map((bk: any) => ({
-          ...bk,
-          id: bk.id || `LIB-${Date.now()}`,
-          judul: bk.judul || bk.title || '',
-          title: bk.title || bk.judul || '',
-          penulis: bk.penulis || bk.author || '',
-          author: bk.author || bk.penulis || '',
-          mataPelajaran: bk.mataPelajaran || bk.subject || 'Umum',
-          subject: bk.subject || bk.mataPelajaran || 'Umum',
-          deskripsi: bk.deskripsi || bk.description || '',
-          description: bk.description || bk.deskripsi || '',
-          filePdf: bk.filePdf || bk.file || 'Modul.pdf',
-          file: bk.file || bk.filePdf || 'Modul.pdf',
-          statusPublikasi: bk.statusPublikasi || (bk.status === 'Publish' ? 'Publik' : 'Draft') || 'Publik',
-          status: bk.status || (bk.statusPublikasi === 'Publik' ? 'Publish' : 'Draft') || 'Publish',
-          downloadCount: bk.downloadCount !== undefined ? bk.downloadCount : (bk.downloads || 0),
-          downloads: bk.downloads !== undefined ? bk.downloads : (bk.downloadCount || 0),
-          views: bk.views || 0,
-          averageRating: bk.averageRating || 0,
-          totalRatings: bk.totalRatings || 0,
-          category: bk.category || 'Modul Pembelajaran',
-          kelas: bk.kelas || 'Semua Kelas',
-          program: bk.program || 'Semua',
-          semester: bk.semester || 'Semua',
-          cover: bk.cover || 'https://placehold.co/200x300/1e3a8a/ffffff?text=Modul'
-        }));
-      } catch (e) {}
-    }
-    const baseBooks = [
-      {
-        id: 'LIB-001',
-        title: 'Modul Bahasa Indonesia Lengkap',
-        description: 'Modul lengkap mencakup tata bahasa, penulisan artikel ilmiah, ringkasan teks, dan persiapan ujian kesetaraan Paket C.',
-        author: 'Tim Kurikulum Lulus.id',
-        publisher: 'Lulus.id',
-        year: 2026,
-        isbn: '978-602-1234-56-7',
-        category: 'Modul Pembelajaran',
-        subject: 'Bahasa Indonesia',
-        program: 'Semua',
-        kelas: 'Semua Kelas',
-        semester: 'Semua',
-        cover: 'https://placehold.co/200x300/1e3a8a/ffffff?text=Modul+Bahasa',
-        file: 'modul_bahasa_indonesia.pdf',
-        fileType: 'pdf',
-        keywords: ['Bahasa Indonesia', 'Modul', 'Paket C'],
-        status: 'Publish',
-        createdBy: 'Admin',
-        createdRole: 'admin',
-        createdAt: '2026-01-15T08:00:00Z',
-        updatedAt: '2026-01-15T08:00:00Z',
-        views: 156,
-        downloads: 42,
-        averageRating: 4.5,
-        totalRatings: 18
-      },
-      {
-        id: 'LIB-002',
-        title: 'Kumpulan Rumus Matematika Kesetaraan',
-        description: 'Buku ringkasan rumus praktis aljabar, kalkulus dasar, trigonometri, dan statistika kesetaraan Paket C.',
-        author: 'Ir. H. Budi Santoso',
-        publisher: 'Gramedia Pustaka Utama',
-        year: 2025,
-        isbn: '978-602-7654-32-1',
-        category: 'Ebook',
-        subject: 'Matematika',
-        program: 'Paket C',
-        kelas: 'Kelas X, XI, XII',
-        semester: 'Semua',
-        cover: 'https://placehold.co/200x300/15803d/ffffff?text=Matematika',
-        file: 'rumus_matematika.pdf',
-        fileType: 'pdf',
-        keywords: ['Matematika', 'Rumus', 'Paket C'],
-        status: 'Publish',
-        createdBy: 'Bu Rina, S.Pd.',
-        createdRole: 'guru',
-        createdAt: '2026-02-20T14:30:00Z',
-        updatedAt: '2026-02-20T14:30:00Z',
-        views: 234,
-        downloads: 89,
-        averageRating: 4.8,
-        totalRatings: 32
-      },
-      {
-        id: 'LIB-003',
-        title: 'Panduan Praktis IPA',
-        description: 'Panduan praktis untuk mempelajari Ilmu Pengetahuan Alam dengan contoh soal dan pembahasan.',
-        author: 'Dr. Siti Aminah',
-        publisher: 'Erlangga',
-        year: 2024,
-        category: 'Buku Referensi',
-        subject: 'Ilmu Pengetahuan Alam',
-        program: 'Paket B',
-        kelas: 'Kelas X',
-        semester: 'Ganjil',
-        cover: 'https://placehold.co/200x300/db2777/ffffff?text=IPA',
-        file: 'panduan_ipa.epub',
-        fileType: 'epub',
-        keywords: ['IPA', 'Referensi', 'Paket B'],
-        status: 'Draft',
-        createdBy: 'Bu Rina, S.Pd.',
-        createdRole: 'guru',
-        createdAt: '2026-06-10T09:15:00Z',
-        updatedAt: '2026-06-10T09:15:00Z',
-        views: 0,
-        downloads: 0,
-        averageRating: 0,
-        totalRatings: 0
-      }
-    ];
-
-    return baseBooks.map((b: any) => ({
-      ...b,
-      judul: b.title,
-      penulis: b.author,
-      mataPelajaran: b.subject,
-      deskripsi: b.description,
-      filePdf: b.file,
-      statusPublikasi: b.status === 'Publish' ? 'Publik' : 'Draft',
-      downloadCount: b.downloads
-    }));
+  const mapLibraryBook = (bk: any) => ({
+    ...bk,
+    id: bk.id,
+    judul: bk.judul || '',
+    title: bk.judul || '',
+    penulis: bk.penulis || '',
+    author: bk.penulis || '',
+    mataPelajaran: bk.mata_pelajaran || 'Umum',
+    subject: bk.mata_pelajaran || 'Umum',
+    deskripsi: bk.deskripsi || '',
+    description: bk.deskripsi || '',
+    program:
+      bk.program === 'PAKET_A' ? 'Paket A' :
+      bk.program === 'PAKET_B' ? 'Paket B' :
+      bk.program === 'PAKET_C' ? 'Paket C' : 'Semua',
+    kelas: bk.kelas || 'Semua Kelas',
+    cover: bk.cover_url || 'https://placehold.co/200x300/5EAF95/ffffff?text=Buku',
+    filePdf: bk.file_url || bk.ebook_url || '',
+    file: bk.file_url || bk.ebook_url || '',
+    fileUrl: bk.file_url || bk.ebook_url || '',
+    sourceType: bk.source_type,
+    statusPublikasi:
+      bk.status === 'PUBLISHED' ? 'Publik' :
+      bk.status === 'PENDING' ? 'Menunggu Persetujuan' :
+      bk.status === 'ARCHIVED' ? 'Arsip' :
+      bk.status === 'REJECTED' ? 'Ditolak' : 'Draft',
+    status: bk.status === 'PUBLISHED' ? 'Publish' : 'Draft',
+    downloadCount: bk.downloads_count || 0,
+    downloads: bk.downloads_count || 0,
+    views: bk.views_count || 0,
+    createdBy: bk.uploaded_by_name || 'Admin',
+    createdRole: (bk.uploaded_role || 'ADMIN').toLowerCase(),
+    createdAt: bk.created_at,
+    updatedAt: bk.updated_at,
+    category: bk.kategori || 'Modul Pembelajaran',
+    semester: 'Semua'
   });
+
+  const [digitalLibrary, setDigitalLibrary] = useState<any[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+
+  const loadLibraryBooks = async () => {
+    setLibraryLoading(true);
+    try {
+      const books = await api.getLibraryBooks();
+      setDigitalLibrary(
+        Array.isArray(books) ? books.map(mapLibraryBook) : []
+      );
+    } catch (error) {
+      console.error('Gagal memuat perpustakaan:', error);
+      showModal(
+        'Gagal Memuat',
+        'Data perpustakaan tidak dapat diambil dari server.',
+        'warning'
+      );
+    } finally {
+      setLibraryLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadLibraryBooks();
+  }, []);
 
   React.useEffect(() => {
     localStorage.setItem('lulus_mading', JSON.stringify(announcements));
   }, [announcements]);
 
-  React.useEffect(() => {
-    localStorage.setItem('lulus_perpustakaan', JSON.stringify(digitalLibrary));
-  }, [digitalLibrary]);
 
   // Mading Local States
   const [showMadingModal, setShowMadingModal] = useState<boolean>(false);
@@ -1237,189 +1492,340 @@ export default function DashboardAdmin({
     }));
   };
 
-  const handleSaveBook = (e: React.FormEvent) => {
+  const handleSaveBook = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!bookForm.judul?.trim() || !bookForm.penulis?.trim()) {
-      showModal('Gagal Menyimpan', 'Judul dan Penulis Buku harus diisi.', 'warning');
+      showModal(
+        'Gagal Menyimpan',
+        'Judul dan Penulis Buku harus diisi.',
+        'warning'
+      );
       return;
     }
 
-    if (editingBook) {
-      setDigitalLibrary(prev => prev.map(bk => {
-        if (bk.id === editingBook.id) {
-          const titleVal = bookForm.judul!.trim();
-          const authorVal = bookForm.penulis!.trim();
-          const subjectVal = bookForm.mataPelajaran || 'Umum';
-          const programVal = bookForm.program || 'Semua';
-          const kelasVal = bookForm.kelas || 'Semua Kelas';
-          const descVal = bookForm.deskripsi || '';
-          const coverVal = bookForm.cover || 'https://placehold.co/200x300/1e3a8a/ffffff?text=Modul';
-          const fileVal = bookForm.filePdf || 'Modul.pdf';
-          const statusPubVal = bookForm.statusPublikasi || 'Publik';
+    const programMap: Record<string, string> = {
+      'Semua': 'SEMUA',
+      'Paket A': 'PAKET_A',
+      'Paket B': 'PAKET_B',
+      'Paket C': 'PAKET_C'
+    };
 
-          return {
-            ...bk,
-            judul: titleVal,
-            title: titleVal,
-            penulis: authorVal,
-            author: authorVal,
-            mataPelajaran: subjectVal,
-            subject: subjectVal,
-            program: programVal as any,
-            kelas: kelasVal,
-            deskripsi: descVal,
-            description: descVal,
-            cover: coverVal,
-            filePdf: fileVal,
-            file: fileVal,
-            statusPublikasi: statusPubVal,
-            status: statusPubVal === 'Publik' ? 'Publish' : 'Draft',
-            updatedAt: new Date().toISOString()
-          };
-        }
-        return bk;
-      }));
-      showModal('Sukses', 'Informasi buku berhasil diperbarui.', 'success');
-    } else {
-      const titleVal = bookForm.judul!.trim();
-      const authorVal = bookForm.penulis!.trim();
-      const subjectVal = bookForm.mataPelajaran || 'Umum';
-      const programVal = bookForm.program || 'Semua';
-      const kelasVal = bookForm.kelas || 'Semua Kelas';
-      const descVal = bookForm.deskripsi || '';
-      const coverVal = bookForm.cover || 'https://placehold.co/200x300/1e3a8a/ffffff?text=Modul';
-      const fileVal = bookForm.filePdf || 'Modul.pdf';
-      const statusPubVal = bookForm.statusPublikasi || 'Publik';
+    const fileValue =
+      (bookForm as any).fileUrl ||
+      bookForm.filePdf ||
+      '';
 
-      const newBook = {
-        id: `LIB-${Date.now()}`,
-        judul: titleVal,
-        title: titleVal,
-        penulis: authorVal,
-        author: authorVal,
-        mataPelajaran: subjectVal,
-        subject: subjectVal,
-        program: programVal as any,
-        kelas: kelasVal,
-        deskripsi: descVal,
-        description: descVal,
-        cover: coverVal,
-        filePdf: fileVal,
-        file: fileVal,
-        statusPublikasi: statusPubVal,
-        status: statusPubVal === 'Publik' ? 'Publish' : 'Draft',
-        fileType: (fileVal.endsWith('.epub') ? 'epub' : 'pdf') as 'pdf' | 'epub',
-        createdBy: 'Admin',
-        createdRole: 'admin',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        views: 0,
-        downloads: 0,
-        downloadCount: 0,
-        averageRating: 0,
-        totalRatings: 0,
-        category: 'Modul Pembelajaran',
-        semester: 'Semua'
-      };
-      setDigitalLibrary(prev => [newBook, ...prev]);
-      showModal('Sukses', 'Buku baru berhasil diunggah ke koleksi perpustakaan.', 'success');
+    const payload = {
+      judul: bookForm.judul.trim(),
+      penulis: bookForm.penulis.trim(),
+      kategori: (bookForm as any).category || 'Modul Pembelajaran',
+      mata_pelajaran: bookForm.mataPelajaran || 'Umum',
+      program: programMap[bookForm.program || 'Semua'] || 'SEMUA',
+      kelas: bookForm.kelas || 'Semua Kelas',
+      deskripsi: bookForm.deskripsi || '',
+      cover_url:
+        bookForm.cover ||
+        'https://placehold.co/200x300/5EAF95/ffffff?text=Buku',
+      source_type: 'PDF',
+      file_url: fileValue,
+      ebook_url: ''
+    };
+
+    if (!fileValue) {
+      showModal(
+        'File Belum Dipilih',
+        'Pilih file PDF terlebih dahulu.',
+        'warning'
+      );
+      return;
     }
 
-    setShowLibraryModal(false);
-    setEditingBook(null);
-    setBookForm({
-      judul: '',
-      penulis: '',
-      mataPelajaran: 'Umum',
-      program: 'Semua',
-      kelas: 'Semua Kelas',
-      deskripsi: '',
-      cover: '',
-      filePdf: '',
-      statusPublikasi: 'Publik'
-    });
+    try {
+      if (editingBook) {
+        await api.updateLibraryBook(editingBook.id, payload);
+        showModal(
+          'Sukses',
+          'Informasi buku berhasil diperbarui.',
+          'success'
+        );
+      } else {
+        await api.createLibraryBook(payload);
+        showModal(
+          'Sukses',
+          'Buku berhasil disimpan ke database.',
+          'success'
+        );
+      }
+
+      await loadLibraryBooks();
+
+      setShowLibraryModal(false);
+      setEditingBook(null);
+      setBookForm({
+        judul: '',
+        penulis: '',
+        mataPelajaran: 'Umum',
+        program: 'Semua',
+        kelas: 'Semua Kelas',
+        deskripsi: '',
+        cover: '',
+        filePdf: '',
+        statusPublikasi: 'Publik'
+      });
+    } catch (error: any) {
+      console.error('Gagal menyimpan buku:', error);
+      showModal(
+        'Gagal Menyimpan',
+        error?.message || 'Buku gagal disimpan ke server.',
+        'warning'
+      );
+    }
   };
 
-  const handleDeleteBook = (id: string) => {
-    if (confirm('Apakah Anda yakin ingin menghapus buku ini dari perpustakaan?')) {
-      setDigitalLibrary(prev => prev.filter(bk => bk.id !== id));
+  const handleDeleteBook = async (id: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus buku ini?')) {
+      return;
+    }
+
+    try {
+      await api.deleteLibraryBook(id);
+      await loadLibraryBooks();
       showModal('Sukses', 'Buku telah dihapus.', 'success');
+    } catch (error: any) {
+      showModal(
+        'Gagal Menghapus',
+        error?.message || 'Buku gagal dihapus dari server.',
+        'warning'
+      );
     }
   };
 
-  // Handle saving admin profile data (text fields)
-  const handleSaveAdminProfile = (e: React.FormEvent) => {
+  // Memuat profil admin dari Django.
+  React.useEffect(() => {
+    const loadAdminProfile = async () => {
+      try {
+        const data = await api.adminGetProfile();
+
+        setAdminProfile((prev: any) => ({
+          ...prev,
+          namaLengkap: data.nama_lengkap || '',
+          username: data.username || '',
+          email: data.email || ''
+        }));
+      } catch (error) {
+        console.error('Gagal memuat profil admin:', error);
+      }
+    };
+
+    loadAdminProfile();
+  }, []);
+
+  // Menyimpan profil admin ke Django.
+  const handleSaveAdminProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem('lulus_admin_profile', JSON.stringify(adminProfile));
-    showModal(
-      'Profil Admin Disimpan', 
-      'Data profil administrator berhasil disimpan secara aman di dalam sistem.', 
-      'success'
-    );
+
+    try {
+      const result = await api.adminUpdateProfile({
+        nama_lengkap: adminProfile.namaLengkap.trim(),
+        username: adminProfile.username.trim(),
+        email: adminProfile.email.trim()
+      });
+
+      const savedUser = localStorage.getItem('user');
+
+      if (savedUser) {
+        try {
+          const currentUser = JSON.parse(savedUser);
+
+          localStorage.setItem(
+            'user',
+            JSON.stringify({
+              ...currentUser,
+              nama_lengkap: result.user.nama_lengkap,
+              username: result.user.username,
+              email: result.user.email
+            })
+          );
+        } catch (storageError) {
+          console.warn(
+            'Profil berhasil diperbarui, tetapi data login lokal gagal diperbarui:',
+            storageError
+          );
+        }
+      }
+
+      setAdminProfile((prev: any) => ({
+        ...prev,
+        namaLengkap: result.user.nama_lengkap || '',
+        username: result.user.username || '',
+        email: result.user.email || ''
+      }));
+
+      showModal(
+        'Profil Admin Disimpan',
+        'Nama, username, dan email administrator berhasil disimpan ke server.',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal menyimpan profil admin:', error);
+
+      showModal(
+        'Gagal Menyimpan',
+        error?.message || 'Profil administrator gagal diperbarui.',
+        'warning'
+      );
+    }
   };
 
-  // Handle changing admin password
-  const handleSaveAdminPassword = (e: React.FormEvent) => {
+  // Handle changing admin password through Django
+  const handleSaveAdminPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { passwordLama, passwordBaru, konfirmasiPasswordBaru } = adminPasswordForm;
 
-    // Check if any field is empty
+    const {
+      passwordLama,
+      passwordBaru,
+      konfirmasiPasswordBaru
+    } = adminPasswordForm;
+
     if (!passwordLama || !passwordBaru || !konfirmasiPasswordBaru) {
-      showModal('Input Tidak Lengkap', 'Seluruh kolom ubah password wajib diisi.', 'warning');
+      showModal(
+        'Input Tidak Lengkap',
+        'Seluruh kolom ubah password wajib diisi.',
+        'warning'
+      );
       return;
     }
 
-    // Validate old password
-    if (passwordLama !== currentPassword) {
-      showModal('Validasi Gagal', 'Password lama yang Anda masukkan tidak cocok dengan sistem database Django.', 'warning');
-      return;
-    }
-
-    // Confirm new passwords match
     if (passwordBaru !== konfirmasiPasswordBaru) {
-      showModal('Konfirmasi Password Gagal', 'Konfirmasi password baru tidak cocok dengan password baru.', 'warning');
+      showModal(
+        'Konfirmasi Password Gagal',
+        'Konfirmasi password baru tidak cocok.',
+        'warning'
+      );
       return;
     }
 
-    // New password security checks (e.g. min length)
-    if (passwordBaru.length < 6) {
-      showModal('Keamanan Lemah', 'Password baru minimal harus terdiri dari 6 karakter.', 'warning');
+    if (passwordBaru.length < 8) {
+      showModal(
+        'Keamanan Lemah',
+        'Password baru minimal harus terdiri dari 8 karakter.',
+        'warning'
+      );
       return;
     }
 
-    // Save and encrypt simulation (using django framework standards)
-    setCurrentPassword(passwordBaru);
-    localStorage.setItem('lulus_admin_password', passwordBaru);
-    
-    // Reset password fields
-    setAdminPasswordForm({
-      passwordLama: '',
-      passwordBaru: '',
-      konfirmasiPasswordBaru: ''
-    });
+    try {
+      await api.adminChangePassword({
+        password_lama: passwordLama,
+        password_baru: passwordBaru,
+        konfirmasi_password: konfirmasiPasswordBaru
+      });
 
-    showModal(
-      'Password Berhasil Diubah', 
-      'Kata sandi administrator berhasil diperbarui secara aman di dalam sistem.', 
-      'success'
-    );
+      setAdminPasswordForm({
+        passwordLama: '',
+        passwordBaru: '',
+        konfirmasiPasswordBaru: ''
+      });
+
+      localStorage.removeItem('lulus_admin_password');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+
+      showModal(
+        'Password Berhasil Diubah',
+        'Password Django berhasil diperbarui. Silakan login kembali menggunakan password baru.',
+        'success'
+      );
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } catch (error: any) {
+      let message = 'Password gagal diperbarui.';
+
+      try {
+        const parsed = JSON.parse(error?.message || '{}');
+        message = parsed.detail || parsed.message || message;
+      } catch {
+        message = error?.message || message;
+      }
+
+      showModal('Gagal Mengubah Password', message, 'warning');
+    }
   };
 
   // Handle saving institutional identity
-  const handleSaveLembagaIdentitas = (e: React.FormEvent) => {
+  const handleSaveLembagaIdentitas = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem('lulus_lembaga_identitas', JSON.stringify(lembagaIdentitas));
-    showModal(
-      'Identitas Lembaga Disimpan', 
-      'Data identitas PKBM Agrabinta berhasil disimpan. Data ini otomatis terhubung ke pencetakan Rapor, Ijazah, Transkrip, dan berkas administrasi dinas lainnya.', 
-      'success'
-    );
+
+    try {
+      const saved = await api.updateInstitutionSettings({
+        nama_pkbm: lembagaIdentitas.namaPkbm,
+        nama_yayasan: lembagaIdentitas.namaYayasan,
+        npsn: lembagaIdentitas.npsn,
+        nomor_izin_operasional: lembagaIdentitas.nomorIzinOperasional,
+        alamat: lembagaIdentitas.alamat,
+        kecamatan: lembagaIdentitas.kecamatan,
+        kabupaten: lembagaIdentitas.kabupaten,
+        provinsi: lembagaIdentitas.provinsi,
+        kode_pos: lembagaIdentitas.kodePos,
+        nomor_telepon: lembagaIdentitas.nomorTelepon,
+        email_lembaga: lembagaIdentitas.emailLembaga,
+        website: lembagaIdentitas.website,
+        logo_pkbm: lembagaIdentitas.logoPkbm,
+        logo_yayasan: lembagaIdentitas.logoYayasan,
+        atribut_pengesahan_digital: lembagaIdentitas.atributPengesahanDigital,
+        nama_kepala_sekolah: lembagaIdentitas.namaKepalaSekolah,
+        nip_kepala_sekolah: lembagaIdentitas.nipKepalaSekolah,
+        
+        
+        
+        nama_penandatangan: lembagaIdentitas.namaPenandatangan,
+        
+      });
+
+      setLembagaIdentitas({
+        namaPkbm: saved.nama_pkbm || '',
+        namaYayasan: saved.nama_yayasan || '',
+        npsn: saved.npsn || '',
+        nomorIzinOperasional: saved.nomor_izin_operasional || '',
+        alamat: saved.alamat || '',
+        kecamatan: saved.kecamatan || '',
+        kabupaten: saved.kabupaten || '',
+        provinsi: saved.provinsi || '',
+        kodePos: saved.kode_pos || '',
+        nomorTelepon: saved.nomor_telepon || '',
+        emailLembaga: saved.email_lembaga || '',
+        website: saved.website || '',
+        logoPkbm: saved.logo_pkbm || '',
+        logoYayasan: saved.logo_yayasan || '',
+        namaKepalaSekolah: saved.nama_kepala_sekolah || '',
+        nipKepalaSekolah: saved.nip_kepala_sekolah || '',
+        atributPengesahanDigital:
+          saved.atribut_pengesahan_digital || '',
+        namaPenandatangan: saved.nama_penandatangan || '',
+        
+      });
+
+      showModal(
+        'Identitas Lembaga Disimpan',
+        'Data identitas lembaga berhasil disimpan ke database dan digunakan pada dokumen akademik.',
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Menyimpan',
+        error?.message || 'Identitas lembaga gagal disimpan ke server.',
+        'warning'
+      );
+    }
   };
 
   // Base64 file image reader
   const handleImageUpload = (
     e: React.ChangeEvent<HTMLInputElement>,
-    field: 'fotoProfil' | 'logoPkbm' | 'logoYayasan' | 'qrTandaTanganKepalaSekolah' | 'capStempelDigital' | 'tandaTanganKepalaSekolah'
+    field: 'logoPkbm' | 'logoYayasan' | 'atributPengesahanDigital'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1432,21 +1838,15 @@ export default function DashboardAdmin({
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
-      if (field === 'fotoProfil') {
-        setAdminProfile((prev: any) => {
-          const updated = { ...prev, fotoProfil: base64 };
-          localStorage.setItem('lulus_admin_profile', JSON.stringify(updated));
-          return updated;
-        });
-        showModal('Foto Profil Diperbarui', 'Foto profil admin berhasil diunggah dan disimpan secara aman.', 'success');
-      } else {
-        setLembagaIdentitas((prev: any) => {
-          const updated = { ...prev, [field]: base64 };
-          localStorage.setItem('lulus_lembaga_identitas', JSON.stringify(updated));
-          return updated;
-        });
-        showModal('Berkas Lembaga Diperbarui', `Berkas ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} berhasil diunggah dan terintegrasi.`, 'success');
-      }
+      setLembagaIdentitas((prev: any) => ({
+        ...prev,
+        [field]: base64
+      }));
+      showModal(
+        'Berkas Dipilih',
+        `Berkas ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} siap disimpan. Tekan Simpan Identitas Lembaga.`,
+        'success'
+      );
     };
     reader.readAsDataURL(file);
   };
@@ -1515,194 +1915,352 @@ export default function DashboardAdmin({
     showModal('Pendaftaran Disetujui', `${student.nama} resmi terdaftar sebagai siswa aktif.`, 'success');
   };
 
-  const handleAddPaymentMethod = () => {
+  const handleAddPaymentMethod = async () => {
     if (!newMethodName.trim()) {
-      showModal('Gagal Menambah', 'Nama metode pembayaran tidak boleh kosong.', 'warning');
+      showModal(
+        'Gagal Menambah',
+        'Nama metode pembayaran tidak boleh kosong.',
+        'warning'
+      );
       return;
     }
-    const newId = `pay-${Date.now()}`;
-    const updated = [
-      ...paymentMethods,
-      { id: newId, name: newMethodName.trim(), provider: newMethodProvider, isActive: true }
-    ];
-    if (onUpdatePaymentMethods) {
-      onUpdatePaymentMethods(updated);
+
+    try {
+      const saved = await api.createPaymentMethod({
+        name: newMethodName.trim(),
+        provider: newMethodProvider,
+        is_active: true
+      });
+
+      onUpdatePaymentMethods?.([
+        ...paymentMethods,
+        {
+          id: saved.id,
+          name: saved.name,
+          provider: saved.provider,
+          isActive: saved.is_active
+        }
+      ]);
+
+      setNewMethodName('');
+
+      showModal(
+        'Berhasil',
+        'Metode pembayaran baru berhasil ditambahkan.',
+        'success'
+      );
+    } catch (err: any) {
+      showModal(
+        'Gagal Menambah',
+        err?.message || 'Metode pembayaran gagal disimpan.',
+        'warning'
+      );
     }
-    setNewMethodName('');
-    showModal('Berhasil', 'Metode pembayaran instan baru berhasil ditambahkan.', 'success');
   };
 
-  const handleAdminCompSubmit = (e: React.FormEvent) => {
+  const handleAdminCompSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminCompForm.nama_kompetensi.trim()) return;
 
-    if (adminSelectedComp) {
-      // Edit mode
-      if (setCompetencies) {
-        setCompetencies(prev => prev.map(c => {
-          if (c.id === adminSelectedComp.id) {
-            return {
-              ...c,
-              program: adminCompForm.program,
-              mata_pelajaran: adminCompForm.mata_pelajaran,
-              nama_kompetensi: adminCompForm.nama_kompetensi.trim(),
-              bobot_skk: Number(adminCompForm.bobot_skk)
-            };
-          }
-          return c;
-        }));
-        showModal('Kompetensi Diperbarui', `Kompetensi "${adminCompForm.nama_kompetensi}" berhasil disimpan.`, 'success');
-      }
-    } else {
-      // Create mode
-      if (setCompetencies) {
-        const newId = `COMP-${Date.now()}`;
-        setCompetencies(prev => [
+    if (!adminCompForm.nama_kompetensi.trim()) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Nama kompetensi wajib diisi.',
+        'warning'
+      );
+      return;
+    }
+
+    const selectedMapel = subjects.find(
+      subject => subject.name === adminCompForm.mata_pelajaran
+    );
+
+    if (!selectedMapel?.id) {
+      showModal(
+        'Mata Pelajaran Tidak Ditemukan',
+        'Pilih mata pelajaran yang sudah tersimpan di Master Mata Pelajaran.',
+        'warning'
+      );
+      return;
+    }
+
+    const payload = {
+      subject: selectedMapel.id,
+      nama_kompetensi: adminCompForm.nama_kompetensi.trim(),
+      bobot_skk: Number(adminCompForm.bobot_skk),
+      semester: adminSelectedComp?.semester || '',
+      aktif: true
+    };
+
+    try {
+      if (adminSelectedComp) {
+        const saved = await api.adminUpdateCompetency(
+          adminSelectedComp.id,
+          payload
+        );
+
+        setCompetencies?.(prev =>
+          prev.map(comp =>
+            comp.id === adminSelectedComp.id
+              ? {
+                  ...comp,
+                  id: saved.id,
+                  subject: saved.subject,
+                  cp: saved.cp || null,
+                  program: adminCompForm.program,
+                  mata_pelajaran: adminCompForm.mata_pelajaran,
+                  nama_kompetensi: saved.nama_kompetensi,
+                  bobot_skk: Number(saved.bobot_skk),
+                  semester: saved.semester || '',
+                  aktif: saved.aktif !== false
+                }
+              : comp
+          )
+        );
+
+        showModal(
+          'Kompetensi Diperbarui',
+          `Kompetensi "${adminCompForm.nama_kompetensi}" berhasil disimpan ke database.`,
+          'success'
+        );
+      } else {
+        const saved = await api.adminCreateCompetency(payload);
+
+        setCompetencies?.(prev => [
           ...prev,
           {
-            id: newId,
+            id: saved.id,
+            subject: saved.subject,
+            cp: saved.cp || null,
             program: adminCompForm.program,
             mata_pelajaran: adminCompForm.mata_pelajaran,
-            nama_kompetensi: adminCompForm.nama_kompetensi.trim(),
-            bobot_skk: Number(adminCompForm.bobot_skk)
+            nama_kompetensi: saved.nama_kompetensi,
+            bobot_skk: Number(saved.bobot_skk),
+            semester: saved.semester || '',
+            aktif: saved.aktif !== false
           }
         ]);
-        showModal('Kompetensi Dibuat', `Kompetensi baru "${adminCompForm.nama_kompetensi}" berhasil diterbitkan.`, 'success');
+
+        showModal(
+          'Kompetensi Dibuat',
+          `Kompetensi "${adminCompForm.nama_kompetensi}" berhasil disimpan ke database.`,
+          'success'
+        );
       }
+
+      setShowAdminCompModal(false);
+      setAdminSelectedComp(null);
+    } catch (error: any) {
+      console.error('Gagal menyimpan Kompetensi:', error);
+
+      showModal(
+        'Gagal',
+        'Kompetensi gagal disimpan ke database.',
+        'warning'
+      );
     }
-    setShowAdminCompModal(false);
-    setAdminSelectedComp(null);
   };
 
-  const handleCpSubmit = (e: React.FormEvent) => {
+  const handleCpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!cpForm.subject || !cpForm.deskripsi.trim()) {
-      showModal('Input Tidak Lengkap', 'Mata Pelajaran dan Deskripsi CP wajib diisi.', 'warning');
+      showModal(
+        'Input Tidak Lengkap',
+        'Mata Pelajaran dan Deskripsi CP wajib diisi.',
+        'warning'
+      );
       return;
     }
 
-    const kodeGenerated = cpForm.kode_cp.trim() || `CP-${cpForm.subject.substring(0, 3).toUpperCase()}-${cpForm.fase}${Math.floor(10 + Math.random() * 90)}`;
+    const selectedMapel = subjects.find(
+      subject => subject.name === cpForm.subject
+    );
 
-    if (editingCp) {
-      // Edit mode
-      setCpList(prev => prev.map(item => 
-        item.id === editingCp.id ? { 
-          ...item, 
-          kode_cp: kodeGenerated,
+    if (!selectedMapel?.id) {
+      showModal(
+        'Mata Pelajaran Tidak Ditemukan',
+        'Mata pelajaran belum tersimpan di Master Mata Pelajaran.',
+        'warning'
+      );
+      return;
+    }
+
+    const kodeGenerated =
+      cpForm.kode_cp.trim() ||
+      `CP-${cpForm.subject.substring(0, 3).toUpperCase()}-${cpForm.fase}-${Date.now().toString().slice(-4)}`;
+
+    const payload = {
+      mata_pelajaran: selectedMapel.id,
+      kode_cp: kodeGenerated,
+      deskripsi: cpForm.deskripsi.trim(),
+      fase: cpForm.fase,
+      tahun: cpForm.tahun_regulasi || '2024',
+      aktif: cpForm.isActive
+    };
+
+    try {
+      if (editingCp) {
+        const saved = await api.adminUpdateCP(editingCp.id, payload);
+
+        setCpList(prev =>
+          prev.map(item =>
+            item.id === editingCp.id
+              ? {
+                  ...item,
+                  id: saved.id || editingCp.id,
+                  kode_cp: saved.kode_cp || kodeGenerated,
+                  program: cpForm.program,
+                  fase: saved.fase || cpForm.fase,
+                  kelas: cpForm.kelas,
+                  subject: cpForm.subject,
+                  elemen: cpForm.elemen.trim(),
+                  deskripsi: saved.deskripsi || cpForm.deskripsi.trim(),
+                  isActive: saved.aktif !== false,
+                  isDefault: false,
+                  tahun_regulasi: saved.tahun || cpForm.tahun_regulasi,
+                  sumber_cp: 'Lembaga',
+                  status_aktif: saved.aktif !== false
+                }
+              : item
+          )
+        );
+
+        showModal(
+          'CP Diperbarui',
+          `CP mata pelajaran ${cpForm.subject} berhasil diperbarui.`,
+          'success'
+        );
+      } else {
+        const saved = await api.adminCreateCP(payload);
+
+        const newCp = {
+          id: saved.id,
+          kode_cp: saved.kode_cp || kodeGenerated,
           program: cpForm.program,
-          fase: cpForm.fase,
+          fase: saved.fase || cpForm.fase,
           kelas: cpForm.kelas,
           subject: cpForm.subject,
           elemen: cpForm.elemen.trim(),
-          deskripsi: cpForm.deskripsi.trim(),
-          isActive: cpForm.isActive,
-          status_aktif: cpForm.isActive,
-          tahun_regulasi: cpForm.tahun_regulasi || '2024',
-          sumber_cp: item.sumber_cp || 'Lembaga'
-        } : item
-      ));
-      showModal('CP Diperbarui', `Capaian Pembelajaran untuk mapel ${cpForm.subject} berhasil disesuaikan.`, 'success');
-    } else {
-      // Create mode
-      const newCp = {
-        id: `cp-${Math.floor(1000 + Math.random() * 9000)}`,
-        kode_cp: kodeGenerated,
-        program: cpForm.program,
-        fase: cpForm.fase,
-        kelas: cpForm.kelas,
-        subject: cpForm.subject,
-        elemen: cpForm.elemen.trim(),
-        deskripsi: cpForm.deskripsi.trim(),
-        isActive: cpForm.isActive,
-        isDefault: false,
-        tahun_regulasi: cpForm.tahun_regulasi || '2024',
-        sumber_cp: 'Lembaga',
-        status_aktif: cpForm.isActive
-      };
-      setCpList(prev => [newCp, ...prev]);
-      showModal('CP Ditambahkan', `Capaian Pembelajaran baru untuk mapel ${cpForm.subject} berhasil diterbitkan ke master.`, 'success');
-    }
-    setShowCpModal(false);
-    setEditingCp(null);
-  };
+          deskripsi: saved.deskripsi || cpForm.deskripsi.trim(),
+          isActive: saved.aktif !== false,
+          isDefault: false,
+          tahun_regulasi: saved.tahun || cpForm.tahun_regulasi,
+          sumber_cp: 'Lembaga',
+          status_aktif: saved.aktif !== false
+        };
 
-  const handleDeletePaymentMethod = (id: string) => {
-    const updated = paymentMethods.filter(m => m.id !== id);
-    if (onUpdatePaymentMethods) {
-      onUpdatePaymentMethods(updated);
-    }
-    showModal('Berhasil Dihapus', 'Metode pembayaran telah dihapus dari pilihan pendaftar.', 'success');
-  };
+        setCpList(prev => [newCp, ...prev]);
 
-  const handleTogglePaymentMethod = (id: string) => {
-    const updated = paymentMethods.map(m => m.id === id ? { ...m, isActive: !m.isActive } : m);
-    if (onUpdatePaymentMethods) {
-      onUpdatePaymentMethods(updated);
+        showModal(
+          'CP Ditambahkan',
+          `CP mata pelajaran ${cpForm.subject} berhasil disimpan ke database.`,
+          'success'
+        );
+      }
+
+      setShowCpModal(false);
+      setEditingCp(null);
+    } catch (error: any) {
+      console.error('Gagal menyimpan CP:', error);
+
+      showModal(
+        'Gagal',
+        'Capaian Pembelajaran gagal disimpan ke database.',
+        'error'
+      );
     }
   };
 
-  const handleVerify = (txId: string, isApproved: boolean) => {
+  const handleDeletePaymentMethod = async (id: string) => {
+    try {
+      await api.deletePaymentMethod(id);
+
+      onUpdatePaymentMethods?.(
+        paymentMethods.filter(m => m.id !== id)
+      );
+
+      showModal(
+        'Berhasil Dihapus',
+        'Metode pembayaran telah dihapus.',
+        'success'
+      );
+    } catch (err: any) {
+      showModal(
+        'Gagal Menghapus',
+        err?.message || 'Metode pembayaran gagal dihapus.',
+        'warning'
+      );
+    }
+  };
+
+  const handleTogglePaymentMethod = async (id: string) => {
+    const current = paymentMethods.find(m => m.id === id);
+    if (!current) return;
+
+    try {
+      const saved = await api.updatePaymentMethod(id, {
+        is_active: !current.isActive
+      });
+
+      onUpdatePaymentMethods?.(
+        paymentMethods.map(m =>
+          m.id === id
+            ? { ...m, isActive: saved.is_active }
+            : m
+        )
+      );
+    } catch (err: any) {
+      showModal(
+        'Gagal Memperbarui',
+        err?.message || 'Status metode pembayaran gagal diubah.',
+        'warning'
+      );
+    }
+  };
+
+  const handleVerify = async (
+    txId: string,
+    isApproved: boolean
+  ) => {
     const tx = financialTransactions.find(t => t.id === txId);
     if (!tx) return;
 
     if (!isApproved && !rejectionReason.trim()) {
-      showModal('Gagal', 'Alasan penolakan wajib diisi.', 'warning');
+      showModal(
+        'Gagal',
+        'Alasan penolakan wajib diisi.',
+        'warning'
+      );
       return;
     }
 
-    const nowStr = new Date().toLocaleString('id-ID');
+    try {
+      await api.verifyAdminStudentBill(txId, {
+        action: isApproved ? 'APPROVE' : 'DECLINE',
+        reason: isApproved ? '' : rejectionReason.trim()
+      });
 
-    // 1. Update financialTransactions list
-    const updatedTxs = financialTransactions.map(t => {
-      if (t.id === txId) {
-        return {
-          ...t,
-          status: isApproved ? 'Lunas' : 'Ditolak',
-          verifiedBy: isApproved ? 'Admin Lulus.id' : undefined,
-          verifiedAt: isApproved ? nowStr : undefined,
-          alasanPenolakan: isApproved ? undefined : rejectionReason.trim()
-        };
-      }
-      return t;
-    });
+      await loadFinancialTransactions();
 
-    if (onUpdateTransactions) {
-      onUpdateTransactions(updatedTxs);
+      showModal(
+        isApproved
+          ? 'Pembayaran Disetujui'
+          : 'Pembayaran Ditolak',
+        isApproved
+          ? `Pembayaran ${tx.studentName} sebesar Rp ${tx.amount.toLocaleString('id-ID')} telah dikonfirmasi.`
+          : `Pembayaran ${tx.studentName} ditolak: ${rejectionReason.trim()}`,
+        isApproved ? 'success' : 'warning'
+      );
+
+      setVerifyingTx(null);
+      setRejectionReason('');
+    } catch (err: any) {
+      showModal(
+        'Gagal',
+        err?.message || 'Verifikasi pembayaran gagal.',
+        'warning'
+      );
     }
-
-    // 2. Sync to student bills in localStorage
-    const savedBills = localStorage.getItem('lulus_bills');
-    if (savedBills) {
-      try {
-        const bills = JSON.parse(savedBills);
-        const updatedBills = bills.map((b: any) => {
-          const matchId = b.id === tx.billId;
-          const matchName = b.name === tx.type && b.amount === tx.amount;
-          if (matchId || matchName) {
-            return {
-              ...b,
-              status: isApproved ? 'Lunas' : 'Ditolak',
-              verifiedBy: isApproved ? 'Admin Lulus.id' : undefined,
-              verifiedAt: isApproved ? nowStr : undefined,
-              alasanPenolakan: isApproved ? undefined : rejectionReason.trim()
-            };
-          }
-          return b;
-        });
-        localStorage.setItem('lulus_bills', JSON.stringify(updatedBills));
-      } catch (e) {}
-    }
-
-    showModal(
-      isApproved ? 'Pembayaran Disetujui' : 'Pembayaran Ditolak',
-      isApproved 
-        ? `Pembayaran ${tx.studentName} sebesar Rp ${tx.amount.toLocaleString('id-ID')} telah dikonfirmasi.` 
-        : `Pembayaran ${tx.studentName} ditolak dengan alasan: ${rejectionReason.trim()}`,
-      isApproved ? 'success' : 'warning'
-    );
-
-    setVerifyingTx(null);
-    setRejectionReason('');
   };
 
   const handleVerifyTransaction = (txId: string) => {
@@ -1710,29 +2268,37 @@ export default function DashboardAdmin({
   };
 
   const handleUpdatePaymentSetting = (field: string, value: string) => {
-    const updated = { ...adminPaymentSettings, [field]: value };
-    setAdminPaymentSettings(updated);
-    localStorage.setItem('lulus_admin_payment_settings', JSON.stringify(updated));
+    setAdminPaymentSettings((prev: any) => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   // ==========================================
   // MASTER TAHUN AJARAN FUNCTIONS
   // ==========================================
-  const handleAddAcademicYear = (e: React.FormEvent) => {
+  const handleAddAcademicYear = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAcademicYear.nama.trim()) {
       showModal('Gagal', 'Nama tahun ajaran tidak boleh kosong.', 'warning');
       return;
     }
 
-    const nextId = `ay-${Date.now()}`;
-    const entry: AcademicYear = {
-      id: nextId,
+    const saved = await api.createAcademicYear({
       nama: newAcademicYear.nama.trim(),
       semester: newAcademicYear.semester,
-      tanggalMulai: newAcademicYear.tanggalMulai || '2026-07-01',
-      tanggalSelesai: newAcademicYear.tanggalSelesai || '2026-12-31',
+      tanggal_mulai: newAcademicYear.tanggalMulai || '2026-07-01',
+      tanggal_selesai: newAcademicYear.tanggalSelesai || '2026-12-31',
       aktif: newAcademicYear.aktif
+    });
+
+    const entry: AcademicYear = {
+      id: saved.id,
+      nama: saved.nama,
+      semester: saved.semester,
+      tanggalMulai: saved.tanggal_mulai,
+      tanggalSelesai: saved.tanggal_selesai,
+      aktif: saved.aktif
     };
 
     if (entry.aktif) {
@@ -1929,25 +2495,36 @@ Aturan penting:
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Server error');
+      const responseText = await response.text();
+
+      let data: any = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = {};
       }
 
-      const data = await response.json();
-      
+      if (!response.ok) {
+        throw new Error(
+          'Lulus AI sedang tidak tersedia. Silakan coba kembali nanti.'
+        );
+      }
+
       setAiMessages(prev => [
-        ...prev, 
-        { role: 'model', text: data.text }
+        ...prev,
+        {
+          role: 'model',
+          text: data.text || 'Lulus AI sedang tidak tersedia. Silakan coba kembali nanti.'
+        }
       ]);
     } catch (error: any) {
       console.error('Gemini error:', error);
       setAiMessages(prev => [
         ...prev,
-        { 
-          role: 'model', 
-          text: `Maaf Admin, terjadi kendala saat menghubungi server AI. Detail: ${error.message}`,
-          isError: true 
+        {
+          role: 'model',
+          text: 'Lulus AI sedang tidak tersedia. Silakan coba kembali nanti.',
+          isError: true
         }
       ]);
     } finally {
@@ -2005,11 +2582,11 @@ Gunakan format teks Bahasa Indonesia yang formal dan berikan poin-poin yang jela
         })
       });
 
-      if (!response.ok) throw new Error('Gagal memproses berkas');
+      if (!response.ok) throw new Error('Lulus AI sedang tidak tersedia. Silakan coba kembali nanti.');
       const data = await response.json();
       setAiDocAnalysis(data.text);
     } catch (err: any) {
-      setAiDocAnalysis(`Kendala saat menganalisis berkas: ${err.message}. Rekomendasi: Lakukan verifikasi manual.`);
+      setAiDocAnalysis('Lulus AI sedang tidak tersedia. Silakan lakukan verifikasi dokumen secara manual.');
     } finally {
       setAnalyzingDocId(null);
     }
@@ -2059,7 +2636,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
       const data = await response.json();
       setGeneratedReportText(data.text);
     } catch (err: any) {
-      setGeneratedReportText(`Gagal membuat ringkasan laporan otomatis: ${err.message}. Namun Anda tetap dapat mengunduh dokumen mentah di bawah.`);
+      setGeneratedReportText('Lulus AI sedang tidak tersedia. Anda tetap dapat mengunduh data laporan secara manual.');
     } finally {
       setReportLoading(false);
     }
@@ -2077,44 +2654,134 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
     showModal('Status Diperbarui', 'Status keaktifan siswa berhasil disimpan secara aman.', 'success');
   };
 
-  const handleEditStudentSubmit = (e: React.FormEvent) => {
+  const handleEditStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
-    setStudents(prev => prev.map(s => s.id === editingStudent.id ? editingStudent : s));
-    
-    // Sync target SKK based on new program (jenjang) and tipeKelas (sistem belajar)
-    const currentSistemBelajar = editingStudent.tipeKelas || 'Reguler';
-    const matchingProgram = programs.find(
-      p => p.jenjang === editingStudent.program && p.sistemBelajar === currentSistemBelajar
-    );
-    const newTargetSkk = matchingProgram 
-      ? matchingProgram.totalSkk 
-      : (editingStudent.program === 'Paket C' ? 80 : editingStudent.program === 'Paket B' ? 40 : 30);
-    
-    if (setSkkReports) {
-      setSkkReports(prev => prev.map(r => {
-        if (r.siswa === editingStudent.id) {
-          const newTercapai = r.tercapai || 0;
-          const pct = newTargetSkk > 0 ? Math.min(100, Math.round((newTercapai / newTargetSkk) * 100)) : 0;
-          return {
-            ...r,
-            total_skk: newTargetSkk,
-            persentase: pct
-          };
-        }
-        return r;
-      }));
+
+    const usernameBaru = (editingStudent.username || '').trim();
+    const passwordBaru = (editingStudent.password || '').trim();
+
+    if (!usernameBaru) {
+      showModal(
+        'Username Belum Diisi',
+        'Username login siswa wajib diisi.',
+        'warning'
+      );
+      return;
     }
 
-    showModal('Siswa Diperbarui', `Informasi data siswa ${editingStudent.nama} berhasil diperbarui, termasuk username dan password.`, 'success');
-    setEditingStudent(null);
+    try {
+      await api.updateStudentAccount(
+        editingStudent.id,
+        usernameBaru,
+        passwordBaru || undefined,
+        {
+          nama: editingStudent.nama || '',
+          nik: editingStudent.nik || '',
+          nisn: editingStudent.nisn || '',
+          kk: editingStudent.kk || '',
+          jk: editingStudent.jk || '',
+          tempat_lahir: editingStudent.tempatLahir || '',
+          tanggal_lahir: editingStudent.tglLahir || '',
+          alamat: editingStudent.alamat || '',
+          nama_ayah: editingStudent.ayah || '',
+          nama_ibu: editingStudent.ibu || '',
+          pekerjaan_ayah: editingStudent.pekerjaanAyah || '',
+          pekerjaan_ibu: editingStudent.pekerjaanIbu || '',
+          program: editingStudent.program || '',
+          tipe_kelas: editingStudent.tipeKelas || '',
+          sekolah_asal:
+            (editingStudent as any).sekolahAsal || '',
+          status_dapodik:
+            (editingStudent as any).statusDapodik ||
+            'BELUM_DIATUR',
+          tanggal_terdaftar_dapodik:
+            (editingStudent as any).tanggalTerdaftarDapodik || '',
+          catatan_dapodik:
+            (editingStudent as any).catatanDapodik || '',
+          tanggal_masuk_sekolah:
+            (editingStudent as any).tanggalMasukSekolah || ''
+        }
+      );
+
+      const updatedStudent = {
+        ...editingStudent,
+        username: usernameBaru,
+        password: ''
+      };
+
+      setStudents(prev =>
+        prev.map(s => s.id === editingStudent.id ? updatedStudent : s)
+      );
+
+      // Sync target SKK based on new program dan tipe kelas
+      const currentSistemBelajar = editingStudent.tipeKelas || 'Reguler';
+      const matchingProgram = programs.find(
+        p =>
+          p.jenjang === editingStudent.program &&
+          p.sistemBelajar === currentSistemBelajar
+      );
+
+      const newTargetSkk = matchingProgram
+        ? matchingProgram.totalSkk
+        : editingStudent.program === 'Paket C'
+          ? 80
+          : editingStudent.program === 'Paket B'
+            ? 40
+            : 30;
+
+      if (setSkkReports) {
+        setSkkReports(prev => prev.map(r => {
+          if (r.siswa === editingStudent.id) {
+            const newTercapai = r.tercapai || 0;
+            const pct = newTargetSkk > 0
+              ? Math.min(100, Math.round((newTercapai / newTargetSkk) * 100))
+              : 0;
+
+            return {
+              ...r,
+              total_skk: newTargetSkk,
+              persentase: pct
+            };
+          }
+
+          return r;
+        }));
+      }
+
+      showModal(
+        'Akun Siswa Diperbarui',
+        passwordBaru
+          ? `Username dan password akun ${editingStudent.nama} berhasil diperbarui.`
+          : `Username akun ${editingStudent.nama} berhasil diperbarui. Password lama tetap digunakan.`,
+        'success'
+      );
+
+      setEditingStudent(null);
+    } catch (error: any) {
+      showModal(
+        'Gagal Memperbarui Akun',
+        error?.message || 'Username atau password siswa gagal disimpan ke server.',
+        'error'
+      );
+    }
   };
 
   const handleDeleteStudent = (id: string) => {
     const student = students.find(s => s.id === id);
     if (!student) return;
-    setStudents(prev => prev.filter(s => s.id !== id));
-    showModal('Siswa Dihapus', `Data siswa ${student.nama} telah berhasil dihapus dari sistem secara permanen.`, 'success');
+
+    setStudents(prev => {
+      const updated = prev.filter(s => s.id !== id);
+      localStorage.setItem('lulus_students', JSON.stringify(updated));
+      return updated;
+    });
+
+    showModal(
+      'Siswa Dihapus',
+      `Data siswa ${student.nama} telah berhasil dihapus.`,
+      'success'
+    );
     setConfirmDeleteId(null);
   };
 
@@ -2182,66 +2849,143 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
   };
 
   // Real-time Action: Toggle Teacher Status
-  const handleToggleTeacherStatus = (teacherId: string) => {
-    setTeachers(prev => prev.map(t => {
-      if (t.id === teacherId) {
-        const nextStatus = t.status === 'Aktif' ? 'Nonaktif' : 'Aktif';
-        return { ...t, status: nextStatus as 'Aktif' | 'Nonaktif' };
-      }
-      return t;
-    }));
-    showModal('Status Tutor Diperbarui', 'Status keaktifan tutor berhasil diperbarui.', 'success');
+  const handleToggleTeacherStatus = async (teacherId: string) => {
+    const teacher = teachers.find(t => t.id === teacherId);
+    if (!teacher) return;
+
+    const nextStatus = teacher.status === 'Aktif' ? 'Nonaktif' : 'Aktif';
+
+    try {
+      await api.updateTeacher(teacherId, {
+        status: nextStatus
+      });
+
+      setTeachers(prev => prev.map(t => {
+        if (t.id === teacherId) {
+          return { ...t, status: nextStatus as 'Aktif' | 'Nonaktif' };
+        }
+        return t;
+      }));
+
+      showModal('Status Tutor Diperbarui', 'Status keaktifan tutor berhasil diperbarui.', 'success');
+
+    } catch (error) {
+      console.error('Gagal update status guru:', error);
+      showModal('Gagal', 'Status guru gagal diperbarui ke server.', 'error');
+    }
   };
 
   // Real-time Action: Add Teacher
-  const handleAddTeacherSubmit = (e: React.FormEvent) => {
+  const handleAddTeacherSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTeacher.nama) return;
 
-    const teacherObj: Teacher = {
-      id: `GUR-${Date.now().toString().slice(-3)}`,
-      nama: newTeacher.nama,
-      nip: newTeacher.nip || 'Belum Ada',
-      mapel: newTeacher.mapel,
-      kelas: newTeacher.kelas,
-      materiCount: 0,
-      tugasCount: 0,
-      penilaianCount: 0,
-      status: 'Aktif'
-    };
+    try {
+      const created = await api.createTeacher({
+        nama: newTeacher.nama,
+        nip: newTeacher.nip || '',
+        username: newTeacher.username.trim(),
+        password: newTeacher.password,
+        mapels: newTeacher.mapel ? [newTeacher.mapel] : [],
+        kelas_list: newTeacher.kelas ? [newTeacher.kelas] : [],
+        status: 'Aktif',
+        is_wali_kelas: false
+      });
 
-    setTeachers(prev => [...prev, teacherObj]);
-    setShowAddTeacherModal(false);
-    showModal('Tutor Ditambahkan', `Akun untuk guru ${newTeacher.nama} telah aktif dan terhubung ke sistem.`, 'success');
-    setNewTeacher({ nama: '', nip: '', mapel: 'Bahasa Indonesia', kelas: 'Kelas X Paket C' });
+      const teacherObj: Teacher = {
+        id: created.id,
+        nama: created.nama,
+        nip: created.nip || '',
+        mapel: created.mapels?.join(', ') || '',
+        kelas: created.kelas_list?.join(', ') || '',
+        materiCount: 0,
+        tugasCount: 0,
+        penilaianCount: 0,
+        status: created.status,
+        mapels: created.mapels || [],
+        kelasList: created.kelas_list || []
+      };
+
+      setTeachers(prev => [...prev, teacherObj]);
+
+      setShowAddTeacherModal(false);
+      showModal('Tutor Ditambahkan', `Guru ${created.nama} berhasil disimpan ke database.`, 'success');
+      setNewTeacher({
+        nama: '',
+        nip: '',
+        username: '',
+        password: '',
+        mapel: 'Bahasa Indonesia',
+        kelas: 'Kelas X Paket C'
+      });
+
+    } catch (error) {
+      console.error('Gagal menambahkan guru:', error);
+      showModal('Gagal', 'Data guru gagal disimpan ke server.', 'error');
+    }
   };
 
-  const handleEditTeacherSubmit = (e: React.FormEvent) => {
+  const handleEditTeacherSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTeacher) return;
 
-    // Synchronize display string mapel and kelas based on multiple arrays
     const updatedTeacher = {
       ...editingTeacher,
-      mapel: editingTeacher.mapels && editingTeacher.mapels.length > 0 
-        ? editingTeacher.mapels.join(', ') 
+      mapel: editingTeacher.mapels && editingTeacher.mapels.length > 0
+        ? editingTeacher.mapels.join(', ')
         : editingTeacher.mapel,
-      kelas: editingTeacher.kelasList && editingTeacher.kelasList.length > 0 
-        ? editingTeacher.kelasList.join(', ') 
+      kelas: editingTeacher.kelasList && editingTeacher.kelasList.length > 0
+        ? editingTeacher.kelasList.join(', ')
         : editingTeacher.kelas
     };
 
-    setTeachers(prev => prev.map(t => t.id === updatedTeacher.id ? updatedTeacher : t));
-    showModal('Tutor Diperbarui', `Informasi data guru ${updatedTeacher.nama} berhasil diperbarui.`, 'success');
-    setEditingTeacher(null);
+    try {
+      const updated = await api.updateTeacher(updatedTeacher.id, {
+        nama: updatedTeacher.nama,
+        nip: updatedTeacher.nip,
+        mapels: updatedTeacher.mapels || [],
+        kelas_list: updatedTeacher.kelasList || [],
+        status: updatedTeacher.status,
+        is_wali_kelas: updatedTeacher.isWaliKelas || false
+      });
+
+      const teacherObj: Teacher = {
+        ...updatedTeacher,
+        mapels: updated.mapels || [],
+        kelasList: updated.kelas_list || []
+      };
+
+      setTeachers(prev =>
+        prev.map(t =>
+          t.id === teacherObj.id ? teacherObj : t
+        )
+      );
+
+      showModal('Tutor Diperbarui', `Informasi data guru ${teacherObj.nama} berhasil diperbarui.`, 'success');
+      setEditingTeacher(null);
+
+    } catch (error) {
+      console.error('Gagal update guru:', error);
+      showModal('Gagal', 'Data guru gagal diperbarui ke server.', 'error');
+    }
   };
 
-  const handleDeleteTeacher = (id: string) => {
+  const handleDeleteTeacher = async (id: string) => {
     const teachObj = teachers.find(t => t.id === id);
     if (!teachObj) return;
-    setTeachers(prev => prev.filter(t => t.id !== id));
-    showModal('Tutor Dihapus', `Data guru ${teachObj.nama} telah berhasil dihapus dari sistem secara permanen.`, 'success');
-    setConfirmDeleteTeacherId(null);
+
+    try {
+      await api.deleteTeacher(id);
+
+      setTeachers(prev => prev.filter(t => t.id !== id));
+
+      showModal('Tutor Dihapus', `Data guru ${teachObj.nama} berhasil dihapus dari sistem.`, 'success');
+      setConfirmDeleteTeacherId(null);
+
+    } catch (error) {
+      console.error('Gagal hapus guru:', error);
+      showModal('Gagal', 'Data guru gagal dihapus dari server.', 'error');
+    }
   };
 
   const getTargetSkkForCombination = (paket: 'Paket A' | 'Paket B' | 'Paket C', sistemBelajar: 'Reguler' | 'Karyawan'): number => {
@@ -2279,12 +3023,23 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
   };
 
   // Real-time Action: Add/Edit Class Form Submit
-  const handleClassFormSubmit = (e: React.FormEvent) => {
+  const handleClassFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("SUBMIT KELAS JALAN", classForm);
     if (!classForm.nama.trim()) {
       showModal('Gagal', 'Nama Kelas tidak boleh kosong.', 'warning');
       return;
     }
+
+    if (!classForm.faseId) {
+      showModal('Gagal', 'Silakan pilih Fase terlebih dahulu.', 'warning');
+      return;
+    }
+
+    console.log("CEK WALI", {
+      waliId: classForm.waliKelasId,
+      teachers: teachers
+    });
 
     const tutor = teachers.find(t => t.id === classForm.waliKelasId);
     const targetSkkVal = getTargetSkkForCombination(classForm.paket, classForm.sistemBelajar);
@@ -2297,12 +3052,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
       const updatedClassObj: ClassData = {
         ...editingClass,
         nama: newName,
-        jenjang: classForm.tingkat,
+        jenjang: fases.find(f => f.id === classForm.faseId)?.nama || '',
         paket: classForm.paket,
         waliKelasId: classForm.waliKelasId,
         waliKelasNama: tutor ? tutor.nama : 'Belum Ditentukan',
         programId: programIdVal,
-        tingkat: classForm.tingkat,
+        tingkat: fases.find(f => f.id === classForm.faseId)?.nama || '',
         targetSkk: targetSkkVal,
         sistemBelajar: classForm.sistemBelajar
       };
@@ -2321,18 +3076,45 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
       const classObj: ClassData = {
         id: `CLS-${Date.now().toString().slice(-3)}`,
         nama: classForm.nama,
-        jenjang: classForm.tingkat,
+        jenjang: fases.find(f => f.id === classForm.faseId)?.nama || '',
         paket: classForm.paket,
         waliKelasId: classForm.waliKelasId,
         waliKelasNama: tutor ? tutor.nama : 'Belum Ditentukan',
         siswaIds: [],
         programId: programIdVal,
-        tingkat: classForm.tingkat,
+        tingkat: fases.find(f => f.id === classForm.faseId)?.nama || '',
         targetSkk: targetSkkVal,
         sistemBelajar: classForm.sistemBelajar
       };
 
-      setClasses(prev => [...prev, classObj]);
+      console.log("DATA ROMBEL DIKIRIM", {
+        nama_rombel: classForm.nama,
+        fase: classForm.faseId,
+        tahun_ajaran: activeAcademicYear?.id,
+        sistem_belajar: classForm.sistemBelajar,
+        wali_tutor: classForm.waliKelasId,
+      });
+
+      const created = await api.adminCreateRombel({
+        nama_rombel: classForm.nama,
+        fase: classForm.faseId,
+        tahun_ajaran: activeAcademicYear?.id,
+        sistem_belajar: classForm.sistemBelajar,
+        wali_tutor: classForm.waliKelasId,
+        status: "Aktif",
+        beban_belajar: {}
+      });
+
+      const tutorCreated = teachers.find(t => t.id === classForm.waliKelasId);
+
+      setClasses(prev => [
+        ...prev,
+        {
+          ...classObj,
+          id: created.id,
+          waliKelasNama: tutorCreated ? tutorCreated.nama : 'Belum Ditentukan'
+        }
+      ]);
       setShowAddClassModal(false);
       showModal('Kelas Baru Dibuat', `Kelas "${classForm.nama}" berhasil dibentuk.`, 'success');
     }
@@ -2378,76 +3160,140 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
     });
   };
 
-  // Real-time Action: Add/Edit Program Belajar
-  const handleCreateProgramSubmit = (e: React.FormEvent) => {
+  // Database Action: Add/Edit Program Belajar
+  const handleCreateProgramSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProgram.nama) return;
 
-    const mapelWajib = newProgram.mapelWajibText.split(',').map(s => s.trim()).filter(Boolean);
-    const mapelPilihan = newProgram.mapelPilihanText.split(',').map(s => s.trim()).filter(Boolean);
+    if (!newProgram.nama.trim()) return;
 
-    if (editingProgram) {
-      setPrograms(prev => prev.map(p => p.id === editingProgram.id ? {
-        ...p,
-        nama: newProgram.nama,
-        jenjang: newProgram.jenjang,
-        sistemBelajar: newProgram.sistemBelajar,
-        lamaBelajar: newProgram.lamaBelajar,
-        totalSkk: Number(newProgram.totalSkk),
-        distribusiSkk: { 'Ganjil': Number(newProgram.skkGanjil), 'Genap': Number(newProgram.skkGenap) },
-        mapelWajib,
-        mapelPilihan
-      } : p));
-      // Update associated Beban Belajar titles & configs
-      setBebanBelajars(prev => prev.map(bb => bb.programBelajarId === editingProgram.id ? {
-        ...bb,
-        programBelajarNama: newProgram.nama,
-        jenjang: newProgram.jenjang,
-        sistemBelajar: newProgram.sistemBelajar
-      } : bb));
-      showModal('Program Diperbarui', `Program pembelajaran "${newProgram.nama}" berhasil diperbarui.`, 'success');
-      setEditingProgram(null);
-    } else {
-      const prgObj: ProgramBelajar = {
-        id: `PRG-${Date.now().toString().slice(-4)}`,
-        nama: newProgram.nama,
-        jenjang: newProgram.jenjang,
-        sistemBelajar: newProgram.sistemBelajar,
-        lamaBelajar: newProgram.lamaBelajar,
-        totalSkk: Number(newProgram.totalSkk),
-        distribusiSkk: { 'Ganjil': Number(newProgram.skkGanjil), 'Genap': Number(newProgram.skkGenap) },
-        mapelWajib,
-        mapelPilihan
-      };
-      setPrograms(prev => [...prev, prgObj]);
-      // Auto-generate default Beban Belajar configs for this program
-      const defaults = generateDefaultBebanBelajars(prgObj.id, prgObj.nama, prgObj.jenjang, prgObj.sistemBelajar, prgObj.totalSkk);
-      setBebanBelajars(prev => [...prev, ...defaults]);
-      showModal('Program Dibuat', `Program pembelajaran baru "${newProgram.nama}" berhasil ditambahkan dan konfigurasi sebaran Beban Belajar SKK otomatis dibuat.`, 'success');
+    const payload = {
+      nama: newProgram.nama.trim(),
+      paket: newProgram.jenjang,
+      jalur: newProgram.sistemBelajar,
+      target_total_skk: Number(newProgram.totalSkk),
+      status: 'Aktif',
+      keterangan: ''
+    };
+
+    try {
+      if (editingProgram) {
+        const updated = await api.adminUpdateProgramBelajar(
+          editingProgram.id,
+          payload
+        );
+
+        const updatedProgram: ProgramBelajar = {
+          id: updated.id,
+          nama: updated.nama,
+          jenjang: updated.paket,
+          sistemBelajar: updated.jalur,
+          totalSkk: Number(updated.target_total_skk),
+          statusAktif: updated.status === 'Aktif'
+        };
+
+        setPrograms(prev =>
+          prev.map(program =>
+            program.id === editingProgram.id ? updatedProgram : program
+          )
+        );
+
+        setBebanBelajars(prev =>
+          prev.map(bb =>
+            bb.programBelajarId === editingProgram.id
+              ? {
+                  ...bb,
+                  programBelajarNama: updatedProgram.nama,
+                  jenjang: updatedProgram.jenjang,
+                  sistemBelajar: updatedProgram.sistemBelajar
+                }
+              : bb
+          )
+        );
+
+        showModal(
+          'Program Diperbarui',
+          `Program pembelajaran "${updatedProgram.nama}" berhasil diperbarui.`,
+          'success'
+        );
+
+        setEditingProgram(null);
+      } else {
+        const created = await api.adminCreateProgramBelajar(payload);
+
+        const createdProgram: ProgramBelajar = {
+          id: created.id,
+          nama: created.nama,
+          jenjang: created.paket,
+          sistemBelajar: created.jalur,
+          totalSkk: Number(created.target_total_skk),
+          statusAktif: created.status === 'Aktif'
+        };
+
+        setPrograms(prev => [...prev, createdProgram]);
+
+        const defaults = generateDefaultBebanBelajars(
+          createdProgram.id,
+          createdProgram.nama,
+          createdProgram.jenjang,
+          createdProgram.sistemBelajar,
+          createdProgram.totalSkk
+        );
+
+        setBebanBelajars(prev => [...prev, ...defaults]);
+
+        showModal(
+          'Program Dibuat',
+          `Program pembelajaran baru "${createdProgram.nama}" berhasil disimpan ke database.`,
+          'success'
+        );
+      }
+
+      setShowAddProgramModal(false);
+
+      setNewProgram({
+        nama: '',
+        jenjang: 'Paket C',
+        sistemBelajar: 'Reguler',
+        totalSkk: 80
+      });
+    } catch (error: any) {
+      console.error('Gagal menyimpan Program Belajar:', error);
+
+      showModal(
+        'Program Gagal Disimpan',
+        error?.message || 'Terjadi kesalahan saat menyimpan Program Belajar.',
+        'error'
+      );
     }
-
-    setShowAddProgramModal(false);
-    // Reset form
-    setNewProgram({
-      nama: '',
-      jenjang: 'Paket C',
-      sistemBelajar: 'Reguler',
-      lamaBelajar: '3 Tahun',
-      totalSkk: 80,
-      skkGanjil: 15,
-      skkGenap: 15,
-      mapelWajibText: 'Bahasa Indonesia, Matematika, PPKn, Bahasa Inggris, Pendidikan Agama, Sejarah Indonesia',
-      mapelPilihanText: 'Sosiologi, Geografi, Ekonomi'
-    });
   };
 
-  const handleDeleteProgram = (id: string) => {
+  const handleDeleteProgram = async (id: string) => {
     const prg = programs.find(p => p.id === id);
     if (!prg) return;
-    setPrograms(prev => prev.filter(p => p.id !== id));
-    // Also remove any related Beban Belajar configs
-    setBebanBelajars(prev => prev.filter(bb => bb.programBelajarId !== id));
-    showModal('Program Dihapus', `Program "${prg.nama}" dan seluruh konfigurasi beban belajar terkait berhasil dihapus dari sistem.`, 'success');
+
+    try {
+      await api.adminDeleteProgramBelajar(id);
+
+      setPrograms(prev => prev.filter(p => p.id !== id));
+
+      setBebanBelajars(prev =>
+        prev.filter(bb => bb.programBelajarId !== id)
+      );
+
+      showModal(
+        'Program Dihapus',
+        `Program "${prg.nama}" berhasil dihapus dari database.`,
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal menghapus Program Belajar:', error);
+
+      showModal(
+        'Program Gagal Dihapus',
+        error?.message || 'Terjadi kesalahan saat menghapus program.',
+        'error'
+      );
+    }
   };
 
   // Export Administrative Report (PDF / Excel)
@@ -2605,6 +3451,471 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
     }
   };
 
+
+  // Export Laporan Penerimaan Keuangan (uang masuk saja)
+  const handleExportFinancialIncome = (type: 'Excel' | 'PDF') => {
+    const incomeTransactions = financialTransactions.filter(
+      tx =>
+        tx.status?.toLowerCase() === 'lunas' ||
+        tx.status?.toLowerCase() === 'sukses'
+    );
+
+    const total = incomeTransactions.reduce(
+      (sum, tx) => sum + Number(tx.amount || 0),
+      0
+    );
+
+    if (type === 'Excel') {
+      const data = incomeTransactions.map((tx, index) => ({
+        No: index + 1,
+        Tanggal: tx.date || '-',
+        Nama_Siswa: tx.studentName || '-',
+        Jenis_Pembayaran: tx.type || '-',
+        Nominal: Number(tx.amount || 0),
+        Metode: tx.method || '-',
+        Status: tx.status
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        'Penerimaan'
+      );
+
+      XLSX.writeFile(
+        workbook,
+        'Laporan_Penerimaan_Keuangan.xlsx'
+      );
+
+      showModal(
+        'Export Berhasil',
+        'File Excel penerimaan keuangan berhasil dibuat.',
+        'success'
+      );
+
+      return;
+    }
+
+    const pdf = new jsPDF();
+
+    pdf.text(
+      lembagaIdentitas?.namaPkbm || 'PKBM Darul Ulum',
+      10,
+      15
+    );
+
+    pdf.text(
+      'Laporan Penerimaan Keuangan',
+      10,
+      25
+    );
+
+    pdf.text(
+      `Total Penerimaan: Rp ${total.toLocaleString('id-ID')}`,
+      10,
+      35
+    );
+
+    let y = 50;
+
+    incomeTransactions.forEach((tx, i) => {
+      pdf.text(
+        `${i + 1}. ${tx.studentName} - ${tx.type} - Rp ${Number(tx.amount || 0).toLocaleString('id-ID')}`,
+        10,
+        y
+      );
+
+      y += 8;
+
+      if (y > 280) {
+        pdf.addPage();
+        y = 20;
+      }
+    });
+
+    pdf.save(
+      'Laporan_Penerimaan_Keuangan.pdf'
+    );
+
+    showModal(
+      'Export Berhasil',
+      'PDF laporan penerimaan berhasil dibuat.',
+      'success'
+    );
+  };
+
+
+  // Export Laporan Tunggakan Siswa
+  const handleExportOutstanding = (type: 'Excel' | 'PDF') => {
+    const outstanding = financialTransactions.filter(
+      tx => {
+        const status = tx.status?.toLowerCase();
+        return (
+          status === 'belum lunas' ||
+          status === 'pending' ||
+          status === 'unpaid'
+        );
+      }
+    );
+
+    const total = outstanding.reduce(
+      (sum, tx) => sum + Number(tx.amount || 0),
+      0
+    );
+
+    if (type === 'Excel') {
+      const data = outstanding.map((tx, index) => ({
+        No: index + 1,
+        Nama_Siswa: tx.studentName || '-',
+        Jenis_Tagihan: tx.type || '-',
+        Nominal: Number(tx.amount || 0),
+        Status: tx.status || '-',
+        Periode: tx.date || '-'
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        'Tunggakan'
+      );
+
+      XLSX.writeFile(
+        workbook,
+        'Laporan_Tunggakan_Siswa.xlsx'
+      );
+
+      showModal(
+        'Export Berhasil',
+        'Laporan tunggakan Excel berhasil dibuat.',
+        'success'
+      );
+
+      return;
+    }
+
+    const pdf = new jsPDF();
+
+    pdf.text(
+      lembagaIdentitas?.namaPkbm || 'PKBM Darul Ulum',
+      10,
+      15
+    );
+
+    pdf.text(
+      'Laporan Tunggakan Siswa',
+      10,
+      25
+    );
+
+    pdf.text(
+      `Total Tunggakan: Rp ${total.toLocaleString('id-ID')}`,
+      10,
+      35
+    );
+
+    let y = 50;
+
+    outstanding.forEach((tx, i) => {
+      pdf.text(
+        `${i+1}. ${tx.studentName} - Rp ${Number(tx.amount || 0).toLocaleString('id-ID')}`,
+        10,
+        y
+      );
+
+      y += 8;
+    });
+
+    pdf.save(
+      'Laporan_Tunggakan_Siswa.pdf'
+    );
+
+    showModal(
+      'Export Berhasil',
+      'PDF tunggakan berhasil dibuat.',
+      'success'
+    );
+  };
+
+
+  // Export Laporan Siswa Aktif PKBM
+  const handleExportStudentActive = (type: 'Excel' | 'PDF') => {
+    const activeStudents = students.filter(
+      s => s.status === 'Aktif'
+    );
+
+    if (type === 'Excel') {
+      const data = activeStudents.map((s, index) => ({
+        No: index + 1,
+        Nama_Siswa: s.nama,
+        NIK: s.nik,
+        NISN: s.nisn,
+        Program: s.program,
+        Kelas: s.kelas,
+        Tipe_Kelas: s.tipeKelas || '-',
+        Tahun_Ajaran: s.tahunAjaran,
+        Status: s.status,
+        Alamat: s.alamat
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        'Siswa Aktif'
+      );
+
+      XLSX.writeFile(
+        workbook,
+        'Laporan_Siswa_Aktif_PKBM.xlsx'
+      );
+
+      showModal(
+        'Export Berhasil',
+        'Laporan siswa aktif Excel berhasil dibuat.',
+        'success'
+      );
+
+      return;
+    }
+
+    const pdf = new jsPDF();
+
+    pdf.text(
+      lembagaIdentitas?.namaPkbm || 'PKBM Darul Ulum',
+      10,
+      15
+    );
+
+    pdf.text(
+      'Laporan Siswa Aktif PKBM',
+      10,
+      25
+    );
+
+    pdf.text(
+      `Total Siswa Aktif: ${activeStudents.length}`,
+      10,
+      35
+    );
+
+    let y = 50;
+
+    activeStudents.slice(0, 30).forEach((s, i) => {
+      pdf.text(
+        `${i + 1}. ${s.nama} - ${s.program} - ${s.kelas}`,
+        10,
+        y
+      );
+
+      y += 8;
+
+      if (y > 280) {
+        pdf.addPage();
+        y = 20;
+      }
+    });
+
+    pdf.save(
+      'Laporan_Siswa_Aktif_PKBM.pdf'
+    );
+
+    showModal(
+      'Export Berhasil',
+      'PDF siswa aktif berhasil dibuat.',
+      'success'
+    );
+  };
+
+
+  // Export Laporan Kinerja Guru & Tutor
+  const handleExportTeacherPerformance = (type: 'Excel' | 'PDF') => {
+    const activeTeachers = teachers.filter(
+      t => t.status === 'Aktif'
+    );
+
+    if (type === 'Excel') {
+      const data = activeTeachers.map((t, index) => ({
+        No: index + 1,
+        Nama_Guru: t.nama,
+        NIP: t.nip,
+        Mata_Pelajaran: t.mapel,
+        Kelas: t.kelas,
+        Jumlah_Materi: t.materiCount || 0,
+        Jumlah_Tugas: t.tugasCount || 0,
+        Jumlah_Penilaian: t.penilaianCount || 0,
+        Status: t.status
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        'Kinerja Guru'
+      );
+
+      XLSX.writeFile(
+        workbook,
+        'Laporan_Kinerja_Guru_Tutor.xlsx'
+      );
+
+      showModal(
+        'Export Berhasil',
+        'Laporan kinerja guru Excel berhasil dibuat.',
+        'success'
+      );
+
+      return;
+    }
+
+    const pdf = new jsPDF();
+
+    pdf.text(
+      lembagaIdentitas?.namaPkbm || 'PKBM Darul Ulum',
+      10,
+      15
+    );
+
+    pdf.text(
+      'Laporan Kinerja Guru & Tutor',
+      10,
+      25
+    );
+
+    pdf.text(
+      `Total Guru Aktif: ${activeTeachers.length}`,
+      10,
+      35
+    );
+
+    let y = 50;
+
+    activeTeachers.forEach((t, i) => {
+      pdf.text(
+        `${i + 1}. ${t.nama} | Materi: ${t.materiCount || 0} | Tugas: ${t.tugasCount || 0}`,
+        10,
+        y
+      );
+
+      y += 8;
+
+      if (y > 280) {
+        pdf.addPage();
+        y = 20;
+      }
+    });
+
+    pdf.save(
+      'Laporan_Kinerja_Guru_Tutor.pdf'
+    );
+
+    showModal(
+      'Export Berhasil',
+      'PDF kinerja guru berhasil dibuat.',
+      'success'
+    );
+  };
+
+
+  // Export Rekapitulasi Akademik
+  const handleExportAcademicRecap = (type: 'Excel' | 'PDF') => {
+    const academicData = taskSubmissions.map((item, index) => {
+      const student = students.find(
+        s => s.id === item.studentId
+      );
+
+      return {
+        No: index + 1,
+        Nama_Siswa: item.studentName,
+        Program: student?.program || '-',
+        Kelas: item.kelas || student?.kelas || '-',
+        Mata_Pelajaran: item.subject,
+        Nilai_Akhir: item.finalGrade ?? item.grade ?? 0,
+        Status: item.status
+      };
+    });
+
+    if (type === 'Excel') {
+      const worksheet = XLSX.utils.json_to_sheet(academicData);
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        'Rekap Akademik'
+      );
+
+      XLSX.writeFile(
+        workbook,
+        'Rekapitulasi_Akademik_PKBM.xlsx'
+      );
+
+      showModal(
+        'Export Berhasil',
+        'Rekapitulasi akademik Excel berhasil dibuat.',
+        'success'
+      );
+
+      return;
+    }
+
+    const pdf = new jsPDF();
+
+    pdf.text(
+      lembagaIdentitas?.namaPkbm || 'PKBM Darul Ulum',
+      10,
+      15
+    );
+
+    pdf.text(
+      'Rekapitulasi Akademik',
+      10,
+      25
+    );
+
+    pdf.text(
+      `Jumlah Data Nilai: ${academicData.length}`,
+      10,
+      35
+    );
+
+    let y = 50;
+
+    academicData.slice(0, 40).forEach((d, i) => {
+      pdf.text(
+        `${i + 1}. ${d.Nama_Siswa} - ${d.Mata_Pelajaran} - ${d.Nilai_Akhir}`,
+        10,
+        y
+      );
+
+      y += 8;
+
+      if (y > 280) {
+        pdf.addPage();
+        y = 20;
+      }
+    });
+
+    pdf.save(
+      'Rekapitulasi_Akademik_PKBM.pdf'
+    );
+
+    showModal(
+      'Export Berhasil',
+      'Rekapitulasi akademik PDF berhasil dibuat.',
+      'success'
+    );
+  };
+
   // Filter students
   const filteredStudents = students.filter(s => {
     const matchesSearch = s.nama.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -2695,8 +4006,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
               { id: 'kelas', label: 'Kelas', icon: <School className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'program_belajar', label: 'Program Belajar', icon: <Sliders className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'mapel', label: 'Mata Pelajaran', icon: <BookOpen className="w-4 h-4 shrink-0" />, badge: 0 },
-              { id: 'verifikasi', label: 'Verif Regis', icon: <UserCheck className="w-4 h-4 shrink-0" />, badge: totalPendingVerifikasi },
-              { id: 'pendaftaran', label: 'Pendaftaran V2', icon: <ClipboardList className="w-4 h-4 shrink-0" />, badge: 0 },
+              { id: 'pendaftaran', label: 'Verifikasi Registrasi', icon: <ClipboardList className="w-4 h-4 shrink-0" />, badge: totalPendingVerifikasi },
               { id: 'mading', label: 'Mading', icon: <Megaphone className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'perpustakaan', label: 'Perpustakaan', icon: <BookOpen className="w-4 h-4 shrink-0" />, badge: 0 },
               { id: 'dokumen_akademik', label: 'Dokumen Akademik', icon: <FileText className="w-4 h-4 shrink-0" />, badge: 0 },
@@ -2821,23 +4131,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                   </button>
                 </div>
 
-                {/* Program Belajar */}
-                <div className="bg-white p-3.5 rounded-2xl border border-slate-200/60 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-all">
-                  <div className="flex justify-between items-start">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Prog. Belajar</span>
-                    <Layers className="w-4 h-4 text-violet-500" />
-                  </div>
-                  <div className="my-2">
-                    <h3 className="text-xl font-black text-slate-800">{programs.length}</h3>
-                    <p className="text-[7.5px] text-slate-400 font-bold">Paket A / B / C</p>
-                  </div>
-                  <button 
-                    onClick={() => setActiveTab('program_belajar')}
-                    className="text-[8px] font-black text-rose-600 hover:underline flex items-center gap-0.5 mt-1 cursor-pointer self-start"
-                  >
-                    Lihat Selengkapnya <ChevronRight className="w-3 h-3" />
-                  </button>
-                </div>
 
                 {/* Mata Pelajaran */}
                 <div className="bg-white p-3.5 rounded-2xl border border-slate-200/60 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-all">
@@ -2897,13 +4190,13 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       {/* TA & Semester */}
                       <div className="bg-slate-50/60 p-3 rounded-xl border border-slate-100 flex flex-col justify-between">
                         <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wide">Tahun Ajaran Aktif</span>
-                        <h5 className="text-xs font-black text-slate-800 mt-1">{activeAcademicYear?.nama || '2025/2026'}</h5>
+                        <h5 className="text-xs font-black text-slate-800 mt-1">{activeAcademicYear?.nama || '-'}</h5>
                         <span className="text-[8px] text-slate-400 font-medium mt-1">Sistem PKBM Lulus.id</span>
                       </div>
 
                       <div className="bg-slate-50/60 p-3 rounded-xl border border-slate-100 flex flex-col justify-between">
                         <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wide">Semester Aktif</span>
-                        <h5 className="text-xs font-black text-rose-600 mt-1">{activeAcademicYear?.semester || 'Ganjil'}</h5>
+                        <h5 className="text-xs font-black text-rose-600 mt-1">{activeAcademicYear?.semester || '-'}</h5>
                         <span className="text-[8px] text-slate-400 font-medium mt-1">Status: Berjalan</span>
                       </div>
 
@@ -2974,7 +4267,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <div>
                             <span className="block text-[8px] font-bold text-slate-400 uppercase">Materi Dipublikasikan</span>
                             <span className="text-xs font-black text-slate-800">
-                              {subjects.reduce((sum, s) => sum + (s.materiCount || 0), 0)} Modul
+                              {subjects.filter(s => s.isMateri && !s.isDraft).length} Modul
                             </span>
                           </div>
                         </div>
@@ -2986,7 +4279,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <div>
                             <span className="block text-[8px] font-bold text-slate-400 uppercase">Tugas Mandiri Aktif</span>
                             <span className="text-xs font-black text-slate-800">
-                              {teachers.reduce((sum, t) => sum + (t.tugasCount || 0), 0)} Tugas
+                              {(tasks ?? []).filter(t => t.status === 'Dipublikasikan').length} Tugas
                             </span>
                           </div>
                         </div>
@@ -2998,7 +4291,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <div>
                             <span className="block text-[8px] font-bold text-slate-400 uppercase">Computer Based Test (CBT)</span>
                             <span className="text-xs font-black text-slate-800">
-                              {classes.length * 2} Ujian CBT
+                              {exams.filter(e => e.status === 'Aktif' || e.status === 'Berlangsung').length} Ujian CBT
                             </span>
                           </div>
                         </div>
@@ -3010,7 +4303,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <div>
                             <span className="block text-[8px] font-bold text-slate-400 uppercase">Belum Input Nilai</span>
                             <span className="text-xs font-black text-rose-600">
-                              {Math.max(0, teachers.length * 3 - teachers.reduce((sum, t) => sum + (t.penilaianCount || 0), 0))} Tugas / Mapel
+                              {0} Tugas / Mapel
                             </span>
                           </div>
                         </div>
@@ -3019,7 +4312,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       {/* Progress bar penyelesaian pembelajaran */}
                       <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5">
                         {(() => {
-                          const avgPercent = Math.round((skkReports || []).length > 0 ? ((skkReports || []).reduce((sum, r) => sum + (r.persentase || 0), 0) / (skkReports || []).length) : 88);
+                          const avgPercent = Math.round((skkReports || []).length > 0 ? ((skkReports || []).reduce((sum, r) => sum + (r.persentase || 0), 0) / (skkReports || []).length) : 0);
                           return (
                             <>
                               <div className="flex justify-between items-center text-[9px] font-bold text-slate-500">
@@ -3066,8 +4359,11 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       
                       {/* Capaian Rata-Rata */}
                       {(() => {
-                        const avgPercent = Math.round((skkReports || []).length > 0 ? ((skkReports || []).reduce((sum, r) => sum + (r.persentase || 0), 0) / (skkReports || []).length) : 88);
-                        const totalTarget = Math.round(programs.reduce((sum, p) => sum + (p.totalSkk || 0), 0) / (programs.length || 1)) || 50;
+                        const avgPercent = Math.round((skkReports || []).length > 0 ? ((skkReports || []).reduce((sum, r) => sum + (r.persentase || 0), 0) / (skkReports || []).length) : 0);
+                        const totalTarget = Math.round(
+  (skkReports || []).reduce((sum, r) => sum + (r.total_skk || 0), 0) /
+  ((skkReports || []).length || 1)
+);
                         const lulusTarget = (skkReports || []).filter(r => r.persentase >= 100).length;
                         const kurangTarget = (skkReports || []).filter(r => r.persentase < 100).length;
 
@@ -3142,8 +4438,19 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <span className="block text-[9px] font-extrabold text-slate-400 uppercase">Total Pendapatan Terverifikasi (Lunas)</span>
                           <h3 className="text-xl font-black text-emerald-600">
                             Rp {financialTransactions
-                              .filter(tx => tx.status.toLowerCase() === 'lunas' || tx.status.toLowerCase() === 'sukses')
-                              .reduce((sum, tx) => sum + tx.amount, 0)
+                              .filter(tx => {
+                                const status = String(tx.status || '').toLowerCase();
+                                const txDate = new Date(tx.date);
+                                const now = new Date();
+
+                                return (
+                                  (status === 'lunas' || status === 'sukses') &&
+                                  !Number.isNaN(txDate.getTime()) &&
+                                  txDate.getMonth() === now.getMonth() &&
+                                  txDate.getFullYear() === now.getFullYear()
+                                );
+                              })
+                              .reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
                               .toLocaleString('id-ID')}
                           </h3>
                           <p className="text-[8px] text-slate-400 font-semibold leading-none">Bulan Berjalan</p>
@@ -3158,7 +4465,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
                           <span className="block text-[8px] font-bold text-slate-400 uppercase">Tagihan Aktif</span>
                           <span className="text-xs font-black text-slate-800 mt-1 block">
-                            {financialTransactions.filter(tx => tx.status.toLowerCase() !== 'lunas' && tx.status.toLowerCase() !== 'sukses' && tx.status.toLowerCase() !== 'batal').length} Invoice
+                            {financialTransactions.filter(tx => tx.status.toLowerCase() !== 'lunas' && tx.status.toLowerCase() !== 'sukses' && tx.status.toLowerCase() !== 'batal').length} Tagihan
                           </span>
                         </div>
 
@@ -3256,38 +4563,35 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       Aktivitas Pembelajaran & Keuangan
                     </span>
                     <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                      {/* Teacher actions simulation */}
-                      {teachers.slice(0, 2).map((teach, index) => (
-                        <div key={teach.id} className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl space-y-0.5 text-[9px] font-bold">
-                          <div className="flex justify-between text-slate-800">
-                            <span>Guru menginput nilai: {teach.nama}</span>
-                            <span className="text-[7px] text-slate-400 font-medium">{index === 0 ? "1 jam yang lalu" : "Hari ini"}</span>
-                          </div>
-                          <span className="text-slate-400 block text-[7.5px] font-medium">Melakukan sinkronisasi nilai KKM Mapel {teach.mapel}</span>
+                      {financialTransactions.length === 0 && (
+                        <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-center text-[9px] font-bold text-slate-400">
+                          Belum ada aktivitas pembelajaran atau keuangan terbaru
                         </div>
-                      ))}
-
-                      {/* Subject publications */}
-                      {subjects.slice(0, 2).map((sub, index) => (
-                        <div key={sub.id} className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl space-y-0.5 text-[9px] font-bold">
-                          <div className="flex justify-between text-slate-800">
-                            <span>Materi baru dipublikasikan: {sub.name}</span>
-                            <span className="text-[7px] text-slate-400 font-medium">{index === 0 ? "2 jam yang lalu" : "Kemarin"}</span>
-                          </div>
-                          <span className="text-slate-400 block text-[7.5px] font-medium">KKM target {sub.kkm || 75} | {sub.materiCount || 0} unit pembelajaran aktif</span>
-                        </div>
-                      ))}
+                      )}
 
                       {/* Financial payments */}
-                      {financialTransactions.slice(0, 2).map(tx => (
-                        <div key={tx.id} className="p-2.5 bg-emerald-50/30 border border-emerald-100/40 rounded-xl space-y-0.5 text-[9px] font-bold">
-                          <div className="flex justify-between text-slate-800">
-                            <span className="text-emerald-700">Pembayaran diterima dari {tx.studentName}</span>
-                            <span className="text-[7px] text-slate-400 font-medium">Lunas</span>
-                          </div>
-                          <span className="text-slate-400 block text-[7.5px] font-medium">Jumlah: Rp {tx.amount.toLocaleString('id-ID')} via {tx.method}</span>
-                        </div>
-                      ))}
+                      {financialTransactions
+                        .slice()
+                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                        .slice(0, 2)
+                        .map(tx => {
+                          const status = String(tx.status || '');
+                          const isPaid = ['lunas', 'sukses'].includes(status.toLowerCase());
+
+                          return (
+                            <div key={tx.displayId || String(tx.id).slice(0, 8).toUpperCase()} className="p-2.5 bg-emerald-50/30 border border-emerald-100/40 rounded-xl space-y-0.5 text-[9px] font-bold">
+                              <div className="flex justify-between text-slate-800">
+                                <span className={isPaid ? 'text-emerald-700' : 'text-amber-600'}>
+                                  {isPaid ? 'Pembayaran diterima dari' : 'Pembayaran menunggu verifikasi dari'} {tx.studentName}
+                                </span>
+                                <span className="text-[7px] text-slate-400 font-medium">{status || '-'}</span>
+                              </div>
+                              <span className="text-slate-400 block text-[7.5px] font-medium">
+                                Jumlah: Rp {Number(tx.amount || 0).toLocaleString('id-ID')} via {tx.method || '-'}
+                              </span>
+                            </div>
+                          );
+                        })}
                     </div>
                   </div>
 
@@ -3298,139 +4602,8 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
           )}
 
           {/* TAB 2: VERIFIKASI PENDAFTARAN ONLINE */}
-{activeTab === 'pendaftaran' && (            <AdminRegistrationManager              students={students}              setStudents={setStudents}              financialTransactions={financialTransactions}              onUpdateTransactions={onUpdateTransactions}              showModal={showModal}            />          )}
-          {activeTab === 'verifikasi' && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-1.5">
-                <h4 className="text-xs font-extrabold text-slate-800">Verifikasi Berkas Calon Siswa Baru</h4>
-                <p className="text-[9.5px] text-slate-400 font-semibold leading-relaxed">
-                  Tinjau data pendaftaran dan kelengkapan dokumen yang diunggah secara online. Jika data sah, klik "Setujui" untuk mengaktifkan akun pendaftar agar bisa langsung login ke portal Siswa.
-                </p>
-              </div>
-
-              {students.filter(s => s.status === 'Menunggu Verifikasi').length === 0 ? (
-                <div className="py-12 border border-dashed border-slate-200 rounded-3xl bg-white text-center space-y-2.5">
-                  <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mx-auto text-xl shadow-inner">
-                    ✓
-                  </div>
-                  <h4 className="text-xs font-bold text-slate-700">Semua Berkas Terverifikasi!</h4>
-                  <p className="text-[10px] text-slate-400 font-semibold max-w-[240px] mx-auto">Tidak ada antrean dokumen pendaftaran baru yang perlu ditinjau.</p>
-                </div>
-              ) : (
-                <div className="space-y-3.5">
-                  {students.filter(s => s.status === 'Menunggu Verifikasi').map(stud => (
-                    <div key={stud.id} className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
-                      
-                      {/* Identity Card Block */}
-                      <div className="flex justify-between items-start border-b border-slate-100 pb-3">
-                        <div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h4 className="text-xs font-black text-slate-800">{stud.nama}</h4>
-                            <span className="px-1.5 py-0.5 bg-rose-150 text-rose-700 text-[7px] font-extrabold rounded uppercase">{stud.program}</span>
-                          </div>
-                          <span className="text-[9px] text-slate-400 font-semibold block mt-0.5">NIK: {stud.nik} | NISN: {stud.nisn || 'Tidak Ada'}</span>
-                        </div>
-                        <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200/50 rounded-md text-[8px] font-extrabold uppercase">Menunggu Verifikasi</span>
-                      </div>
-
-                      {/* Document Viewer Checklist */}
-                      <div className="space-y-2">
-                        <span className="text-[9px] text-slate-400 uppercase font-black tracking-wider block">Kelengkapan Dokumen Unggah:</span>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { name: 'Pas Foto Resmi 3x4', file: stud.dokumen.foto, label: 'Pas Foto' },
-                            { name: 'Foto KTP / KIA', file: stud.dokumen.ktp, label: 'KTP / KIA' },
-                            { name: 'Scan Kartu Keluarga (KK)', file: stud.dokumen.kk, label: 'Kartu Keluarga' },
-                            { name: 'Scan Ijazah Terakhir', file: stud.dokumen.ijazah, label: 'Ijazah Terakhir' }
-                          ].map(doc => (
-                            <div key={doc.label} className="p-2 bg-slate-50 rounded-xl border border-slate-150 flex items-center justify-between">
-                              <div className="overflow-hidden mr-1">
-                                <span className="text-[8px] text-slate-400 font-bold block truncate">{doc.name}</span>
-                                <span className="text-[9.5px] font-mono font-bold text-slate-600 truncate block">{doc.file || 'belum_diunggah'}</span>
-                              </div>
-                              <button 
-                                onClick={() => showModal(`Pratinjau ${doc.label}`, `Menampilkan berkas "${doc.file}" milik pendaftar ${stud.nama}. Berkas terenkripsi aman di Cloud Storage.`, 'info')}
-                                className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-md transition-colors cursor-pointer"
-                                title="Lihat Berkas"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Address & Parents Info short block */}
-                      <div className="bg-slate-50 border border-slate-150 rounded-xl p-2.5 text-[9.5px] text-slate-600 space-y-1">
-                        <p><strong>Alamat:</strong> {stud.alamat}</p>
-                        <p><strong>Orang Tua:</strong> Ayah {stud.ayah} | Ibu {stud.ibu}</p>
-                      </div>
-
-                      {/* Administrasi PPDB Printing Tools */}
-                      <div className="p-3 bg-rose-50/10 border border-rose-100 rounded-2xl space-y-2">
-                        <span className="text-[8px] font-black text-rose-500 uppercase tracking-wider block">Administrasi PPDB (PKBM Darul Ulum)</span>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          <button
-                            onClick={() => setPrintingStudent(stud)}
-                            className="py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-[9px] font-black border border-slate-200 cursor-pointer flex items-center justify-center gap-1"
-                          >
-                            <Eye className="w-3 h-3 text-slate-500" /> Preview Formulir
-                          </button>
-                          <button
-                            onClick={() => {
-                              setPrintingStudent(stud);
-                              setTimeout(() => window.print(), 350);
-                            }}
-                            className="py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[9px] font-black cursor-pointer flex items-center justify-center gap-1"
-                          >
-                            <Printer className="w-3 h-3" /> Cetak Formulir
-                          </button>
-                          <button
-                            onClick={() => {
-                              setPrintingStudent(stud);
-                              setTimeout(() => window.print(), 350);
-                            }}
-                            className="py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-[9px] font-black cursor-pointer flex items-center justify-center gap-1"
-                          >
-                            <Download className="w-3 h-3" /> Download PDF
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Catatan Verifikasi Input */}
-                      <div className="space-y-1.5 bg-slate-50 border border-slate-200/60 rounded-xl p-3">
-                        <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">Catatan Petugas Verifikasi:</label>
-                        <textarea
-                          placeholder="Contoh: Berkas lengkap dan sah. Siap mengikuti kegiatan belajar."
-                          value={catatanInputs[stud.id] || ''}
-                          onChange={(e) => setCatatanInputs(prev => ({ ...prev, [stud.id]: e.target.value }))}
-                          className="w-full p-2 bg-white border border-slate-200 rounded-lg text-[10.5px] font-bold text-slate-850 focus:outline-none focus:ring-1.5 focus:ring-rose-500/15 focus:border-rose-500"
-                          rows={2}
-                        />
-                      </div>
-
-                      {/* Approval Buttons */}
-                      <div className="flex gap-2 border-t border-slate-100 pt-3">
-                        <button 
-                          onClick={() => handleRejectRegistration(stud.id, catatanInputs[stud.id] || 'Berkas KK buram, silakan unggah ulang.')}
-                          className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-black transition-colors border border-rose-100 cursor-pointer"
-                        >
-                          Tolak Berkas
-                        </button>
-                        <button 
-                          onClick={() => handleApproveRegistration(stud.id, catatanInputs[stud.id] || 'Seluruh berkas persyaratan PPDB online telah diperiksa dan dinyatakan memenuhi kriteria PKBM Darul Ulum.')}
-                          className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black transition-all shadow-md shadow-emerald-500/10 flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <Check className="w-3.5 h-3.5" /> Setujui & Aktifkan
-                        </button>
-                      </div>
-
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+{activeTab === 'pendaftaran' && (            <AdminRegistrationManager              students={students}              setStudents={setStudents}              financialTransactions={financialTransactions}              onUpdateTransactions={onUpdateTransactions}              showModal={showModal}              lembagaIdentitas={lembagaIdentitas}            />          )}
+          
 
           {/* TAB 3: MANAJEMEN SISWA */}
           {activeTab === 'siswa' && (
@@ -3629,11 +4802,12 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <div className="space-y-1">
                             <label className="block text-[8.5px] font-bold text-slate-400 uppercase">Password Login</label>
                             <input 
-                              type="text" 
-                              value={editingStudent.password || '123456'}
+                              type="text"
+                              value={editingStudent.password || ''}
                               onChange={(e) => setEditingStudent({ ...editingStudent, password: e.target.value })}
+                              placeholder="Kosongkan jika tidak diubah"
+                              autoComplete="new-password"
                               className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                              required
                             />
                           </div>
                         </div>
@@ -3783,58 +4957,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <label className="block text-[8.5px] font-bold text-slate-400 uppercase">Kelas / Rombel</label>
-                            <select 
-                              value={editingStudent.kelas || ''}
-                              onChange={(e) => {
-                                const newKelas = e.target.value;
-                                const selectedClass = classes.find(c => c.nama === newKelas);
-                                if (!selectedClass) {
-                                  setEditingStudent({ 
-                                    ...editingStudent, 
-                                    kelas: ''
-                                  });
-                                  return;
-                                }
 
-                                const newSistem = selectedClass.sistemBelajar || 'Reguler';
-                                const oldSistem = editingStudent.tipeKelas || 'Reguler';
-
-                                if (newSistem !== oldSistem && editingStudent.kelas) {
-                                  const confirmChange = window.confirm("Perubahan sistem belajar akan menyesuaikan struktur akademik siswa. Lanjutkan?");
-                                  if (!confirmChange) {
-                                    return; // cancel
-                                  }
-                                }
-
-                                setEditingStudent({ 
-                                  ...editingStudent, 
-                                  kelas: selectedClass.nama,
-                                  program: selectedClass.paket,
-                                  tipeKelas: newSistem
-                                });
-                              }}
-                              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
-                              required
-                            >
-                              <option value="">-- Pilih Kelas --</option>
-                              {classes.map(c => (
-                                <option key={c.id} value={c.nama}>{c.nama}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="block text-[8.5px] font-bold text-slate-400 uppercase">Tahun Ajaran</label>
-                            <input 
-                              type="text" 
-                              value={editingStudent.tahunAjaran || ''}
-                              onChange={(e) => setEditingStudent({ ...editingStudent, tahunAjaran: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
-                              required
-                            />
-                          </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
@@ -3862,6 +4985,82 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                               <option value="Nonaktif">Nonaktif</option>
                               <option value="Menunggu Verifikasi">Menunggu Verifikasi</option>
                             </select>
+                          </div>
+                        </div>
+
+                        <div className="bg-blue-50/40 border border-blue-100 rounded-2xl p-3 space-y-2.5">
+                          <span className="text-[9px] font-black text-blue-600 uppercase tracking-wider block">
+                            Pendataan Akademik & Dapodik
+                          </span>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="block text-[8.5px] font-bold text-slate-400 uppercase">
+                                Tanggal Resmi Masuk
+                              </label>
+                              <input
+                                type="date"
+                                value={(editingStudent as any).tanggalMasukSekolah || ''}
+                                onChange={(e) => setEditingStudent({
+                                  ...editingStudent,
+                                  tanggalMasukSekolah: e.target.value
+                                } as any)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
+                              />
+                              <span className="text-[7.5px] text-slate-400">
+                                Terisi otomatis saat akun pertama kali aktif.
+                              </span>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-[8.5px] font-bold text-slate-400 uppercase">
+                                Status Pendataan Dapodik
+                              </label>
+                              <select
+                                value={(editingStudent as any).statusDapodik || 'BELUM_DIATUR'}
+                                onChange={(e) => setEditingStudent({
+                                  ...editingStudent,
+                                  statusDapodik: e.target.value
+                                } as any)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
+                              >
+                                <option value="BELUM_DIATUR">Belum Diatur</option>
+                                <option value="BELUM_DIDAFTARKAN">Belum Didaftarkan</option>
+                                <option value="PROSES_PENDATAAN">Proses Pendataan</option>
+                                <option value="SUDAH_TERDAFTAR">Sudah Terdaftar</option>
+                                <option value="DATA_BERMASALAH">Data Bermasalah</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[8.5px] font-bold text-slate-400 uppercase">
+                              Tanggal Terdaftar Dapodik
+                            </label>
+                            <input
+                              type="date"
+                              value={(editingStudent as any).tanggalTerdaftarDapodik || ''}
+                              onChange={(e) => setEditingStudent({
+                                ...editingStudent,
+                                tanggalTerdaftarDapodik: e.target.value
+                              } as any)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[8.5px] font-bold text-slate-400 uppercase">
+                              Catatan Operator Dapodik
+                            </label>
+                            <textarea
+                              value={(editingStudent as any).catatanDapodik || ''}
+                              onChange={(e) => setEditingStudent({
+                                ...editingStudent,
+                                catatanDapodik: e.target.value
+                              } as any)}
+                              placeholder="Contoh: Menunggu perbaikan NISN atau sudah masuk Dapodik."
+                              className="w-full h-16 px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none resize-none"
+                            />
                           </div>
                         </div>
                       </div>
@@ -4143,16 +5342,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                             </select>
                             <span className="text-[7.5px] text-slate-400 mt-0.5 block leading-none">Terisi otomatis.</span>
                           </div>
-                          <div className="space-y-1">
-                            <label className="block text-[8.5px] font-bold text-slate-400 uppercase">Tahun Ajaran</label>
-                            <input 
-                              type="text" 
-                              value={newStudent.tahunAjaran || ''}
-                              onChange={(e) => setNewStudent({ ...newStudent, tahunAjaran: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
-                              required
-                            />
-                          </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
@@ -4296,6 +5485,55 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       onChange={(e) => setNewTeacher(prev => ({ ...prev, nip: e.target.value }))}
                       className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
                     />
+                  </div>
+
+                  <div className="bg-rose-50/40 p-3 rounded-2xl border border-rose-100/60 space-y-2.5">
+                    <span className="text-[9px] font-black text-rose-500 uppercase tracking-wider block">
+                      Kredensial Akun Portal Guru
+                    </span>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">
+                          Username Login *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          autoComplete="off"
+                          placeholder="Contoh: rina"
+                          value={newTeacher.username}
+                          onChange={(e) =>
+                            setNewTeacher(prev => ({
+                              ...prev,
+                              username: e.target.value
+                            }))
+                          }
+                          className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">
+                          Password Login *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          minLength={6}
+                          autoComplete="new-password"
+                          placeholder="Minimal 6 karakter"
+                          value={newTeacher.password}
+                          onChange={(e) =>
+                            setNewTeacher(prev => ({
+                              ...prev,
+                              password: e.target.value
+                            }))
+                          }
+                          className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -4991,35 +6229,23 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Tingkat Kelas *</label>
+                      <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Fase *</label>
                       <select 
-                        value={classForm.tingkat}
-                        onChange={(e) => handleTingkatChange(e.target.value)}
+                        value={classForm.faseId}
+                        onChange={(e) => setClassForm(prev => ({ ...prev, faseId: e.target.value }))}
                         className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10.5px] font-bold text-slate-700"
                       >
-                        {classForm.paket === 'Paket A' && (
-                          <>
-                            <option value="Kelas 4">Kelas 4</option>
-                            <option value="Kelas 5">Kelas 5</option>
-                            <option value="Kelas 6">Kelas 6</option>
-                          </>
-                        )}
-                        {classForm.paket === 'Paket B' && (
-                          <>
-                            <option value="Kelas 7">Kelas 7</option>
-                            <option value="Kelas 8">Kelas 8</option>
-                            <option value="Kelas 9">Kelas 9</option>
-                          </>
-                        )}
-                        {classForm.paket === 'Paket C' && (
-                          <>
-                            <option value="Kelas 10">Kelas 10</option>
-                            <option value="Kelas 11">Kelas 11</option>
-                            <option value="Kelas 12">Kelas 12</option>
-                          </>
-                        )}
+                        <option value="">Pilih Fase</option>
+                        {fases
+                          .filter(f => f.paket === classForm.paket)
+                          .map(fase => (
+                            <option key={fase.id} value={fase.id}>
+                              {fase.nama}
+                            </option>
+                          ))}
                       </select>
                     </div>
+                  </div>
 
                     <div className="space-y-1">
                       <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Nama Kelas / Rombel *</label>
@@ -5032,7 +6258,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10.5px] font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-rose-500"
                       />
                     </div>
-                  </div>
 
                   <div className="space-y-1">
                     <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Wali Kelas / Tutor Pendamping</label>
@@ -5213,12 +6438,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         nama: '',
                         jenjang: 'Paket C',
                         sistemBelajar: 'Reguler',
-                        lamaBelajar: '3 Tahun',
-                        totalSkk: 80,
-                        skkGanjil: 15,
-                        skkGenap: 15,
-                        mapelWajibText: 'Bahasa Indonesia, Matematika, PPKn, Bahasa Inggris, Pendidikan Agama, Sejarah Indonesia',
-                        mapelPilihanText: 'Sosiologi, Geografi, Ekonomi'
+                        totalSkk: 80
                       });
                       setShowAddProgramModal(true);
                     }}
@@ -5266,19 +6486,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Lama Belajar</label>
-                      <input 
-                        type="text" 
-                        required
-                        placeholder="Contoh: 3 Tahun atau 2 Tahun"
-                        value={newProgram.lamaBelajar}
-                        onChange={(e) => setNewProgram(prev => ({ ...prev, lamaBelajar: e.target.value }))}
-                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     <div className="space-y-1">
                       <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Jenjang</label>
@@ -5317,54 +6524,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <div className="grid grid-cols-2 gap-1">
-                        <div>
-                          <label className="text-[8px] uppercase tracking-wider text-slate-400 font-black block leading-none mb-0.5">SKK Ganjil</label>
-                          <input 
-                            type="number" 
-                            required
-                            min="0"
-                            value={newProgram.skkGanjil}
-                            onChange={(e) => setNewProgram(prev => ({ ...prev, skkGanjil: Number(e.target.value) }))}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[8px] uppercase tracking-wider text-slate-400 font-black block leading-none mb-0.5">SKK Genap</label>
-                          <input 
-                            type="number" 
-                            required
-                            min="0"
-                            value={newProgram.skkGenap}
-                            onChange={(e) => setNewProgram(prev => ({ ...prev, skkGenap: Number(e.target.value) }))}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Mata Pelajaran Wajib (Pisahkan dengan koma)</label>
-                    <textarea 
-                      rows={2}
-                      placeholder="Contoh: Bahasa Indonesia, Matematika, PPKn"
-                      value={newProgram.mapelWajibText}
-                      onChange={(e) => setNewProgram(prev => ({ ...prev, mapelWajibText: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black">Mata Pelajaran Pilihan (Pisahkan dengan koma)</label>
-                    <textarea 
-                      rows={2}
-                      placeholder="Contoh: Sosiologi, Geografi, Ekonomi"
-                      value={newProgram.mapelPilihanText}
-                      onChange={(e) => setNewProgram(prev => ({ ...prev, mapelPilihanText: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none"
-                    />
+</div>
                   </div>
 
                   <button type="submit" className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer">
@@ -5412,7 +6572,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         <div className="grid grid-cols-3 gap-2 py-2 text-[9.5px] font-bold text-slate-500">
                           <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
                             <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Lama Belajar</span>
-                            <span className="text-slate-800 mt-0.5 block">{prg.lamaBelajar}</span>
+                            <span className="text-indigo-600 font-bold block">{prg.totalSkk || 0} SKK</span>
                           </div>
                           <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
                             <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Target SKK</span>
@@ -5420,35 +6580,21 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           </div>
                           <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
                             <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-wider block">Ganjil / Genap</span>
-                            <span className="text-indigo-600 mt-0.5 block">{prg.distribusiSkk['Ganjil'] || 0} / {prg.distribusiSkk['Genap'] || 0}</span>
+                            <span className="text-indigo-600 mt-0.5 block">{prg.totalSkk || 0} SKK</span>
                           </div>
                         </div>
 
                         <div className="space-y-1.5 pt-1 text-[9.5px]">
-                          <div>
-                            <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">Mapel Wajib:</span>
-                            <div className="flex flex-wrap gap-1 mt-0.5">
-                              {prg.mapelWajib.map((mw, i) => (
-                                <span key={i} className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[8px] font-semibold border border-slate-150">
-                                  {mw}
-                                </span>
-                              ))}
-                            </div>
+                          <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                            <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">
+                              Target Penyelesaian
+                            </span>
+                            <span className="text-indigo-600 font-bold block mt-1">
+                              {prg.totalSkk || 0} SKK
+                            </span>
                           </div>
-
-                          {prg.mapelPilihan && prg.mapelPilihan.length > 0 && (
-                            <div className="pt-1">
-                              <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">Mapel Pilihan:</span>
-                              <div className="flex flex-wrap gap-1 mt-0.5">
-                                {prg.mapelPilihan.map((mp, i) => (
-                                  <span key={i} className="px-1.5 py-0.5 bg-indigo-50/50 text-indigo-700 rounded text-[8px] font-semibold border border-indigo-100">
-                                    {mp}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
+
                       </div>
 
                       <div className="flex justify-end gap-2 border-t border-slate-100 pt-2 shrink-0">
@@ -5460,12 +6606,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                               nama: prg.nama,
                               jenjang: prg.jenjang,
                               sistemBelajar: prg.sistemBelajar,
-                              lamaBelajar: prg.lamaBelajar,
-                              totalSkk: prg.totalSkk,
-                              skkGanjil: prg.distribusiSkk['Ganjil'] || 0,
-                              skkGenap: prg.distribusiSkk['Genap'] || 0,
-                              mapelWajibText: prg.mapelWajib.join(', '),
-                              mapelPilihanText: (prg.mapelPilihan || []).join(', ')
+                              totalSkk: prg.totalSkk
                             });
                             setShowAddProgramModal(true);
                           }}
@@ -5519,7 +6660,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         onClick={() => {
                           setEditingBB(null);
                           setNewBB({
-                            tingkat: selectedProgramForBB.jenjang === 'Paket C' ? 'Kelas 10' : selectedProgramForBB.jenjang === 'Paket B' ? 'Kelas 7' : 'Kelas 4',
+                            fase: selectedProgramForBB.jenjang === 'Paket C' ? 'Fase E' : selectedProgramForBB.jenjang === 'Paket B' ? 'Fase D' : 'Fase A',
                             semester: 'Semester 1',
                             targetSkk: selectedProgramForBB.jenjang === 'Paket C' ? 14 : selectedProgramForBB.jenjang === 'Paket B' ? 7 : 5,
                             tahunBerlaku: '2026/2027',
@@ -5573,7 +6714,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <tbody className="divide-y divide-slate-50">
                             {filteredBBs.map(bb => (
                               <tr key={bb.id} className="hover:bg-slate-50/50">
-                                <td className="py-2.5 px-1 font-black text-slate-800">{bb.tingkat}</td>
+                                <td className="py-2.5 px-1 font-black text-slate-800">{bb.fase}</td>
                                 <td className="py-2.5 px-1 font-bold text-indigo-600">{bb.semester}</td>
                                 <td className="py-2.5 px-1 font-black text-rose-600">{bb.targetSkk} SKK</td>
                                 <td className="py-2.5 px-1 text-slate-400 font-bold">{bb.tahunBerlaku}</td>
@@ -5591,7 +6732,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                                       onClick={() => {
                                         setEditingBB(bb);
                                         setNewBB({
-                                          tingkat: bb.tingkat,
+                                          fase: bb.fase,
                                           semester: bb.semester,
                                           targetSkk: bb.targetSkk,
                                           tahunBerlaku: bb.tahunBerlaku,
@@ -5646,51 +6787,31 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
 
                     <div className="space-y-3">
                       <div className="space-y-1">
-                        <label className="text-[8px] uppercase tracking-wider text-slate-400 font-black">Tingkat Kelas</label>
+                        <label className="text-[8px] uppercase tracking-wider text-slate-400 font-black">Fase Pembelajaran</label>
                         <select
-                          value={newBB.tingkat}
-                          onChange={(e) => setNewBB(prev => ({ ...prev, tingkat: e.target.value }))}
+                          value={newBB.fase}
+                          onChange={(e) => setNewBB(prev => ({ ...prev, fase: e.target.value }))}
                           className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10.5px] font-bold text-slate-700 focus:outline-none"
                         >
                           {selectedProgramForBB.jenjang === 'Paket C' && (
                             <>
-                              <option value="Kelas 10">Kelas 10</option>
-                              <option value="Kelas 11">Kelas 11</option>
-                              <option value="Kelas 12">Kelas 12</option>
+                              <option value="Fase E">Fase E</option>
+                              <option value="Fase F">Fase F</option>
                             </>
                           )}
                           {selectedProgramForBB.jenjang === 'Paket B' && (
                             <>
-                              <option value="Kelas 7">Kelas 7</option>
-                              <option value="Kelas 8">Kelas 8</option>
-                              <option value="Kelas 9">Kelas 9</option>
+                              <option value="Fase D">Fase D</option>
                             </>
                           )}
                           {selectedProgramForBB.jenjang === 'Paket A' && (
                             <>
-                              <option value="Kelas 4">Kelas 4</option>
-                              <option value="Kelas 5">Kelas 5</option>
-                              <option value="Kelas 6">Kelas 6</option>
+                              <option value="Fase A">Fase A</option>
                             </>
                           )}
                         </select>
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="text-[8px] uppercase tracking-wider text-slate-400 font-black">Semester Akademik</label>
-                        <select
-                          value={newBB.semester}
-                          onChange={(e) => setNewBB(prev => ({ ...prev, semester: e.target.value }))}
-                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10.5px] font-bold text-slate-700 focus:outline-none"
-                        >
-                          <option value="Semester 1">Semester 1</option>
-                          <option value="Semester 2">Semester 2</option>
-                          <option value="Semester 3">Semester 3</option>
-                          <option value="Semester 4">Semester 4</option>
-                          <option value="Semester 5">Semester 5</option>
-                          <option value="Semester 6">Semester 6</option>
-                        </select>
-                      </div>
 
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
@@ -5762,19 +6883,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                   <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Dashboard
                 </button>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <div className="p-2 bg-emerald-50 rounded-xl text-[#00a884]">
-                        <BookOpen className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-black text-slate-900">Kurikulum & Master Mata Pelajaran</h3>
-                        <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                          Kelola seluruh data master mata pelajaran, kurikulum, kelompok kompetensi, program kesetaraan, dan standar KKM akademik Lulus.id.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
                   <button
                     onClick={() => {
                       setMapelForm({
@@ -5949,20 +7057,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-600">
-                        {/* Bobot SKK */}
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Bobot SKK</label>
-                          <input
-                            type="number"
-                            required
-                            min="1"
-                            max="10"
-                            value={mapelForm.bobotSkk}
-                            onChange={(e) => setMapelForm({ ...mapelForm, bobotSkk: Number(e.target.value) })}
-                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] text-slate-800"
-                            placeholder="4"
-                          />
-                        </div>
 
                         {/* Status Wajib/Pilihan */}
                         <div className="space-y-1.5">
@@ -5979,64 +7073,10 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs text-slate-600">
-                        {/* Program Belajar */}
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Program Belajar</label>
-                          <select
-                            value={mapelForm.sistemBelajar}
-                            onChange={(e) => setMapelForm({ ...mapelForm, sistemBelajar: e.target.value })}
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10px] text-slate-800"
-                          >
-                            <option value="Reguler">Reguler</option>
-                            <option value="Karyawan">Karyawan</option>
-                          </select>
-                        </div>
+                        
 
-                        {/* Kelas / Rombel */}
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Kelas / Rombel</label>
-                          <select
-                            value={mapelForm.kelas}
-                            onChange={(e) => setMapelForm({ ...mapelForm, kelas: e.target.value })}
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10px] text-slate-800"
-                          >
-                            <option value="Kelas X">Kelas X</option>
-                            <option value="Kelas XI">Kelas XI</option>
-                            <option value="Kelas XII">Kelas XII</option>
-                            <option value="Kelas VII">Kelas VII</option>
-                            <option value="Kelas VIII">Kelas VIII</option>
-                            <option value="Kelas IX">Kelas IX</option>
-                            <option value="Kelas IV">Kelas IV</option>
-                            <option value="Kelas V">Kelas V</option>
-                            <option value="Kelas VI">Kelas VI</option>
-                          </select>
-                        </div>
 
-                        {/* Semester */}
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Semester</label>
-                          <select
-                            value={mapelForm.semester}
-                            onChange={(e) => setMapelForm({ ...mapelForm, semester: e.target.value })}
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10px] text-slate-800"
-                          >
-                            <option value="Ganjil">Ganjil</option>
-                            <option value="Genap">Genap</option>
-                          </select>
-                        </div>
 
-                        {/* Tahun Ajaran */}
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Tahun Ajaran</label>
-                          <select
-                            value={mapelForm.tahunAjaran}
-                            onChange={(e) => setMapelForm({ ...mapelForm, tahunAjaran: e.target.value })}
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10px] text-slate-800"
-                          >
-                            <option value="2025/2026">2025/2026</option>
-                            <option value="2026/2027">2026/2027</option>
-                          </select>
-                        </div>
                       </div>
 
                       {/* CP Connection Alert */}
@@ -6270,7 +7310,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         
                         const matchedBB = bebanBelajars.find(bb => 
                           bb.programBelajarId === cls.programId && 
-                          bb.tingkat === cls.tingkat && 
+                          bb.fase === cls.tingkat && 
                           bb.semester === activeSemString
                         );
                         const classTargetSkk = matchedBB ? matchedBB.targetSkk : (cls.targetSkk || (program ? (program.jenjang === 'Paket C' ? 14 : program.jenjang === 'Paket B' ? 7 : 5) : 10));
@@ -6514,12 +7554,35 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                       <h4 className="text-xs font-extrabold text-slate-800">Laporan Keuangan Masuk</h4>
                       <p className="text-[9.5px] text-slate-400 font-semibold">Pantau dan verifikasi pembayaran pendaftaran & SPP siswa secara real-time.</p>
                     </div>
-                    <button
-                      onClick={() => handleSimulateExport('Excel', 'Laporan_Keuangan_Agrabinta')}
-                      className="py-1.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl text-[10px] font-black border border-emerald-100 transition-all flex items-center gap-1 cursor-pointer self-start sm:self-auto"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Ekspor Rekap Keuangan
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleExportFinancialIncome('Excel')}
+                        className="py-1.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl text-[10px] font-black border border-emerald-100 transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" /> Penerimaan Excel
+                      </button>
+
+                      <button
+                        onClick={() => handleExportFinancialIncome('PDF')}
+                        className="py-1.5 px-3 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-[10px] font-black border border-blue-100 transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Penerimaan PDF
+                      </button>
+
+                      <button
+                        onClick={() => handleExportOutstanding('Excel')}
+                        className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-[10px] font-black border border-rose-100 transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" /> Tunggakan Excel
+                      </button>
+
+                      <button
+                        onClick={() => handleExportOutstanding('PDF')}
+                        className="py-1.5 px-3 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-xl text-[10px] font-black border border-orange-100 transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Tunggakan PDF
+                      </button>
+                    </div>
                   </div>
 
                   {/* Filter & Search Bar */}
@@ -6579,7 +7642,7 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           })
                           .map((tx) => (
                             <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="py-1.5 px-3 font-mono text-slate-400">{tx.id}</td>
+                              <td className="py-1.5 px-3 font-mono text-slate-400">{tx.displayId || String(tx.id).slice(0, 8).toUpperCase()}</td>
                               <td className="py-1.5 px-3 font-extrabold text-slate-800">{tx.studentName}</td>
                               <td className="py-1.5 px-3 text-slate-500">{tx.type}</td>
                               <td className="py-1.5 px-3 font-black text-slate-800">Rp {tx.amount.toLocaleString('id-ID')}</td>
@@ -6678,14 +7741,36 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
 
                         {/* Uploaded Slip Info */}
                         <div className="space-y-1">
-                          <span className="text-[8px] font-extrabold text-slate-400 uppercase tracking-wider block">Bukti File Transfer</span>
-                          <div className="p-2.5 bg-indigo-50/50 border border-indigo-100 rounded-xl flex items-center gap-2">
-                            <FileText className="w-5 h-5 text-indigo-500 shrink-0" />
-                            <div className="leading-none overflow-hidden flex-1">
-                              <span className="text-[10px] font-bold text-slate-800 block truncate">{verifyingTx.buktiUrl || 'bukti_pembayaran.jpg'}</span>
-                              <span className="text-[8px] text-slate-400 font-semibold">Simulasi Dokumen Sah</span>
+                          <span className="text-[8px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                            Bukti Transfer
+                          </span>
+
+                          {verifyingTx.buktiUrl ? (
+                            <a
+                              href={verifyingTx.buktiUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-2.5 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-2 hover:bg-emerald-100 transition-colors"
+                            >
+                              <FileText className="w-5 h-5 text-emerald-600 shrink-0" />
+                              <div className="leading-none overflow-hidden flex-1">
+                                <span className="text-[10px] font-bold text-slate-800 block truncate">
+                                  Lihat Bukti Pembayaran
+                                </span>
+                                <span className="text-[8px] text-slate-400 font-semibold">
+                                  Klik untuk membuka file asli
+                                </span>
+                              </div>
+                              <Eye className="w-4 h-4 text-emerald-600 shrink-0" />
+                            </a>
+                          ) : (
+                            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2">
+                              <FileText className="w-5 h-5 text-slate-400 shrink-0" />
+                              <span className="text-[10px] font-semibold text-slate-500">
+                                Belum ada bukti pembayaran.
+                              </span>
                             </div>
-                          </div>
+                          )}
                         </div>
 
                         {/* Student Note */}
@@ -6750,6 +7835,44 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                               className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                             />
                           </div>
+
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
+                              Keringanan Biaya Pendaftaran
+                            </label>
+                            <select
+                              value={inputDiscountTypeReguler}
+                              onChange={(e) => setInputDiscountTypeReguler(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
+                            >
+                              <option value="NONE">Tidak Ada</option>
+                              <option value="DISCOUNT">Diskon</option>
+                              <option value="SCHOLARSHIP">Beasiswa</option>
+                            </select>
+                          </div>
+
+                          {inputDiscountTypeReguler === 'DISCOUNT' && (
+                            <div>
+                              <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
+                                Diskon (%)
+                              </label>
+                              <input
+                                type="number"
+                                value={inputDiscountValueReguler}
+                                onChange={(e) => setInputDiscountValueReguler(Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
+                              />
+                            </div>
+                          )}
+
+                          <div className="p-2 bg-emerald-50 rounded-xl text-[10px] font-bold text-emerald-700">
+                            Biaya pendaftaran akhir: Rp {calculateFinalPrice(
+                              inputRegFeeReguler,
+                              inputDiscountTypeReguler,
+                              inputDiscountValueReguler
+                            ).toLocaleString('id-ID')}
+                          </div>
+
                           <div>
                             <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
                               Uang SPP Bulanan (Rp)
@@ -6760,6 +7883,41 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                               onChange={(e) => setInputSppReguler(Number(e.target.value))}
                               className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                             />
+                          </div>
+
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
+                              Keringanan SPP
+                            </label>
+                            <select
+                              value={inputSppDiscountTypeReguler}
+                              onChange={(e) => setInputSppDiscountTypeReguler(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
+                            >
+                              <option value="NONE">Normal</option>
+                              <option value="DISCOUNT">Diskon</option>
+                              <option value="SCHOLARSHIP">Beasiswa</option>
+                            </select>
+                          </div>
+
+                          {inputSppDiscountTypeReguler === 'DISCOUNT' && (
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={inputSppDiscountValueReguler}
+                              onChange={(e) => setInputSppDiscountValueReguler(Number(e.target.value))}
+                              placeholder="Diskon SPP (%)"
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold"
+                            />
+                          )}
+
+                          <div className="p-2 bg-emerald-50 rounded-xl text-[10px] font-bold">
+                            SPP akhir: Rp {calculateFinalPrice(
+                              inputSppReguler,
+                              inputSppDiscountTypeReguler,
+                              inputSppDiscountValueReguler
+                            ).toLocaleString('id-ID')}
                           </div>
                         </div>
                       </div>
@@ -6781,6 +7939,44 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                               className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                             />
                           </div>
+
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
+                              Keringanan Biaya Pendaftaran
+                            </label>
+                            <select
+                              value={inputDiscountTypeKaryawan}
+                              onChange={(e) => setInputDiscountTypeKaryawan(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
+                            >
+                              <option value="NONE">Tidak Ada</option>
+                              <option value="DISCOUNT">Diskon</option>
+                              <option value="SCHOLARSHIP">Beasiswa</option>
+                            </select>
+                          </div>
+
+                          {inputDiscountTypeKaryawan === 'DISCOUNT' && (
+                            <div>
+                              <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
+                                Diskon (%)
+                              </label>
+                              <input
+                                type="number"
+                                value={inputDiscountValueKaryawan}
+                                onChange={(e) => setInputDiscountValueKaryawan(Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
+                              />
+                            </div>
+                          )}
+
+                          <div className="p-2 bg-indigo-50 rounded-xl text-[10px] font-bold text-indigo-700">
+                            Biaya pendaftaran akhir: Rp {calculateFinalPrice(
+                              inputRegFeeKaryawan,
+                              inputDiscountTypeKaryawan,
+                              inputDiscountValueKaryawan
+                            ).toLocaleString('id-ID')}
+                          </div>
+
                           <div>
                             <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
                               Uang SPP Bulanan (Rp)
@@ -6792,6 +7988,41 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                               className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                             />
                           </div>
+
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">
+                              Keringanan SPP
+                            </label>
+                            <select
+                              value={inputSppDiscountTypeKaryawan}
+                              onChange={(e) => setInputSppDiscountTypeKaryawan(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
+                            >
+                              <option value="NONE">Normal</option>
+                              <option value="DISCOUNT">Diskon</option>
+                              <option value="SCHOLARSHIP">Beasiswa</option>
+                            </select>
+                          </div>
+
+                          {inputSppDiscountTypeKaryawan === 'DISCOUNT' && (
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={inputSppDiscountValueKaryawan}
+                              onChange={(e) => setInputSppDiscountValueKaryawan(Number(e.target.value))}
+                              placeholder="Diskon SPP (%)"
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold"
+                            />
+                          )}
+
+                          <div className="p-2 bg-indigo-50 rounded-xl text-[10px] font-bold">
+                            SPP akhir: Rp {calculateFinalPrice(
+                              inputSppKaryawan,
+                              inputSppDiscountTypeKaryawan,
+                              inputSppDiscountValueKaryawan
+                            ).toLocaleString('id-ID')}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -6799,20 +8030,46 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                     <div className="pt-1">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (onUpdatePrices) {
-                            onUpdatePrices(
+                        onClick={async () => {
+                          try {
+                            await api.updatePaymentSettings({
+                              reg_fee_reguler: inputRegFeeReguler,
+                              reg_fee_karyawan: inputRegFeeKaryawan,
+                              spp_reguler: inputSppReguler,
+                              spp_karyawan: inputSppKaryawan,
+                              discount_type_reguler: inputDiscountTypeReguler,
+                              discount_value_reguler: inputDiscountValueReguler,
+                              discount_type_karyawan: inputDiscountTypeKaryawan,
+                              discount_value_karyawan: inputDiscountValueKaryawan
+                            });
+
+                            onUpdatePrices?.(
                               inputRegFeeReguler,
                               inputRegFeeKaryawan,
                               inputSppReguler,
-                              inputSppKaryawan
+                              inputSppKaryawan,
+                              {
+                                type: inputDiscountTypeReguler,
+                                value: inputDiscountValueReguler
+                              },
+                              {
+                                type: inputDiscountTypeKaryawan,
+                                value: inputDiscountValueKaryawan
+                              }
+                            );
+
+                            showModal(
+                              'Sistem Diperbarui',
+                              'Tarif pendaftaran dan SPP berhasil disimpan ke database.',
+                              'success'
+                            );
+                          } catch (err: any) {
+                            showModal(
+                              'Gagal Menyimpan',
+                              err?.message || 'Pengaturan biaya gagal disimpan.',
+                              'warning'
                             );
                           }
-                          showModal(
-                            'Sistem Diperbarui',
-                            'Konfigurasi tarif keuangan Pendaftaran Baru dan SPP Bulanan untuk tipe kelas Reguler & Karyawan berhasil disimpan.',
-                            'success'
-                          );
                         }}
                         className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black shadow-sm flex items-center justify-center gap-1 cursor-pointer transition-colors"
                       >
@@ -6960,9 +8217,28 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         />
                       </div>
                       <button
-                        onClick={() => {
-                          localStorage.setItem('lulus_admin_payment_settings', JSON.stringify(adminPaymentSettings));
-                          showModal('Berhasil Disimpan', 'Detail rekening pembayaran manual berhasil disimpan.', 'success');
+                        onClick={async () => {
+                          try {
+                            await api.updateManualPaymentSettings({
+                              nama_bank: adminPaymentSettings.namaBank,
+                              no_rekening: adminPaymentSettings.noRekening,
+                              pemilik_rekening: adminPaymentSettings.pemilikRekening,
+                              qris_url: adminPaymentSettings.qrisUrl,
+                              instruksi: adminPaymentSettings.instruksi
+                            });
+
+                            showModal(
+                              'Berhasil Disimpan',
+                              'Detail rekening dan transfer manual berhasil disimpan ke database.',
+                              'success'
+                            );
+                          } catch (err: any) {
+                            showModal(
+                              'Gagal Menyimpan',
+                              err?.message || 'Detail rekening gagal disimpan.',
+                              'warning'
+                            );
+                          }
                         }}
                         className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black transition-all shadow-sm flex items-center justify-center gap-1 cursor-pointer font-sans"
                       >
@@ -7003,13 +8279,33 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                     </div>
                     <div className="flex gap-1.5 pt-1">
                       <button 
-                        onClick={() => handleSimulateExport('Excel', rep.name)}
+                        onClick={() => {
+                          if (rep.title === 'Laporan Siswa Aktif PKBM') {
+                            handleExportStudentActive('Excel');
+                          } else if (rep.title === 'Laporan Kinerja Guru & Tutor') {
+                            handleExportTeacherPerformance('Excel');
+                          } else if (rep.title === 'Laporan Rekapitulasi Akademik') {
+                            handleExportAcademicRecap('Excel');
+                          } else {
+                            handleSimulateExport('Excel', rep.name);
+                          }
+                        }}
                         className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl text-[10px] font-black border border-emerald-100 transition-all cursor-pointer"
                       >
                         Unduh Excel
                       </button>
                       <button 
-                        onClick={() => handleSimulateExport('PDF', rep.name)}
+                        onClick={() => {
+                          if (rep.title === 'Laporan Siswa Aktif PKBM') {
+                            handleExportStudentActive('PDF');
+                          } else if (rep.title === 'Laporan Kinerja Guru & Tutor') {
+                            handleExportTeacherPerformance('PDF');
+                          } else if (rep.title === 'Laporan Rekapitulasi Akademik') {
+                            handleExportAcademicRecap('PDF');
+                          } else {
+                            handleSimulateExport('PDF', rep.name);
+                          }
+                        }}
                         className="flex-1 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer"
                       >
                         Unduh PDF
@@ -7553,13 +8849,32 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                                       >
                                         <Edit className="w-3 h-3" />
                                       </button>
-                                      {!(cp.isDefault || cp.sumber_cp === 'Sistem') ? (
+                                      {!cp.isDefault ? (
                                         <button 
                                           type="button"
-                                          onClick={() => {
+                                          onClick={async () => {
                                             if (confirm(`Apakah Anda yakin ingin menghapus CP untuk "${cp.subject}"?`)) {
-                                              setCpList(prev => prev.filter(item => item.id !== cp.id));
-                                              showModal('CP Dihapus', 'Capaian Pembelajaran master berhasil dihapus.', 'success');
+                                              try {
+                                                if (!String(cp.id).startsWith('cp-')) {
+                                                  await api.adminDeleteCP(cp.id);
+                                                }
+
+                                                setCpList(prev =>
+                                                  prev.filter(item => item.id !== cp.id)
+                                                );
+
+                                                showModal(
+                                                  'CP Dihapus',
+                                                  'Capaian Pembelajaran master berhasil dihapus.',
+                                                  'success'
+                                                );
+                                              } catch (error) {
+                                                showModal(
+                                                  'Gagal',
+                                                  'Capaian Pembelajaran gagal dihapus.',
+                                                  'error'
+                                                );
+                                              }
                                             }
                                           }}
                                           className="p-1 bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded border border-slate-200/40 transition-colors cursor-pointer"
@@ -8228,6 +9543,23 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                   </select>
                 </div>
               </div>
+
+              {madingLoading && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center text-xs font-bold text-slate-500">
+                  Memuat data Mading dari server...
+                </div>
+              )}
+
+              {!madingLoading && announcements.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
+                  <p className="text-xs font-black text-slate-700">
+                    Belum ada pengumuman
+                  </p>
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Klik Buat Pengumuman Baru untuk menerbitkan Mading.
+                  </p>
+                </div>
+              )}
 
               {/* Announcements Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -9030,33 +10362,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                           <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">Ubah informasi personal akun administrator Anda di Lulus.id.</p>
                         </div>
 
-                        {/* Profile Photo Upload Row */}
-                        <div className="flex flex-col sm:flex-row items-center gap-5 bg-slate-50 p-4 rounded-2xl border border-slate-200/40">
-                          <div className="relative shrink-0">
-                            <img
-                              src={adminProfile.fotoProfil || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=256"}
-                              alt="Profil Admin"
-                              className="w-16 h-16 rounded-2xl object-cover border-2 border-white shadow-sm bg-slate-200"
-                            />
-                            <label className="absolute -bottom-1 -right-1 w-6 h-6 bg-[#00a884] text-white rounded-lg flex items-center justify-center cursor-pointer hover:bg-[#008f72] shadow-xs transition-colors">
-                              <Upload className="w-3.5 h-3.5" />
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => handleImageUpload(e, 'fotoProfil')}
-                                className="hidden"
-                              />
-                            </label>
-                          </div>
-                          <div className="space-y-1 text-center sm:text-left">
-                            <h5 className="text-[11px] font-extrabold text-slate-800">Foto Profil Administrator</h5>
-                            <p className="text-[9px] text-slate-400 font-semibold">Format JPG, PNG, atau WEBP. Maksimal ukuran berkas adalah 2MB.</p>
-                            <span className="inline-block text-[8px] bg-indigo-50 text-indigo-700 border border-indigo-100/50 px-2 py-0.5 rounded-md font-black uppercase tracking-wider">
-                              Django Admin Media Storage
-                            </span>
-                          </div>
-                        </div>
-
                         {/* Input Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-1.5">
@@ -9095,17 +10400,6 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                             />
                           </div>
 
-                          <div className="space-y-1.5">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Nomor Handphone</label>
-                            <input
-                              type="text"
-                              value={adminProfile.nomorHp}
-                              onChange={(e) => setAdminProfile({ ...adminProfile, nomorHp: e.target.value })}
-                              required
-                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                              placeholder="081234567890"
-                            />
-                          </div>
                         </div>
 
                         <div className="pt-2 flex justify-end">
@@ -9134,37 +10428,72 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                         <div className="space-y-4">
                           <div className="space-y-1.5">
                             <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Password Lama</label>
-                            <input
-                              type="password"
-                              value={adminPasswordForm.passwordLama}
-                              onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, passwordLama: e.target.value })}
-                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-[10.5px] transition-all text-slate-800"
-                              placeholder="••••••••"
-                            />
-                            <p className="text-[8px] text-slate-400 font-semibold mt-0.5">Password default akun demo ini adalah <code className="bg-slate-100 px-1 py-0.5 rounded font-bold text-slate-700">admin123</code></p>
+                            <div className="relative">
+                              <input
+                                type={showPasswordLama ? 'text' : 'password'}
+                                value={adminPasswordForm.passwordLama}
+                                onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, passwordLama: e.target.value })}
+                                className="w-full px-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-[10.5px] transition-all text-slate-800"
+                                placeholder="Masukkan password lama"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPasswordLama(prev => !prev)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                                aria-label={showPasswordLama ? 'Sembunyikan password' : 'Tampilkan password'}
+                              >
+                                {showPasswordLama
+                                  ? <EyeOff className="w-4 h-4" />
+                                  : <Eye className="w-4 h-4" />}
+                              </button>
+                            </div>
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                               <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Password Baru</label>
-                              <input
-                                type="password"
-                                value={adminPasswordForm.passwordBaru}
-                                onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, passwordBaru: e.target.value })}
-                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                                placeholder="Minimal 6 karakter"
-                              />
+                              <div className="relative">
+                                <input
+                                  type={showPasswordBaru ? 'text' : 'password'}
+                                  value={adminPasswordForm.passwordBaru}
+                                  onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, passwordBaru: e.target.value })}
+                                  className="w-full px-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
+                                  placeholder="Minimal 8 karakter"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPasswordBaru(prev => !prev)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                                  aria-label={showPasswordBaru ? 'Sembunyikan password' : 'Tampilkan password'}
+                                >
+                                  {showPasswordBaru
+                                    ? <EyeOff className="w-4 h-4" />
+                                    : <Eye className="w-4 h-4" />}
+                                </button>
+                              </div>
                             </div>
 
                             <div className="space-y-1.5">
                               <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Konfirmasi Password Baru</label>
-                              <input
-                                type="password"
-                                value={adminPasswordForm.konfirmasiPasswordBaru}
-                                onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, konfirmasiPasswordBaru: e.target.value })}
-                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                                placeholder="Ulangi password baru"
-                              />
+                              <div className="relative">
+                                <input
+                                  type={showKonfirmasiPassword ? 'text' : 'password'}
+                                  value={adminPasswordForm.konfirmasiPasswordBaru}
+                                  onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, konfirmasiPasswordBaru: e.target.value })}
+                                  className="w-full px-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
+                                  placeholder="Ulangi password baru"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowKonfirmasiPassword(prev => !prev)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                                  aria-label={showKonfirmasiPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+                                >
+                                  {showKonfirmasiPassword
+                                    ? <EyeOff className="w-4 h-4" />
+                                    : <Eye className="w-4 h-4" />}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -9224,61 +10553,33 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                             </label>
                           </div>
 
-                          {/* QR Code TTE */}
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/50 flex flex-col items-center text-center space-y-2.5">
-                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">QR Code TTE Kepsek</span>
-                            <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 overflow-hidden p-1 flex items-center justify-center">
-                              <img src={lembagaIdentitas.qrTandaTanganKepalaSekolah} alt="QR TTE" className="max-w-full max-h-full object-contain" />
-                            </div>
-                            <label className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 rounded-lg text-[8.5px] font-black text-slate-700 cursor-pointer flex items-center gap-1 transition-colors">
-                              <Upload className="w-3 h-3" /> Unggah QR
-                              <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'qrTandaTanganKepalaSekolah')} className="hidden" />
-                            </label>
-                          </div>
-
-                          {/* Cap Stempel */}
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/50 flex flex-col items-center text-center space-y-2.5">
-                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Stempel lembaga/PKBM Digital</span>
-                            <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 overflow-hidden p-1 flex items-center justify-center">
-                              <img src={lembagaIdentitas.capStempelDigital} alt="Cap Stempel" className="max-w-full max-h-full object-contain" />
-                            </div>
-                            <label className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 rounded-lg text-[8.5px] font-black text-slate-700 cursor-pointer flex items-center gap-1 transition-colors">
-                              <Upload className="w-3 h-3" /> Unggah Cap
-                              <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'capStempelDigital')} className="hidden" />
-                            </label>
-                          </div>
-
-                          {/* Tanda Tangan Kepala Sekolah */}
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/50 flex flex-col items-center text-center space-y-2.5">
-                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Tanda Tangan Kepsek</span>
-                            <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 overflow-hidden p-1 flex items-center justify-center">
-                              <img src={lembagaIdentitas.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan'} alt="Ttd Kepsek" className="max-w-full max-h-full object-contain" />
-                            </div>
-                            <label className="px-2.5 py-1.5 bg-[#00a884] hover:bg-[#008f72] text-white rounded-lg text-[8.5px] font-black cursor-pointer flex items-center gap-1 transition-colors">
-                              <Upload className="w-3 h-3" /> Unggah Ttd
-                              <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'tandaTanganKepalaSekolah')} className="hidden" />
-                            </label>
-                          </div>
-
-                        </div>
-                      </div>
-
-                      {/* Text Fields Grid */}
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           
-                          {/* Nama PKBM */}
-                          <div className="space-y-1.5">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Nama PKBM</label>
-                            <input
-                              type="text"
-                              value={lembagaIdentitas.namaPkbm}
-                              onChange={(e) => setLembagaIdentitas({ ...lembagaIdentitas, namaPkbm: e.target.value })}
-                              required
-                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                              placeholder="Nama PKBM"
-                            />
+                          {/* Atribut Pengesahan Digital */}
+                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/50 flex flex-col items-center text-center space-y-2.5">
+                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                              Atribut Pengesahan
+                            </span>
+
+                            <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 overflow-hidden p-1 flex items-center justify-center">
+                              <img
+                                src={lembagaIdentitas.atributPengesahanDigital}
+                                alt="Atribut Pengesahan Digital"
+                                className="max-w-full max-h-full object-contain"
+                              />
+                            </div>
+
+                            <label className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 rounded-lg text-[8.5px] font-black text-slate-700 cursor-pointer flex items-center gap-1 transition-colors">
+                              <Upload className="w-3 h-3" /> Unggah Atribut
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleImageUpload(e, 'atributPengesahanDigital')}
+                                className="hidden"
+                              />
+                            </label>
                           </div>
+
+                          
 
                           {/* Nama Yayasan */}
                           <div className="space-y-1.5">
@@ -9306,29 +10607,19 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                             />
                           </div>
 
-                          {/* NIS */}
+                          {/* Nomor Izin Operasional */}
                           <div className="space-y-1.5">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">NIS Lembaga</label>
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Nomor Izin Operasional</label>
                             <input
                               type="text"
-                              value={lembagaIdentitas.nis}
-                              onChange={(e) => setLembagaIdentitas({ ...lembagaIdentitas, nis: e.target.value })}
+                              value={lembagaIdentitas.nomorIzinOperasional}
+                              onChange={(e) => setLembagaIdentitas({
+                                ...lembagaIdentitas,
+                                nomorIzinOperasional: e.target.value
+                              })}
                               required
                               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                              placeholder="NIS"
-                            />
-                          </div>
-
-                          {/* Alamat */}
-                          <div className="space-y-1.5 md:col-span-2">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Alamat Lengkap</label>
-                            <input
-                              type="text"
-                              value={lembagaIdentitas.alamat}
-                              onChange={(e) => setLembagaIdentitas({ ...lembagaIdentitas, alamat: e.target.value })}
-                              required
-                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                              placeholder="Jalan, RT/RW"
+                              placeholder="Nomor Izin Operasional"
                             />
                           </div>
 
@@ -9436,44 +10727,33 @@ Format laporan dalam Bahasa Indonesia yang formal, ringkas, dan profesional.`;
                             />
                           </div>
 
-                          {/* NIP Kepala Sekolah */}
+                          {/* NIP / NUPTK Kepala Sekolah */}
                           <div className="space-y-1.5">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">NIP Kepala Sekolah</label>
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">NIP / NUPTK Kepala Sekolah</label>
                             <input
                               type="text"
                               value={lembagaIdentitas.nipKepalaSekolah}
                               onChange={(e) => setLembagaIdentitas({ ...lembagaIdentitas, nipKepalaSekolah: e.target.value })}
                               required
                               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                              placeholder="NIP Kepala Sekolah"
+                              placeholder="NIP / NUPTK Kepala Sekolah"
                             />
                           </div>
 
                           {/* Nama Pejabat TTE */}
                           <div className="space-y-1.5">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Nama Pejabat Penandatangan Dokumen</label>
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Nama Penandatangan</label>
                             <input
                               type="text"
-                              value={lembagaIdentitas.namaPejabatTtd || ''}
-                              onChange={(e) => setLembagaIdentitas({ ...lembagaIdentitas, namaPejabatTtd: e.target.value })}
+                              value={lembagaIdentitas.namaPenandatangan || ''}
+                              onChange={(e) => setLembagaIdentitas({ ...lembagaIdentitas, namaPenandatangan: e.target.value })}
                               required
                               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
                               placeholder="Contoh: Drs. H. Mulyadi, M.Pd."
                             />
                           </div>
 
-                          {/* Jabatan Pejabat TTE */}
-                          <div className="space-y-1.5">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Jabatan Penandatangan Dokumen</label>
-                            <input
-                              type="text"
-                              value={lembagaIdentitas.jabatanPejabatTtd || ''}
-                              onChange={(e) => setLembagaIdentitas({ ...lembagaIdentitas, jabatanPejabatTtd: e.target.value })}
-                              required
-                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#00a884] font-bold text-[10.5px] transition-all text-slate-800"
-                              placeholder="Contoh: Kepala PKBM / Kepala Sekolah"
-                            />
-                          </div>
+                          
 
                         </div>
                       </div>

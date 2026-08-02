@@ -40,10 +40,24 @@ const BankSoal = lazy(() => import('./components/BankSoal'));
 const PWAManager = lazy(() => import('./components/PWAManager'));
 const PaymentPage = lazy(() => import('./components/PaymentPage').then(m => ({default: m.PaymentPage})));
 const OrientationDashboard = lazy(() => import('./components/OrientationDashboard').then(m => ({default: m.OrientationDashboard})));
-const RegistrationStatusPage = lazy(() => import('./components/RegistrationStatusPage'));
+import { RegistrationStatusPage } from './components/RegistrationStatusPage';
 
 
 export default function App() {
+  useEffect(() => {
+    window.history.pushState(null, '', window.location.href);
+
+    const handleBack = () => {
+      window.history.pushState(null, '', window.location.href);
+    };
+
+    window.addEventListener('popstate', handleBack);
+
+    return () => {
+      window.removeEventListener('popstate', handleBack);
+    };
+  }, []);
+
 
   // Sync restore session synchronously on initial render
   const getInitialRole = (): Role => {
@@ -174,19 +188,109 @@ export default function App() {
   // App states
   const [role, setRole] = useState<Role>(getInitialRole);
   const [username, setUsername] = useState<string>(getInitialUsername);
+  const [adminStats, setAdminStats] = useState<any>(null);
 
-  // Identitas lembaga global Lulus.id
-  const [lembagaIdentitas, setLembagaIdentitas] = useState(() => {
-    const saved = localStorage.getItem('lulus_lembaga_identitas');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return {
-      namaPkbm: 'PKBM Agrabinta Lulus.id'
-    };
+  useEffect(() => {
+    const match = window.location.pathname.match(
+      /^\/status-pendaftaran\/([0-9a-fA-F-]{36})\/?$/
+    );
+
+    if (!match) return;
+
+    const registrationId = match[1];
+
+    localStorage.setItem(
+      'lulus_registration_id',
+      registrationId
+    );
+
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+
+    setRole('siswa');
+    setScreen('workspace');
+
+    setRegLoading(true);
+
+    api.getPublicRegistrationStatus(registrationId)
+      .then((data) => {
+        setStudentReg(data);
+      })
+      .catch((error) => {
+        console.error(
+          'Gagal membuka status pendaftaran:',
+          error
+        );
+        setStudentReg(null);
+      })
+      .finally(() => {
+        setRegLoading(false);
+      });
+  }, []);
+  const [academicContext, setAcademicContext] = useState<any | null>(null);
+
+  // Identitas lembaga global dari server Django
+  const [lembagaIdentitas, setLembagaIdentitas] = useState<any>({
+    namaPkbm: ''
   });
+
+  useEffect(() => {
+    const loadInstitutionSettings = async () => {
+      const token = localStorage.getItem('token');
+
+      if (!token || screen !== 'workspace') {
+        return;
+      }
+
+      try {
+        const data = await api.getInstitutionSettings();
+
+        const mappedInstitution = {
+          namaPkbm: data?.nama_pkbm || '',
+          namaYayasan: data?.nama_yayasan || '',
+          npsn: data?.npsn || '',
+          alamat: data?.alamat || '',
+          kecamatan: data?.kecamatan || '',
+          kabupaten: data?.kabupaten || '',
+          provinsi: data?.provinsi || '',
+          kodePos: data?.kode_pos || '',
+          nomorTelepon: data?.nomor_telepon || '',
+          emailLembaga: data?.email_lembaga || '',
+          website: data?.website || '',
+          namaKepalaSekolah: data?.nama_kepala_sekolah || '',
+          nipKepalaSekolah: data?.nip_kepala_sekolah || '',
+          namaPenandatangan: data?.nama_penandatangan || '',
+          logo: data?.logo || ''
+        };
+
+        setLembagaIdentitas(mappedInstitution);
+
+        // Cache hanya sebagai salinan, bukan sumber utama.
+        localStorage.setItem(
+          'lulus_lembaga_identitas',
+          JSON.stringify(mappedInstitution)
+        );
+      } catch (error) {
+        console.warn(
+          'Gagal memuat identitas lembaga dari server:',
+          error
+        );
+
+        // Saat server sementara tidak dapat dijangkau, gunakan cache terakhir.
+        const cached = localStorage.getItem(
+          'lulus_lembaga_identitas'
+        );
+
+        if (cached) {
+          try {
+            setLembagaIdentitas(JSON.parse(cached));
+          } catch (e) {}
+        }
+      }
+    };
+
+    loadInstitutionSettings();
+  }, [screen, role]);
 
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -314,6 +418,38 @@ export default function App() {
     verifySession();
   }, []);
 
+  // Load Academic Context from server
+  useEffect(() => {
+    const loadAcademicContext = async () => {
+      try {
+        const data = await api.getAcademicContext();
+        setAcademicContext(data);
+        console.log("ACADEMIC CONTEXT:", data);
+      } catch (error) {
+        console.error("Gagal mengambil academic context:", error);
+      }
+    };
+
+    loadAcademicContext();
+  }, []);
+
+  // Load dashboard statistics from server for admin
+  useEffect(() => {
+    const loadAdminStats = async () => {
+      if (role !== 'admin') return;
+
+      try {
+        const data = await api.getAdminStats();
+        console.log("ADMIN STATS SERVER:", data);
+        setAdminStats(data);
+      } catch (error) {
+        console.warn("Gagal mengambil admin stats:", error);
+      }
+    };
+
+    loadAdminStats();
+  }, [role]);
+
   // States for student V2 registration and payment status flow
   const [studentReg, setStudentReg] = useState<any | null>(null);
   
@@ -325,20 +461,31 @@ export default function App() {
     try {
       setRegLoading(true);
 
-      console.log("FETCH REGISTRATION START");
+      const registrationId = localStorage.getItem(
+        'lulus_registration_id'
+      );
 
-      const reg = await api.getMyRegistration();
+      let reg;
 
-      console.log("REGISTRATION RESULT", reg);
+      if (registrationId) {
+        reg = await api.getPublicRegistrationStatus(
+          registrationId
+        );
+      } else {
+        reg = await api.getMyRegistration();
+      }
 
       setStudentReg(reg);
-
     } catch (err) {
-      console.warn("Gagal mengambil data pendaftaran...", err);
+      console.warn(
+        "Gagal mengambil data pendaftaran...",
+        err
+      );
+      setStudentReg(null);
     } finally {
       setRegLoading(false);
     }
-};
+  };
 
   useEffect(() => {
     if (screen === 'workspace' && role === 'siswa') {
@@ -347,15 +494,7 @@ export default function App() {
   }, [screen, role]);
 
   // Stateful mock records
-  const [subjects, setSubjects] = useState<Subject[]>(() => {
-    const saved = localStorage.getItem('lulus_subjects');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return mockSubjects;
-  });
+  const [subjects, setSubjects] = useState<Subject[]>(mockSubjects);
   
   // Bank Soal states
   const [questions, setQuestions] = useState<Question[]>(() => {
@@ -505,9 +644,49 @@ export default function App() {
     localStorage.setItem('lulus_tasks', JSON.stringify(tasks));
   }, [tasks]);
   
+  // Muat Master Mata Pelajaran dari database untuk Admin
   useEffect(() => {
-    localStorage.setItem('lulus_subjects', JSON.stringify(subjects));
-  }, [subjects]);
+    if (screen !== 'workspace' || role !== 'admin') return;
+
+    const loadAdminSubjects = async () => {
+      try {
+        const data = await api.adminGetMapel();
+
+        const mappedSubjects: Subject[] = data.map((item: any) => ({
+          id: item.id,
+          code: item.kode || '',
+          name: item.nama || 'Mata Pelajaran',
+          program: item.paket || 'Paket C',
+          fase: item.fase || '',
+          category: item.kategori || 'Umum',
+          kkm: Number(item.kkm) || 75,
+          bobotSkk: Number(item.bobot_skk) || 4,
+          isWajib: item.is_wajib !== false,
+          sistemBelajar: item.sistem_belajar || 'Reguler',
+          kelas: item.kelas || '',
+          semester: item.semester || 'Ganjil',
+          tahunAjaran: item.tahun_ajaran || '',
+          cpId: item.cp_id || '',
+          capaianUtama: item.capaian_utama || '',
+          status: item.status || 'Aktif',
+          materiCount: 0,
+          progress: 0,
+          textBody: `Materi pembelajaran ${item.nama || 'Mata Pelajaran'}`,
+          grade: 0,
+          bimbinganUtama: 'Belajar mandiri terstruktur',
+          isMateri: false,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at
+        }));
+
+        setSubjects(mappedSubjects);
+      } catch (error) {
+        console.error('Gagal memuat Mata Pelajaran:', error);
+      }
+    };
+
+    loadAdminSubjects();
+  }, [screen, role]);
 
   // Load task submissions
   const [taskSubmissions, setTaskSubmissions] = useState<TaskSubmission[]>(() => {
@@ -517,23 +696,7 @@ export default function App() {
         return JSON.parse(saved);
       } catch (e) {}
     }
-    return [
-      { 
-        id: 'SUB-101', 
-        taskId: 'TSK-01',
-        studentId: 'SIS-1001', 
-        studentName: 'Fajar Pratama', 
-        studentPhoto: 'https://placehold.co/100x100/15803d/ffffff?text=Fajar',
-        kelas: 'Kelas X - Paket C', 
-        subject: 'Bahasa Indonesia',
-        taskTitle: 'Menulis Ringkasan Teks Eksplanasi',
-        submissionDate: 'Hari Ini, 14:20',
-        fileSize: '1.2 MB (PDF)',
-        status: 'Menunggu Penilaian',
-        submissionText: 'Berikut adalah ringkasan teks eksplanasi mengenai fenomena pelangi...',
-        submissionFiles: [{ name: 'Ringkasan_Eksplanasi_Pelangi.pdf', type: 'document', size: '1.2 MB' }]
-      }
-    ];
+    return [];
   });
 
   useEffect(() => {
@@ -546,78 +709,275 @@ export default function App() {
       const loadSiswaData = async () => {
         try {
           const fetchedSubjects = await api.getSiswaSubjects();
-          if (fetchedSubjects && fetchedSubjects.length > 0) {
-            const mappedSubjects: Subject[] = fetchedSubjects.map((item: any, idx: number) => {
-              return {
-                id: item.id?.toString() || `SUB-${idx + 1}`,
-                name: item.name || item.judul || item.mata_pelajaran || 'Mata Pelajaran',
-                category: item.category || 'Mata Pelajaran Wajib',
-                materiCount: item.materiCount || item.materi_count || 12,
-                progress: item.progress || 0,
-                textBody: item.textBody || item.konten || item.deskripsi || 'Materi pelajaran PKBM Kesetaraan Lulus.id.',
-                videoUrl: item.videoUrl || item.video_url || '',
-                duration: item.duration || '2 Jam 30 Menit',
-                kkm: item.kkm || 75,
-                grade: item.grade || item.nilai || 0,
-                status: item.status || ((item.grade || item.nilai || 0) >= (item.kkm || 75) ? 'Lulus' : 'Perlu Perbaikan'),
-                capaianUtama: item.capaianUtama || 'Memahami materi pembelajaran pokok dengan sangat baik.',
-                bimbinganUtama: item.bimbinganUtama || 'Pertahankan prestasi belajar Anda.'
-              };
-            });
-            setSubjects(mappedSubjects);
-          }
+          const mappedSubjects: Subject[] = (fetchedSubjects || []).map((item: any, idx: number) => {
+            return {
+              id: item.id?.toString() || `SUB-${idx + 1}`,
+              name: item.judul || item.mata_pelajaran_nama || 'Materi Pembelajaran',
+              category: item.mata_pelajaran_nama || 'Mata Pelajaran',
+              program: item.program || '',
+              kelas: item.rombel_nama || '',
+              semester: item.semester || '',
+              tahunAjaran: item.tahun_ajaran || '',
+              materiCount: 1,
+              progress: 0,
+              textBody: item.isi || '',
+              videoUrl: item.video_url || '',
+              duration: '',
+              kkm: Number(item.kkm) || 75,
+              grade: 0,
+              status: item.status === 'PUBLISHED' ? 'Dipublikasikan' : 'Draft',
+              capaianUtama: item.kompetensi_nama || '',
+              bimbinganUtama: '',
+              isMateri: true,
+              pertemuan: Number(item.nomor_pertemuan) || 1,
+              tanggalPublikasi: item.tanggal_publikasi || '',
+              fileUrl: item.file_modul || '',
+              lampiranUrl: item.file_lampiran || '',
+              bobotSkk: Number(item.bobot_skk) || 0
+            };
+          });
+
+          setSubjects(mappedSubjects);
         } catch (error) {
           console.warn('Gagal memuat materi pembelajaran dari Django API, menggunakan mock fallback:', error);
         }
 
         try {
           const fetchedTasks = await api.getSiswaTasks();
-          if (fetchedTasks && fetchedTasks.length > 0) {
-            const mappedTasks: Task[] = fetchedTasks.map((item: any, idx: number) => {
-              return {
-                id: item.id?.toString() || `TSK-${idx + 1}`,
-                subject: item.subject || item.mata_pelajaran || 'Umum',
-                title: item.title || item.judul || 'Tugas Mandiri',
-                program: item.program || 'Paket C',
-                kelas: item.kelas || 'Kelas X - Paket C',
-                semester: item.semester || 'Ganjil',
-                tahunAjaran: item.tahunAjaran || '2026/2027',
-                dueDate: item.dueDate || item.batas_waktu || '2026-07-30',
-                status: item.status === 'Draft' || item.status === 'Ditutup' ? item.status : 'Dipublikasikan',
-                description: item.description || item.deskripsi || 'Selesaikan tugas mandiri ini dengan mengunggah lembar jawaban atau mengetik penjelasan.',
-              };
-            });
-            setTasks(mappedTasks);
+          const taskRows = Array.isArray(fetchedTasks)
+            ? fetchedTasks
+            : [];
 
-            // Extract submissions if available
-            const fetchedSubmissions: TaskSubmission[] = [];
-            fetchedTasks.forEach((item: any, idx: number) => {
-              const taskId = item.id?.toString() || `TSK-${idx + 1}`;
-              if (item.status === 'Selesai' || item.submissionText || (item.submissionFiles && item.submissionFiles.length > 0)) {
-                fetchedSubmissions.push({
-                  id: `SUB-${Date.now()}-${idx}`,
-                  taskId: taskId,
-                  studentId: 'SIS-101',
-                  studentName: 'Fajar Alfian',
-                  kelas: item.kelas || 'Kelas X - Paket C',
-                  subject: item.subject || item.mata_pelajaran || 'Umum',
-                  taskTitle: item.title || item.judul || 'Tugas Mandiri',
-                  submissionText: item.submissionText || '',
-                  submissionFiles: item.submissionFiles || [],
-                  submissionDate: new Date().toISOString().split('T')[0],
-                  status: 'Menunggu Penilaian'
-                });
-              }
-            });
-            if (fetchedSubmissions.length > 0 && setTaskSubmissions) {
-              setTaskSubmissions(prev => {
-                const filtered = prev.filter(p => !fetchedSubmissions.some(f => f.taskId === p.taskId));
-                return [...filtered, ...fetchedSubmissions];
-              });
-            }
+          const mappedTasks: Task[] = taskRows.map(
+            (item: any, idx: number) => ({
+              id: String(item.id || `TSK-${idx + 1}`),
+              subject:
+                item.mata_pelajaran_nama ||
+                item.subject ||
+                'Mata Pelajaran',
+              title:
+                item.judul ||
+                item.title ||
+                'Tugas Mandiri',
+              program: item.program || '',
+              kelas:
+                item.rombel_nama ||
+                item.kelas ||
+                '',
+              semester: item.semester || '',
+              tahunAjaran:
+                item.tahun_ajaran ||
+                item.tahunAjaran ||
+                '',
+              dueDate:
+                item.batas_pengumpulan ||
+                item.dueDate ||
+                '',
+              status:
+                item.status === 'PUBLISHED'
+                  ? 'Dipublikasikan'
+                  : item.status === 'CLOSED'
+                    ? 'Ditutup'
+                    : 'Draft',
+              description:
+                item.deskripsi ||
+                item.description ||
+                ''
+            })
+          );
+
+          setTasks(mappedTasks);
+
+          try {
+            const fetchedExams = await api.getSiswaUjianCBT();
+            const examRows = Array.isArray(fetchedExams)
+              ? fetchedExams
+              : [];
+
+            const jenisUjianLabels: Record<string, string> = {
+              LATIHAN: 'Latihan',
+              ULANGAN_HARIAN: 'Ulangan Harian',
+              UTS: 'UTS',
+              REMEDIAL_UTS: 'Remedial UTS',
+              UAS: 'UAS',
+              REMEDIAL_UAS: 'Remedial UAS',
+              UJIAN_AKHIR: 'Ujian Akhir',
+              TRY_OUT: 'Try Out',
+            };
+
+            const mappedExams: Exam[] = examRows.map(
+              (item: any) => ({
+                id: String(item.id),
+                title:
+                  item.nama_ujian ||
+                  'Ujian Online',
+                namaUjian:
+                  item.nama_ujian ||
+                  'Ujian Online',
+                subject:
+                  item.mata_pelajaran_nama ||
+                  'Mata Pelajaran',
+                mataPelajaran:
+                  item.mata_pelajaran_nama ||
+                  'Mata Pelajaran',
+                duration:
+                  Number(item.durasi_menit) || 0,
+                durasi:
+                  Number(item.durasi_menit) || 0,
+                status:
+                  item.status === 'AKTIF'
+                    ? 'Aktif'
+                    : item.status === 'TERJADWAL'
+                      ? 'Terjadwal'
+                      : item.status === 'SELESAI'
+                        ? 'Selesai'
+                        : item.status === 'DRAFT'
+                          ? 'Draft'
+                          : 'Selesai',
+                questions: (
+                  Array.isArray(item.soal_detail)
+                    ? item.soal_detail
+                    : []
+                ).map((soal: any) => ({
+                  id: String(soal.id),
+                  type:
+                    soal.jenis_soal === 'PILIHAN_GANDA'
+                      ? 'pilihan_ganda'
+                      : 'essay',
+                  questionText:
+                    soal.pertanyaan ||
+                    soal.judul ||
+                    'Pertanyaan',
+                  options: Array.isArray(soal.pilihan_jawaban)
+                    ? soal.pilihan_jawaban
+                    : [],
+                  subject:
+                    item.mata_pelajaran_nama ||
+                    'Mata Pelajaran',
+                  difficulty:
+                    soal.tingkat_kesulitan === 'MUDAH'
+                      ? 'Mudah'
+                      : soal.tingkat_kesulitan === 'SULIT'
+                        ? 'Sulit'
+                        : 'Sedang',
+                })),
+                kelas: item.rombel_nama || '',
+                jenisUjian:
+                  jenisUjianLabels[item.jenis_ujian] ||
+                  item.jenis_ujian ||
+                  'Ujian',
+                jumlahSoal:
+                  Number(item.jumlah_soal) || 0,
+                tanggalMulai:
+                  item.tanggal_mulai || '',
+                tanggalSelesai:
+                  item.tanggal_selesai || '',
+                nilaiMinimum:
+                  Number(item.nilai_minimum) || 0,
+                acakSoal: Boolean(item.acak_soal),
+                acakJawaban: Boolean(item.acak_jawaban),
+                tampilkanNilai:
+                  Boolean(item.tampilkan_nilai),
+                guruNama:
+                  item.guru_nama || 'Guru',
+                pengerjaan:
+                  item.pengerjaan || null,
+              })
+            );
+
+            setExams(mappedExams);
+          } catch (error) {
+            console.error(
+              'Gagal memuat CBT siswa dari Django API:',
+              error
+            );
+            setExams([]);
           }
+
+          const mappedSubmissions: TaskSubmission[] = taskRows
+            .filter((item: any) => Boolean(item.submission))
+            .map((item: any, idx: number) => {
+              const submission = item.submission;
+
+              const statusMap: Record<string, string> = {
+                SUBMITTED: 'Menunggu Penilaian',
+                GRADED: 'Sudah Dinilai',
+                REVISION: 'Revisi',
+                DRAFT: 'Draft'
+              };
+
+              const fileUrl =
+                submission.file_jawaban || '';
+
+              const fileName = fileUrl
+                ? String(fileUrl).split('/').pop() ||
+                  'Lampiran Jawaban'
+                : '';
+
+              return {
+                id: String(
+                  submission.id ||
+                  `SUB-${idx + 1}`
+                ),
+                taskId: String(item.id),
+                studentId: String(
+                  submission.siswa || ''
+                ),
+                studentName:
+                  submission.siswa_nama ||
+                  submission.siswa_username ||
+                  '',
+                kelas:
+                  submission.rombel_nama ||
+                  item.rombel_nama ||
+                  '',
+                subject:
+                  submission.mata_pelajaran_nama ||
+                  item.mata_pelajaran_nama ||
+                  '',
+                taskTitle:
+                  submission.tugas_judul ||
+                  item.judul ||
+                  '',
+                submissionText:
+                  submission.jawaban_teks ||
+                  '',
+                submissionFiles: fileUrl
+                  ? [{
+                      name: fileName,
+                      type: 'document',
+                      size: ''
+                    }]
+                  : [],
+                submissionDate:
+                  submission.dikumpulkan_pada ||
+                  '',
+                status:
+                  statusMap[submission.status] ||
+                  'Menunggu Penilaian',
+                grade:
+                  submission.nilai !== null &&
+                  submission.nilai !== undefined
+                    ? Number(submission.nilai)
+                    : undefined,
+                feedback:
+                  submission.feedback_guru ||
+                  '',
+                videoLink:
+                  submission.link_video ||
+                  ''
+              } as TaskSubmission;
+            });
+
+          setTaskSubmissions(mappedSubmissions);
         } catch (error) {
-          console.warn('Gagal memuat daftar tugas dari Django API, menggunakan mock fallback:', error);
+          console.warn(
+            'Gagal memuat daftar tugas siswa dari Django API:',
+            error
+          );
+
+          setTasks([]);
+          setTaskSubmissions([]);
         }
       };
 
@@ -632,13 +992,7 @@ export default function App() {
   const [explainRequest, setExplainRequest] = useState<string | null>(null);
 
   // SKK States
-  const [competencies, setCompetencies] = useState<Competency[]>(() => {
-    const saved = localStorage.getItem('competencies');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return initialCompetencies;
-  });
+  const [competencies, setCompetencies] = useState<Competency[]>([]);
 
   const [studentCompetencies, setStudentCompetencies] = useState<StudentCompetency[]>(() => {
     const saved = localStorage.getItem('studentCompetencies');
@@ -647,6 +1001,26 @@ export default function App() {
     }
     return initialStudentCompetencies;
   });
+
+
+  // Sinkronisasi SKK dari Django Backend
+  useEffect(() => {
+    const loadStudentCompetencies = async () => {
+      try {
+        const data = await api.getStudentCompetencies();
+
+        if (data && data.length > 0) {
+          setStudentCompetencies(data);
+        }
+      } catch (error) {
+        console.warn('Gagal memuat SKK dari Django API, menggunakan data lokal:', error);
+      }
+    };
+
+    if (role === 'siswa' || role === 'guru' || role === 'admin') {
+      loadStudentCompetencies();
+    }
+  }, [role]);
 
   const [skkReports, setSkkReports] = useState<SKKReport[]>(() => {
     const saved = localStorage.getItem('skkReports');
@@ -657,8 +1031,52 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('competencies', JSON.stringify(competencies));
-  }, [competencies]);
+    const loadCompetencies = async () => {
+      try {
+        const response = await api.adminGetCompetencies();
+
+        const items = Array.isArray(response)
+          ? response
+          : response?.results || [];
+
+        const mappedCompetencies = items.map((item: any) => {
+          const matchedSubject = subjects.find(
+            (subject: any) => String(subject.id) === String(item.subject)
+          );
+
+          return {
+            id: item.id,
+            subject: item.subject,
+            cp: item.cp || null,
+            program:
+              matchedSubject?.program ||
+              matchedSubject?.paket ||
+              'Paket C',
+            mata_pelajaran:
+              matchedSubject?.name ||
+              item.subject_name ||
+              'Mata Pelajaran',
+            nama_kompetensi: item.nama_kompetensi || '',
+            bobot_skk: Number(item.bobot_skk) || 0,
+            semester: item.semester || '',
+            aktif: item.aktif !== false
+          };
+        });
+
+        setCompetencies(mappedCompetencies);
+        localStorage.removeItem('competencies');
+      } catch (error) {
+        console.warn(
+          'Gagal memuat kompetensi dari Django:',
+          error
+        );
+      }
+    };
+
+    if (role === 'admin' || role === 'guru' || role === 'siswa') {
+      loadCompetencies();
+    }
+  }, [role, subjects]);
 
   useEffect(() => {
     localStorage.setItem('studentCompetencies', JSON.stringify(studentCompetencies));
@@ -689,15 +1107,48 @@ export default function App() {
     localStorage.setItem('academicYears', JSON.stringify(academicYears));
   }, [academicYears]);
 
+  
+  // Load Tahun Ajaran dari Django API
+  useEffect(() => {
+    const loadAcademicYears = async () => {
+      try {
+        const data = await api.getAcademicYears();
+
+        if (Array.isArray(data) && data.length > 0) {
+          const mappedYears: AcademicYear[] = data.map((ay: any) => ({
+            id: ay.id,
+            nama: ay.nama,
+            semester: ay.semester,
+            tanggalMulai: ay.tanggal_mulai,
+            tanggalSelesai: ay.tanggal_selesai,
+            aktif: ay.aktif,
+            createdAt: ay.created_at,
+            updatedAt: ay.updated_at
+          }));
+
+          setAcademicYears(mappedYears);
+        }
+      } catch (error) {
+        console.error("Gagal mengambil Tahun Ajaran dari server:", error);
+      }
+    };
+
+    loadAcademicYears();
+  }, []);
+
   // Admin DB states
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('lulus_students');
+
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {}
+      } catch (e) {
+        return [];
+      }
     }
-    return initialStudents;
+
+    return [];
   });
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
     const saved = localStorage.getItem('lulus_teachers');
@@ -717,6 +1168,33 @@ export default function App() {
     }
     return initialClasses;
   });
+
+  // Load Rombel dari database Django
+  useEffect(() => {
+    const loadRombel = async () => {
+      try {
+        const data = await api.adminGetRombel();
+
+        const mappedClasses = data.map((item: any) => ({
+          id: item.id,
+          nama: item.nama_rombel,
+          jenjang: item.fase_detail?.nama || '',
+          paket: item.fase_detail?.paket || '',
+          tingkat: item.fase_detail?.nama || '',
+          waliKelasId: item.wali_tutor,
+          sistemBelajar: item.sistem_belajar || 'Reguler'
+        }));
+
+        setClasses(mappedClasses);
+
+      } catch (error) {
+        console.error("Gagal mengambil data rombel:", error);
+      }
+    };
+
+    loadRombel();
+  }, []);
+
   const [notifications, setNotifications] = useState<SystemNotification[]>(() => {
     const saved = localStorage.getItem('lulus_notifications');
     if (saved) {
@@ -726,6 +1204,293 @@ export default function App() {
     }
     return initialNotifications;
   });
+
+  useEffect(() => {
+    const calculatedReports = students.map((student) => {
+      const programCompetencies = competencies.filter(
+        (competency) => competency.program === student.program
+      );
+
+      const totalSKK = programCompetencies.reduce(
+        (sum, competency) => sum + (competency.bobot_skk || 0),
+        0
+      );
+
+      const achievedSKK = studentCompetencies
+        .filter(
+          (studentCompetency) =>
+            studentCompetency.siswa === student.id &&
+            studentCompetency.status === 'tercapai'
+        )
+        .reduce((sum, studentCompetency) => {
+          const competency = competencies.find(
+            (item) => item.id === studentCompetency.kompetensi
+          );
+
+          return sum + (competency?.bobot_skk || 0);
+        }, 0);
+
+      return {
+        id: `REP-${student.id}`,
+        siswa: student.id,
+        total_skk: totalSKK,
+        tercapai: achievedSKK,
+        persentase:
+          totalSKK > 0
+            ? Math.round((achievedSKK / totalSKK) * 100)
+            : 0
+      };
+    });
+
+    setSkkReports(calculatedReports);
+  }, [students, competencies, studentCompetencies]);
+
+
+  useEffect(() => {
+    const loadStudents = async () => {
+      try {
+        const data = await api.getAdminSiswaList();
+        if (Array.isArray(data)) {
+          const mappedStudents: Student[] = data.map((item: any) => {
+            const biodata = item.biodata || {};
+            const dokumen = item.dokumen || {};
+
+            return {
+              id: item.id,
+              userId: item.user_id || item.user || null,
+              nama: biodata.nama_lengkap || biodata.nama || item.nama || '',
+              nik: biodata.nik || item.nik || '',
+              nisn: biodata.nisn || item.nisn || '',
+              kk: biodata.no_kk || biodata.kk || item.kk || '',
+              jk: biodata.jenis_kelamin || biodata.jk || item.jk || '',
+              tempatLahir:
+                biodata.tempat_lahir ||
+                biodata.tempatLahir ||
+                item.tempatLahir ||
+                '',
+              tglLahir:
+                biodata.tanggal_lahir ||
+                biodata.tgl_lahir ||
+                biodata.tglLahir ||
+                item.tglLahir ||
+                '',
+              program:
+                item.program_paket ||
+                item.program ||
+                'Paket C',
+              kelas:
+                biodata.kelas ||
+                item.kelas ||
+                'Belum Ditentukan',
+              tipeKelas:
+                item.tipe_kelas ||
+                biodata.tipe_kelas ||
+                'Reguler',
+              tahunAjaran:
+                biodata.tahun_ajaran ||
+                item.tahun_ajaran ||
+                '2026/2027',
+              statusDapodik:
+                biodata.status_dapodik ||
+                'BELUM_DIATUR',
+              tanggalTerdaftarDapodik:
+                biodata.tanggal_terdaftar_dapodik ||
+                '',
+              catatanDapodik:
+                biodata.catatan_dapodik ||
+                '',
+              tanggalMasukSekolah:
+                biodata.tanggal_masuk_sekolah ||
+                biodata.tanggal_masuk ||
+                '',
+              sekolahAsal:
+                biodata.sekolah_asal ||
+                '',
+              alamat:
+                biodata.alamat_lengkap ||
+                biodata.alamat ||
+                item.alamat ||
+                '',
+              ibu:
+                biodata.nama_ibu ||
+                biodata.ibu ||
+                item.ibu ||
+                '',
+              pekerjaanIbu:
+                biodata.pekerjaan_ibu ||
+                item.pekerjaanIbu ||
+                '',
+              ayah:
+                biodata.nama_ayah ||
+                biodata.ayah ||
+                item.ayah ||
+                '',
+              pekerjaanAyah:
+                biodata.pekerjaan_ayah ||
+                item.pekerjaanAyah ||
+                '',
+              status:
+                item.status ||
+                (
+                  item.registration_status === 'AKUN_AKTIF'
+                    ? 'Aktif'
+                    : item.registration_status === 'DITOLAK_PERMANEN'
+                      ? 'Nonaktif'
+                      : 'Menunggu Verifikasi'
+                ),
+              dokumen: {
+                foto: dokumen.foto || '',
+                ktp: dokumen.ktp || '',
+                kk: dokumen.kk || '',
+                ijazah: dokumen.ijazah || ''
+              },
+              pendaftarBaru:
+                item.registration_status !== 'AKUN_AKTIF',
+              username: item.username || '',
+              namaWali:
+                biodata.nama_wali ||
+                biodata.namaWali ||
+                '',
+              hubunganWali:
+                biodata.hubungan_wali ||
+                biodata.hubunganWali ||
+                '',
+              tandaTanganSiswa:
+                biodata.tanda_tangan_siswa ||
+                biodata.signature_siswa ||
+                '',
+              tandaTanganOrangTua:
+                biodata.tanda_tangan_ortu ||
+                biodata.tanda_tangan_wali ||
+                '',
+              pendaftaranData: {
+                nama_lengkap: biodata.nama || '',
+                nik: biodata.nik || '',
+                nisn: biodata.nisn || '',
+                tempat_lahir: biodata.tempat_lahir || '',
+                tanggal_lahir: biodata.tgl_lahir || '',
+                jenis_kelamin: biodata.jk || '',
+                agama: biodata.agama || '',
+                kewarganegaraan: biodata.kewarganegaraan || 'Indonesia',
+                no_hp: biodata.no_hp || '',
+                email: biodata.email || item.email || '',
+
+                alamat_jalan: biodata.alamat || '',
+                rt: biodata.rt || '',
+                rw: biodata.rw || '',
+                dusun: biodata.dusun || '',
+                desa: biodata.desa || '',
+                kecamatan: biodata.kecamatan || '',
+                kota: biodata.kota || '',
+                provinsi: biodata.provinsi || '',
+                kodepos: biodata.kodepos || '',
+
+                pendidikan: biodata.pendidikan || '',
+                sekolah_asal: biodata.sekolah_asal || '',
+                tahun_lulus: biodata.tahun_lulus || '',
+                no_ijazah: biodata.no_ijazah || '',
+
+                program: item.program_paket || 'Paket C',
+                tipe_kelas: item.tipe_kelas || 'Reguler',
+                tahun_ajaran:
+                  biodata.tahun_ajaran ||
+                  biodata.tahun_masuk ||
+                  '2026/2027',
+
+                nama_ayah: biodata.nama_ayah || '',
+                pekerjaan_ayah: biodata.pekerjaan_ayah || '',
+                nama_ibu: biodata.nama_ibu || '',
+                pekerjaan_ibu: biodata.pekerjaan_ibu || '',
+
+                gunakan_wali: !!biodata.gunakan_wali,
+                nama_wali: biodata.nama_wali || '',
+                hubungan_wali: biodata.hubungan_wali || '',
+                hp_wali: biodata.hp_wali || '',
+
+                doc_foto: dokumen.foto || '',
+                doc_ktp: dokumen.ktp || '',
+                doc_kk: dokumen.kk || '',
+                doc_ijazah: dokumen.ijazah || '',
+                doc_akta: dokumen.akta || '',
+
+                sig_siswa_saved: !!biodata.tanda_tangan_siswa,
+                sig_siswa_data: biodata.tanda_tangan_siswa || '',
+                sig_ortu_saved: !!biodata.tanda_tangan_ortu,
+                sig_ortu_data: biodata.tanda_tangan_ortu || ''
+              },
+              catatanVerifikasi:
+                item.catatan_admin ||
+                '',
+              riwayatVerifikasi:
+                Array.isArray(item.rejection_logs)
+                  ? item.rejection_logs.map((log: any) => ({
+                      admin: log.created_by_name || 'Admin',
+                      tanggal: log.created_at
+                        ? new Date(log.created_at).toLocaleDateString('id-ID')
+                        : '',
+                      jam: log.created_at
+                        ? new Date(log.created_at).toLocaleTimeString('id-ID', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          }) + ' WIB'
+                        : '',
+                      status: 'DITOLAK',
+                      catatan: log.reason || ''
+                    }))
+                  : []
+            };
+          });
+
+          setStudents(mappedStudents);
+        }
+      } catch (err) {
+        console.error('Gagal memuat daftar siswa dari backend:', err);
+      }
+    };
+
+    loadStudents();
+  }, []);
+
+
+  // Load Guru dari Django API
+  useEffect(() => {
+    const loadTeachers = async () => {
+      try {
+        const data = await api.adminGetTeachers();
+
+        if (Array.isArray(data)) {
+          const mappedTeachers: Teacher[] = data.map((t: any) => ({
+            userId: t.user_id || t.user || null,
+            id: t.id,
+            nama: t.nama,
+            nip: t.nip || '',
+            mapel: t.mapels?.join(', ') || '',
+            kelas: t.kelas_list?.join(', ') || '',
+            materiCount: 0,
+            tugasCount: 0,
+            penilaianCount: 0,
+            status: t.status,
+            mapels: t.mapels || [],
+            kelasList: t.kelas_list || [],
+            rekeningType: t.rekening_type,
+            rekeningNomor: t.rekening_nomor,
+            rekeningNama: t.rekening_nama,
+            isWaliKelas: t.is_wali_kelas,
+            tandaTangan: t.tanda_tangan,
+            qrTandaTangan: t.qr_tanda_tangan,
+            photo: t.photo
+          }));
+
+          console.log("GURU DARI BACKEND:", mappedTeachers);
+          setTeachers(mappedTeachers);
+        }
+      } catch (err) {
+        console.error('Gagal memuat data guru dari backend:', err);
+      }
+    };
+
+    loadTeachers();
+  }, []);
 
   // Effects to save admin DB states to localStorage
   useEffect(() => {
@@ -753,6 +1518,23 @@ export default function App() {
     const saved = localStorage.getItem('regFeeKaryawan');
     return saved ? Number(saved) : 500000;
   });
+
+  // Keringanan biaya pendaftaran
+  const [discountTypeReguler, setDiscountTypeReguler] = useState<string>(() => {
+    return localStorage.getItem('discountTypeReguler') || 'NONE';
+  });
+
+  const [discountValueReguler, setDiscountValueReguler] = useState<number>(() => {
+    return Number(localStorage.getItem('discountValueReguler')) || 0;
+  });
+
+  const [discountTypeKaryawan, setDiscountTypeKaryawan] = useState<string>(() => {
+    return localStorage.getItem('discountTypeKaryawan') || 'NONE';
+  });
+
+  const [discountValueKaryawan, setDiscountValueKaryawan] = useState<number>(() => {
+    return Number(localStorage.getItem('discountValueKaryawan')) || 0;
+  });
   const [sppReguler, setSppReguler] = useState<number>(() => {
     const saved = localStorage.getItem('sppReguler');
     return saved ? Number(saved) : 150000;
@@ -762,15 +1544,37 @@ export default function App() {
     return saved ? Number(saved) : 250000;
   });
 
-  const updatePrices = (regReg: number, regKar: number, sppReg: number, sppKar: number) => {
+  const updatePrices = (
+    regReg: number, 
+    regKar: number, 
+    sppReg: number, 
+    sppKar: number,
+    discountReguler?: { type: string, value: number },
+    discountKaryawan?: { type: string, value: number }
+  ) => {
     setRegFeeReguler(regReg);
     setRegFeeKaryawan(regKar);
     setSppReguler(sppReg);
     setSppKaryawan(sppKar);
+
     localStorage.setItem('regFeeReguler', regReg.toString());
     localStorage.setItem('regFeeKaryawan', regKar.toString());
     localStorage.setItem('sppReguler', sppReg.toString());
     localStorage.setItem('sppKaryawan', sppKar.toString());
+
+    if (discountReguler) {
+      setDiscountTypeReguler(discountReguler.type);
+      setDiscountValueReguler(discountReguler.value);
+      localStorage.setItem('discountTypeReguler', discountReguler.type);
+      localStorage.setItem('discountValueReguler', discountReguler.value.toString());
+    }
+
+    if (discountKaryawan) {
+      setDiscountTypeKaryawan(discountKaryawan.type);
+      setDiscountValueKaryawan(discountKaryawan.value);
+      localStorage.setItem('discountTypeKaryawan', discountKaryawan.type);
+      localStorage.setItem('discountValueKaryawan', discountKaryawan.value.toString());
+    }
   };
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(() => {
@@ -794,18 +1598,28 @@ export default function App() {
 
   const [financialTransactions, setFinancialTransactions] = useState<any[]>(() => {
     const saved = localStorage.getItem('financialTransactions');
+
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+
+        if (Array.isArray(parsed)) {
+          const dummyIds = new Set([
+            'TX-1001',
+            'TX-1002',
+            'TX-1003',
+            'TX-1004',
+            'TX-1005'
+          ]);
+
+          const cleaned = parsed.filter((tx: any) => !dummyIds.has(tx.id));
+          localStorage.setItem('financialTransactions', JSON.stringify(cleaned));
+          return cleaned;
+        }
       } catch (e) {}
     }
-    return [
-      { id: 'TX-1001', studentName: 'Fajar Pratama', type: 'SPP Bulan Mei', amount: 150000, method: 'Transfer Virtual Account BCA', date: '2026-05-10', status: 'Lunas' },
-      { id: 'TX-1002', studentName: 'Budi Santoso', type: 'Pendaftaran Paket B', amount: 300000, method: 'QRIS Instan', date: '2026-05-12', status: 'Lunas' },
-      { id: 'TX-1003', studentName: 'Siti Rahma', type: 'Pendaftaran Paket C', amount: 500000, method: 'Transfer Virtual Account Mandiri', date: '2026-06-01', status: 'Menunggu Verifikasi' },
-      { id: 'TX-1004', studentName: 'Rian Hidayat', type: 'SPP Bulan Juni', amount: 250000, method: 'QRIS Instan', date: '2026-06-08', status: 'Lunas' },
-      { id: 'TX-1005', studentName: 'Aditya Perkasa', type: 'Pendaftaran Paket A', amount: 300000, method: 'Transfer Virtual Account BCA', date: '2026-07-10', status: 'Menunggu Verifikasi' }
-    ];
+
+    return [];
   });
 
   const updateTransactions = (txs: any[]) => {
@@ -850,138 +1664,98 @@ export default function App() {
   };
 
   const handleLogin = async () => {
+    const cleanUsername = username.trim();
+
+    if (!cleanUsername || !password) {
+      triggerModal(
+        'Data Belum Lengkap',
+        'Silakan masukkan username dan password.',
+        'warning'
+      );
+      return;
+    }
+
     setIsLoggingIn(true);
+
     try {
-      // Prioritas Utama: Coba autentikasi menggunakan Django REST API
-      const result = await api.login(username, password);
-      
-      if (result && result.token) {
-        localStorage.setItem('token', result.token);
-        if (result.user) {
-          localStorage.setItem('user', JSON.stringify(result.user));
-          
-          // Adapter untuk memetakan role dari Django ke role frontend ('siswa' | 'guru' | 'admin')
-          const djangoRole = result.user.role?.toLowerCase() || '';
-          let mappedRole: Role = 'siswa';
-          
-          if (djangoRole === 'admin') {
-            mappedRole = 'admin';
-          } else if (djangoRole === 'teacher' || djangoRole === 'guru') {
-            mappedRole = 'guru';
-          } else if (djangoRole === 'student' || djangoRole === 'siswa') {
-            mappedRole = 'siswa';
-          }
-          
-          setRole(mappedRole);
-          setUsername(result.user.nama_lengkap || result.user.username);
-          setScreen('workspace');
-          
-          // Mengatur navigasi awal sesuai dengan hak akses / role
-          if (mappedRole === 'admin') {
-            setActiveTab('dashboardAdmin');
-          } else if (mappedRole === 'guru') {
-            setActiveTab('beranda');
-            setActiveSubTab('dashboardGuru');
-          } else {
-            setActiveTab('beranda');
-          }
-          setIsLoggingIn(false);
-          return; // Login berhasil, keluar dari fungsi
-        }
-      }
-    } catch (apiError) {
-      console.warn('Gagal masuk melalui Django REST API, mencoba menggunakan Fallback Mock Login...', apiError);
-    }
-
-    // Fallback Mock Login jika API Django belum dikonfigurasi / tidak merespon
-    const enteredUsername = username.toLowerCase().trim();
-    let detectedRole: Role = 'siswa';
-    let finalUsername = username;
-    let loginSuccess = false;
-
-    // 1. Cek Admin
-    if (enteredUsername === 'admin' || enteredUsername === 'admin utama' || enteredUsername === 'administrator') {
-      detectedRole = 'admin';
-      finalUsername = 'Admin Utama';
-      loginSuccess = true;
-    }
-
-    // 2. Cek Guru
-    if (!loginSuccess) {
-      const matchedTeacher = teachers.find(t => {
-        const teacherUsername = t.username || t.nama.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
-        const teacherPassword = t.password || '123456';
-        return (enteredUsername === teacherUsername.toLowerCase() || enteredUsername === t.id.toLowerCase() || enteredUsername === t.nip) && 
-               (password === teacherPassword || password === '' || password === '••••••••' || password === '123456');
+      const cleanPassword = password.trim();
+      console.log("LOGIN DEBUG:", {
+        username: cleanUsername,
+        usernameLength: cleanUsername.length,
+        passwordLength: cleanPassword.length
       });
+      const result = await api.login(cleanUsername, cleanPassword);
 
-      if (matchedTeacher) {
-        detectedRole = 'guru';
-        finalUsername = matchedTeacher.nama;
-        loginSuccess = true;
-      } else if (enteredUsername === 'rina' || enteredUsername === 'guru') {
-        detectedRole = 'guru';
-        finalUsername = 'Bu Rina, S.Pd.';
-        loginSuccess = true;
+      if (!result?.token || !result?.user) {
+        throw new Error('Respons login dari server tidak lengkap.');
       }
-    }
 
-    // 3. Cek Siswa
-    if (!loginSuccess) {
-      const matchedStudent = students.find(s => {
-        const studentUsername = s.username || s.nama.split(' ')[0].toLowerCase();
-        const studentPassword = s.password || '123456';
-        return (enteredUsername === studentUsername.toLowerCase() || enteredUsername === s.id.toLowerCase() || enteredUsername === s.nisn) && 
-               (password === studentPassword || password === '' || password === '••••••••' || password === '123456');
-      });
+      const djangoRole = result.user.role?.toLowerCase() || '';
+      let mappedRole: Role;
 
-      if (matchedStudent) {
-        detectedRole = 'siswa';
-        finalUsername = matchedStudent.nama;
-        loginSuccess = true;
-      } else if (enteredUsername === 'fajar' || enteredUsername === 'siswa') {
-        detectedRole = 'siswa';
-        finalUsername = 'Fajar Pratama';
-        loginSuccess = true;
+      if (djangoRole === 'admin') {
+        mappedRole = 'admin';
+      } else if (djangoRole === 'teacher' || djangoRole === 'guru') {
+        mappedRole = 'guru';
+      } else if (djangoRole === 'student' || djangoRole === 'siswa') {
+        mappedRole = 'siswa';
+      } else {
+        throw new Error('Role pengguna tidak dikenali.');
       }
-    }
 
-    if (loginSuccess) {
-      // Save mock data to localStorage too!
-      localStorage.setItem('token', 'mock-token-12345'); // Use a dummy token for mock login!
-      localStorage.setItem('user', JSON.stringify({
-        nama_lengkap: finalUsername,
-        username: finalUsername.toLowerCase().split(' ').join('_'),
-        role: detectedRole
-      }));
+      localStorage.setItem('token', result.token);
+      localStorage.setItem('user', JSON.stringify(result.user));
 
-      setRole(detectedRole);
-      setUsername(finalUsername);
+      setRole(mappedRole);
+      setUsername(result.user.nama_lengkap || result.user.username || cleanUsername);
       setScreen('workspace');
-      if (detectedRole === 'admin') {
+
+      if (mappedRole === 'admin') {
         setActiveTab('dashboardAdmin');
-      } else if (detectedRole === 'guru') {
+      } else if (mappedRole === 'guru') {
         setActiveTab('beranda');
         setActiveSubTab('dashboardGuru');
       } else {
         setActiveTab('beranda');
       }
-    } else {
-      triggerModal('Gagal Masuk', 'Username atau password salah. Silakan periksa kembali kredensial Anda.', 'warning');
+    } catch (error) {
+      console.error('Login Django gagal:', error);
+
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setRole(null);
+
+      triggerModal(
+        'Gagal Masuk',
+        'Username atau password salah, atau server sedang tidak dapat dihubungi. Silakan periksa kembali lalu coba lagi.',
+        'warning'
+      );
+    } finally {
+      setIsLoggingIn(false);
     }
-    setIsLoggingIn(false);
   };
 
   const handleRegisterSuccess = (newUsername: string, newStudent?: Student) => {
     setUsername(newUsername);
-    setPassword('123456');
+    setPassword(newStudent?.password || '');
     setScreen('login');
     
     if (newStudent) {
       setStudents(prev => [...prev, newStudent]);
       
       const isKaryawan = newStudent.tipeKelas === 'Karyawan';
-      const feeAmount = isKaryawan ? regFeeKaryawan : regFeeReguler;
+      const normalFee = isKaryawan ? regFeeKaryawan : regFeeReguler;
+      const discount = isKaryawan ? discountKaryawan : discountReguler;
+
+      let feeAmount = normalFee;
+
+      if (discount?.type === 'DISCOUNT') {
+        feeAmount = Math.round(
+          normalFee - (normalFee * (discount.value || 0) / 100)
+        );
+      } else if (discount?.type === 'SCHOLARSHIP') {
+        feeAmount = 0;
+      }
       const newTxObj = {
         id: `TX-${Date.now().toString().slice(-4)}`,
         studentName: newStudent.nama,
@@ -1006,7 +1780,7 @@ export default function App() {
 
     triggerModal(
       'Pendaftaran Terkirim', 
-      `Daftar kesetaraan berhasil! Berkas Anda sedang menunggu verifikasi admin. Silakan coba masuk ke portal secara berkala menggunakan username: ${newUsername} dan password: 123456.`, 
+      `Pendaftaran berhasil. Berkas Anda sedang menunggu verifikasi admin. Setelah pembayaran diverifikasi dan akun diaktifkan, username dan password login akan tersedia pada halaman Status Pendaftaran.`, 
       'success'
     );
   };
@@ -1184,8 +1958,30 @@ export default function App() {
           </div>
         )}
 
+        {/* HALAMAN STATUS PENDAFTARAN PUBLIK */}
+        {window.location.pathname.startsWith('/status-pendaftaran/') &&
+         regLoading && (
+          <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
+            Memuat status pendaftaran...
+          </div>
+        )}
+
+        {window.location.pathname.startsWith('/status-pendaftaran/') &&
+         !regLoading &&
+         studentReg && (
+          <RegistrationStatusPage
+            registration={studentReg}
+            onRefresh={fetchStudentRegistration}
+            onLogout={() => {
+              localStorage.removeItem('lulus_registration_id');
+              window.location.href = '/';
+            }}
+          />
+        )}
+
         {/* MAIN WORKSPACE SCREEN */}
-        {screen === 'workspace' && (
+        {screen === 'workspace' &&
+         !window.location.pathname.startsWith('/status-pendaftaran/') && (
           <div className="min-h-screen flex flex-col bg-white overflow-y-auto">
             {role === 'siswa' ? (
               <>
@@ -1196,23 +1992,12 @@ export default function App() {
                   if (
                     registration_status === 'MENUNGGU_VERIFIKASI' ||
                     registration_status === 'PERBAIKAN_DOKUMEN' ||
-                    registration_status === 'KLARIFIKASI_DATA'
+                    registration_status === 'KLARIFIKASI_DATA' ||
+                    registration_status === 'DITERIMA' ||
+                    registration_status === 'MENUNGGU_PLOTTING_ROMBEL'
                   ) {
                     return (
                       <RegistrationStatusPage
-                        registration={studentReg}
-                        onRefresh={fetchStudentRegistration}
-                        onLogout={handleLogout}
-                      />
-                    );
-                  }
-
-                  if (
-                    registration_status === 'DITERIMA' &&
-                    payment_status !== 'PAID'
-                  ) {
-                    return (
-                      <PaymentPage
                         registration={studentReg}
                         onRefresh={fetchStudentRegistration}
                         onLogout={handleLogout}
@@ -1238,7 +2023,14 @@ export default function App() {
 
 
                 {/* Student workspace layouts */}
-                {(!studentReg || studentReg.invoice?.payment_status === 'PAID') &&
+                {(
+                  !studentReg ||
+                  (
+                    studentReg.registration_status === 'AKUN_AKTIF' &&
+                    studentReg.invoice?.payment_status === 'PAID' &&
+                    studentReg.biodata?.kelas_plotted === true
+                  )
+                ) &&
                 ['beranda', 'materi', 'tugas', 'cbt', 'nilai', 'pustaka', 'sertifikat', 'pengumuman', 'skk', 'absensi'].includes(activeTab) && (
                   <Dashboard 
                     subjects={subjects}
@@ -1343,6 +2135,9 @@ export default function App() {
                 setNotifications={setNotifications}
                 subjects={subjects}
                 setSubjects={setSubjects}
+                tasks={tasks}
+                taskSubmissions={taskSubmissions}
+                exams={exams}
                 onBackToLogin={() => {
                    localStorage.removeItem('token');
                    localStorage.removeItem('user');

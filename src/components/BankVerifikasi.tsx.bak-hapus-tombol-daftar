@@ -1,0 +1,1082 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  QrCode, Search, Filter, ShieldCheck, ShieldAlert, Award, FileText, 
+  Calendar, User, CheckCircle2, XCircle, Plus, Eye, Check, X, 
+  Download, Trash2, Edit, AlertCircle, RefreshCw, FileSpreadsheet,
+  Layers, Building2, BadgeCheck, HelpCircle, FileCheck2
+} from 'lucide-react';
+import QRCode from 'qrcode';
+import { VerificationDocument, Student, Role } from '../types';
+import { api } from '../lib/api';
+
+interface BankVerifikasiProps {
+  role: Role;
+  students: Student[];
+  loggedInUser: {
+    id: string;
+    nama: string;
+    role: Role;
+  };
+  showModal: (title: string, desc: string, type?: 'info' | 'warning' | 'success') => void;
+}
+
+function DocumentQRCodeMini({ code, size = 42 }: { code: string; size?: number }) {
+  const [qrSrc, setQrSrc] = useState<string>('');
+
+  useEffect(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id';
+    const url = `${origin}/verifikasi/${code}`;
+    QRCode.toDataURL(url, {
+      margin: 1,
+      width: size * 2,
+      errorCorrectionLevel: 'H',
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff'
+      }
+    })
+      .then(src => setQrSrc(src))
+      .catch(err => console.error('Failed to generate document QR Code', err));
+  }, [code, size]);
+
+  return (
+    <div className="relative p-0.5 bg-white rounded border border-slate-200 shadow-3xs flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+      {qrSrc ? (
+        <img 
+          src={qrSrc} 
+          alt="QR" 
+          className="w-full h-full object-contain"
+        />
+      ) : (
+        <div className="w-full h-full bg-slate-100 animate-pulse rounded" />
+      )}
+    </div>
+  );
+}
+
+export default function BankVerifikasi({ role, students, loggedInUser, showModal }: BankVerifikasiProps) {
+  // --- STATE FOR INSTITUTION ---
+  const [lembagaIdentitas] = useState(() => {
+    const saved = localStorage.getItem('lulus_lembaga_identitas');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { }
+    }
+    return {
+      namaPkbm: 'PKBM Agrabinta Lulus.id',
+      namaYayasan: 'Yayasan Pendidikan Agrabinta Sukabumi',
+      npsn: 'P9961234',
+      namaKepalaSekolah: 'Drs. H. Mulyadi, M.Pd.',
+      tandaTanganKepalaSekolah: 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan',
+      namaPejabatTtd: 'Drs. H. Mulyadi, M.Pd.',
+      jabatanPejabatTtd: 'Kepala PKBM'
+    };
+  });
+
+  // --- STATE PERSISTENCE ---
+  const [verifiedDocs, setVerifiedDocs] = useState<VerificationDocument[]>([]);
+  const [viewState, setViewState] = useState<'list' | 'add'>('list');
+  
+  // Filtering & Searching
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all'); // all, valid, invalid
+  const [filterYear, setFilterYear] = useState('all');
+
+  // Detail Modal
+  const [selectedDoc, setSelectedDoc] = useState<VerificationDocument | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [largeQRCodeSrc, setLargeQRCodeSrc] = useState('');
+
+  // Form States for Registering New Document
+  const [formStudentId, setFormStudentId] = useState('');
+  const [formStudentName, setFormStudentName] = useState('');
+  const [formNisn, setFormNisn] = useState('');
+  const [formProgram, setFormProgram] = useState('Paket C');
+  const [formKelas, setFormKelas] = useState('');
+  const [formDocType, setFormDocType] = useState('Sertifikat');
+  const [formDocNumber, setFormDocNumber] = useState('');
+  const [formIssueDate, setFormIssueDate] = useState(new Date().toISOString().split('T')[0]);
+  const [formSignerName, setFormSignerName] = useState(lembagaIdentitas.namaPejabatTtd || lembagaIdentitas.namaKepalaSekolah);
+  const [formSignerRole, setFormSignerRole] = useState(lembagaIdentitas.jabatanPejabatTtd || 'Kepala PKBM');
+  const [formNotes, setFormNotes] = useState('');
+  const [formCustomDataJson, setFormCustomDataJson] = useState('{\n  "kategori": "Uji Kompetensi",\n  "predikat": "Sangat Baik",\n  "penyelenggara": "PKBM Agrabinta"\n}');
+
+  // Load documents from backend
+  const loadConsolidatedDocuments = async () => {
+    try {
+      const [documents, transcripts] = await Promise.all([
+        api.getAcademicDocuments(),
+        api.getAcademicTranscripts()
+      ]);
+
+      const academicDocs: VerificationDocument[] = (documents || []).map((doc: any) => ({
+        id: String(doc.id),
+        verificationCode: doc.verification_code,
+        documentType:
+          doc.document_type === 'IJAZAH'
+            ? 'Ijazah'
+            : doc.document_type === 'SKL'
+              ? 'SKL'
+              : doc.document_type === 'TRANSKRIP'
+                ? 'Transkrip Nilai'
+                : 'Sertifikat',
+        studentId: String(doc.student),
+        studentName: doc.student_name || doc.student_username || 'Siswa',
+        studentNisn: doc.student_username || '-',
+        studentProgram: '',
+        studentKelas: '',
+        issueDate: doc.issue_date || doc.created_at?.split('T')[0] || '',
+        signerName:
+          lembagaIdentitas.namaPejabatTtd ||
+          lembagaIdentitas.namaKepalaSekolah,
+        signerRole:
+          lembagaIdentitas.jabatanPejabatTtd ||
+          'Kepala PKBM',
+        isValid: doc.status === 'PUBLISHED',
+        snapshotData: {
+          documentNumber: doc.document_number,
+          title: doc.title,
+          fileUrl: doc.file_url,
+          status: doc.status,
+          graduationYear: doc.graduation_year,
+          downloads: doc.downloads_count,
+          views: doc.views_count
+        },
+        createdAt: doc.created_at,
+        notes: doc.verification_notes || ''
+      }));
+
+      const transcriptDocs: VerificationDocument[] = (transcripts || []).map((doc: any) => ({
+        id: `TRANSCRIPT-${doc.id}`,
+        verificationCode: doc.verification_code,
+        documentType: 'Transkrip Nilai',
+        studentId: String(doc.student),
+        studentName: doc.student_name || doc.student_username || 'Siswa',
+        studentNisn: doc.student_username || '-',
+        studentProgram: '',
+        studentKelas: '',
+        issueDate: doc.issue_date || doc.created_at?.split('T')[0] || '',
+        signerName:
+          lembagaIdentitas.namaPejabatTtd ||
+          lembagaIdentitas.namaKepalaSekolah,
+        signerRole:
+          lembagaIdentitas.jabatanPejabatTtd ||
+          'Kepala PKBM',
+        isValid: doc.status === 'PUBLISHED',
+        snapshotData: {
+          documentNumber: doc.document_number,
+          academicYear: doc.academic_year,
+          semester: doc.semester,
+          subjects: doc.subjects,
+          averageScore: doc.average_score,
+          predicate: doc.predicate,
+          status: doc.status
+        },
+        createdAt: doc.created_at,
+        notes: ''
+      }));
+
+      const combined = [...academicDocs, ...transcriptDocs].sort(
+        (a, b) => (b.issueDate || '').localeCompare(a.issueDate || '')
+      );
+
+      setVerifiedDocs(combined);
+    } catch (err) {
+      console.error('Gagal memuat Bank Verifikasi:', err);
+      showModal(
+        'Gagal Memuat Data',
+        'Bank Verifikasi belum berhasil mengambil dokumen dari server.',
+        'warning'
+      );
+    }
+  };
+
+  useEffect(() => {
+    loadConsolidatedDocuments();
+  }, []);
+
+  // --- ACTIONS ---
+
+  // Generate Large QR Code for view
+  const handleOpenQR = (code: string) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id';
+    const url = `${origin}/verifikasi/${code}`;
+    QRCode.toDataURL(url, {
+      margin: 2,
+      width: 320,
+      errorCorrectionLevel: 'H',
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff'
+      }
+    })
+      .then(src => {
+        setLargeQRCodeSrc(src);
+        setShowQRModal(true);
+      })
+      .catch(err => console.error(err));
+  };
+
+  // Toggle validation status (isValid = true/false)
+  const handleToggleValidation = (doc: VerificationDocument) => {
+    if (role !== 'admin') {
+      showModal('Akses Ditolak', 'Hanya Administrator yang memiliki wewenang untuk mencabut atau memulihkan validasi dokumen resmi.', 'warning');
+      return;
+    }
+
+    const currentStatus = doc.isValid;
+    const actionWord = currentStatus ? 'Mencabut' : 'Mengaktifkan';
+    const promptNotes = window.prompt(`Apakah Anda yakin ingin ${actionWord.toLowerCase()} status validasi dokumen dengan kode "${doc.verificationCode}"?\n\nMasukkan alasan atau catatan verifikator:`, doc.notes || '');
+    
+    if (promptNotes === null) return; // User cancelled
+
+    const newIsValid = !currentStatus;
+
+    // Apply change back to the correct storage location
+    if (doc.documentType === 'Formulir PPDB') {
+      // Update student list status (lulus_students)
+      const savedStudents = localStorage.getItem('lulus_students');
+      if (savedStudents) {
+        try {
+          const studentList: Student[] = JSON.parse(savedStudents);
+          const updated = studentList.map(s => {
+            if (s.id === doc.studentId) {
+              const timestamp = new Date();
+              const formattedDate = timestamp.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+              const formattedTime = timestamp.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+              
+              const log = {
+                admin: 'Administrator Lulus.id',
+                tanggal: formattedDate,
+                jam: formattedTime + ' WIB',
+                status: newIsValid ? 'DISETUJUI' : 'DITOLAK',
+                catatan: promptNotes || (newIsValid ? 'Validasi dipulihkan.' : 'Dokumen dinonaktifkan sementara.')
+              };
+
+              return {
+                ...s,
+                status: newIsValid ? 'Aktif' : 'Nonaktif',
+                catatanVerifikasi: promptNotes,
+                riwayatVerifikasi: [log, ...(s.riwayatVerifikasi || [])]
+              };
+            }
+            return s;
+          });
+          localStorage.setItem('lulus_students', JSON.stringify(updated));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    } else {
+      // Update academic library (documentLibrary)
+      const savedDocs = localStorage.getItem('documentLibrary');
+      if (savedDocs) {
+        try {
+          const docsList = JSON.parse(savedDocs);
+          const updated = docsList.map((d: any) => {
+            if (d.id === doc.id || d.verificationCode === doc.verificationCode) {
+              return {
+                ...d,
+                isValid: newIsValid,
+                status: newIsValid ? 'Publish' : 'Dicabut',
+                notes: promptNotes,
+                catatanVerifikasi: promptNotes
+              };
+            }
+            return d;
+          });
+          localStorage.setItem('documentLibrary', JSON.stringify(updated));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    // Refresh display
+    loadConsolidatedDocuments();
+    showModal(
+      'Status Validasi Diperbarui', 
+      `Dokumen "${doc.verificationCode}" berhasil dinyatakan ${newIsValid ? 'VALID & AKTIF' : 'TIDAK VALID / DICABUT'}. Catatan: "${promptNotes || '-'}"`, 
+      'success'
+    );
+  };
+
+  // Delete a verification record completely
+  const handleDeleteRecord = (doc: VerificationDocument) => {
+    if (role !== 'admin') {
+      showModal('Akses Ditolak', 'Hanya Administrator yang memiliki wewenang menghapus arsip digital dari basis data.', 'warning');
+      return;
+    }
+
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus arsip verifikasi dokumen "${doc.verificationCode}" secara permanen?\n\nTindakan ini tidak dapat dibatalkan.`)) {
+      return;
+    }
+
+    if (doc.documentType === 'Formulir PPDB') {
+      showModal('Gagal Menghapus', 'Dokumen PPDB terhubung langsung dengan pendaftaran siswa aktif. Untuk menonaktifkan, silakan gunakan fitur cabut validasi.', 'warning');
+      return;
+    }
+
+    const savedDocs = localStorage.getItem('documentLibrary');
+    if (savedDocs) {
+      try {
+        const docsList = JSON.parse(savedDocs);
+        const filtered = docsList.filter((d: any) => d.id !== doc.id && d.verificationCode !== doc.verificationCode);
+        localStorage.setItem('documentLibrary', JSON.stringify(filtered));
+        
+        loadConsolidatedDocuments();
+        showModal('Berhasil Dihapus', 'Arsip verifikasi dokumen berhasil dihapus secara permanen.', 'success');
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  // Helper to generate new verification code
+  const handleAutoFillDocNumber = () => {
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const year = formIssueDate.split('-')[0] || '2026';
+    let shortCode = 'CRT';
+    if (formDocType === 'Ijazah') shortCode = 'DN-IJZ';
+    else if (formDocType === 'SKL') shortCode = 'SKL-PKBM';
+    else if (formDocType === 'Transkrip Nilai') shortCode = 'TR-NILAI';
+
+    setFormDocNumber(`${shortCode}/${randomNum}/${year}`);
+  };
+
+  // Submit Registration of New Custom Document
+  const handleRegisterNewDoc = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formStudentId || !formDocNumber) {
+      showModal('Formulir Tidak Lengkap', 'Nama Siswa dan Nomor Dokumen wajib diisi.', 'warning');
+      return;
+    }
+
+    let customData = {};
+    try {
+      customData = JSON.parse(formCustomDataJson);
+    } catch (e) {
+      showModal('Format JSON Salah', 'Data tambahan (snapshot) harus berupa format JSON yang valid.', 'warning');
+      return;
+    }
+
+    const studentObj = students.find(s => s.id === formStudentId);
+    const studentName = studentObj ? studentObj.nama : formStudentName || 'Siswa Mandiri';
+    const studentNisn = studentObj ? studentObj.nisn : formNisn || '-';
+    const studentProgram = studentObj ? studentObj.program : formProgram;
+    const studentKelas = studentObj ? studentObj.kelas : formKelas || 'Kelas Kesetaraan';
+
+    // Generate Verification Code
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let randomPart = '';
+    for (let i = 0; i < 6; i++) {
+      randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const year = formIssueDate.split('-')[0] || '2026';
+    let prefix = 'DOC';
+    if (formDocType === 'Ijazah') prefix = 'IJZ';
+    else if (formDocType === 'SKL') prefix = 'SKL';
+    else if (formDocType === 'Transkrip Nilai') prefix = 'TRK';
+    else if (formDocType === 'Sertifikat') prefix = 'CRT';
+    const generatedVerifCode = `${prefix}-${year}-${randomPart}`;
+
+    const newDocObj = {
+      id: `DOC-CUSTOM-${Date.now()}`,
+      studentId: formStudentId,
+      studentName,
+      nisn: studentNisn,
+      program: studentProgram,
+      kelas: studentKelas,
+      tahunLulus: year,
+      documentType: formDocType,
+      documentNumber: formDocNumber,
+      verificationCode: generatedVerifCode,
+      issueDate: formIssueDate,
+      title: `${formDocType} Kesetaraan - ${studentName}`,
+      description: formNotes || `Dokumen verifikasi ${formDocType} resmi siswa.`,
+      file: `${formDocType.toLowerCase().replace(/\s+/g, '_')}_${studentName.toLowerCase().replace(/\s+/g, '_')}.pdf`,
+      thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+      status: 'Publish',
+      isValid: true,
+      notes: formNotes,
+      uploadedBy: loggedInUser.nama || 'Administrator',
+      uploadedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      downloads: 0,
+      views: 0,
+      snapshotData: {
+        documentNumber: formDocNumber,
+        signerName: formSignerName,
+        signerRole: formSignerRole,
+        notes: formNotes,
+        ...customData
+      }
+    };
+
+    // Save to documentLibrary
+    const savedDocs = localStorage.getItem('documentLibrary');
+    let docsList = [];
+    if (savedDocs) {
+      try { docsList = JSON.parse(savedDocs); } catch (e) {}
+    }
+    docsList.unshift(newDocObj);
+    localStorage.setItem('documentLibrary', JSON.stringify(docsList));
+
+    // Refresh list state
+    loadConsolidatedDocuments();
+    showModal('Dokumen Terverifikasi Berhasil', `Dokumen baru resmi terdaftar dengan Kode Verifikasi QR: ${generatedVerifCode}`, 'success');
+    
+    // Reset Form & switch back to list
+    setViewState('list');
+    setFormStudentId('');
+    setFormDocNumber('');
+    setFormNotes('');
+  };
+
+  const handleStudentSelectChange = (id: string) => {
+    setFormStudentId(id);
+    const stud = students.find(s => s.id === id);
+    if (stud) {
+      setFormStudentName(stud.nama);
+      setFormNisn(stud.nisn || '');
+      setFormProgram(stud.program || 'Paket C');
+      setFormKelas(stud.kelas || '');
+    }
+  };
+
+  const handleSimulateExport = () => {
+    showModal(
+      'Mengekspor Arsip Digital...',
+      'Sistem sedang menyaring database verifikasi dokumen PKBM Agrabinta dan memformulasikan ke dalam spreadsheet Excel.',
+      'info'
+    );
+    setTimeout(() => {
+      showModal(
+        'Ekspor Berhasil',
+        `Database Bank Verifikasi Dokumen (${filteredDocs.length} berkas) berhasil diunduh secara lokal.`,
+        'success'
+      );
+    }, 1200);
+  };
+
+  // --- FILTERED SELECTION ---
+  const getFilteredDocs = () => {
+    let result = [...verifiedDocs];
+
+    // Search query
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(d => 
+        d.verificationCode.toLowerCase().includes(q) ||
+        (d.snapshotData?.documentNumber || '').toLowerCase().includes(q) ||
+        d.studentName.toLowerCase().includes(q) ||
+        (d.studentNisn || '').toLowerCase().includes(q) ||
+        d.documentType.toLowerCase().includes(q)
+      );
+    }
+
+    // Filter by type
+    if (filterType !== 'all') {
+      result = result.filter(d => d.documentType === filterType);
+    }
+
+    // Filter by validation status
+    if (filterStatus !== 'all') {
+      const isVal = filterStatus === 'valid';
+      result = result.filter(d => d.isValid === isVal);
+    }
+
+    // Filter by Year
+    if (filterYear !== 'all') {
+      result = result.filter(d => d.issueDate.startsWith(filterYear));
+    }
+
+    return result;
+  };
+
+  const filteredDocs = getFilteredDocs();
+
+  // Stats Counters
+  const totalVerified = verifiedDocs.length;
+  const activeValid = verifiedDocs.filter(d => d.isValid).length;
+  const revokedInvalid = verifiedDocs.filter(d => !d.isValid).length;
+  const totalRapor = verifiedDocs.filter(d => d.documentType === 'E-Rapor').length;
+  const totalPPDB = verifiedDocs.filter(d => d.documentType === 'Formulir PPDB').length;
+  const totalAkademik = totalVerified - totalRapor - totalPPDB;
+
+  return (
+    <div className="flex-1 flex flex-col bg-slate-50 h-full text-[11px] overflow-hidden">
+      
+      {/* 1. TOP HEADER PANEL */}
+      <div className="bg-white px-5 py-3 border-b border-slate-200 shrink-0">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div>
+            <span className="text-[8px] uppercase tracking-widest text-emerald-600 font-extrabold block">Modul Arsip Digital</span>
+            <h1 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5 mt-0.5">
+              <QrCode className="w-4 h-4 text-emerald-600" />
+              Bank Verifikasi Dokumen Resmi
+            </h1>
+            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+              Pusat penyimpanan arsip dan verifikasi keabsahan seluruh sertifikat, ijazah, formulir, dan e-Rapor ber-QR Code Lulus.id.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                loadConsolidatedDocuments();
+                showModal('Sinkronisasi', 'Database verifikasi dokumen berhasil disinkronkan kembali.', 'success');
+              }}
+              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer"
+              title="Sinkronkan Data"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+
+            {role === 'admin' && (
+              <button
+                onClick={() => setViewState(viewState === 'list' ? 'add' : 'list')}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-[9px] flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+              >
+                {viewState === 'list' ? (
+                  <>
+                    <Plus className="w-3 h-3" /> Daftarkan Dokumen Baru
+                  </>
+                ) : (
+                  <>
+                    <Layers className="w-3 h-3" /> Lihat Daftar Arsip
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 2. STATS BENTO ROW (Only visible in list state) */}
+      {viewState === 'list' && (
+        <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 shrink-0">
+          {/* Card 1: Total Verified */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-3xs hover:border-slate-300 transition-all">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Total Arsip QR</span>
+            <h3 className="text-lg font-black text-slate-800 mt-1 leading-none">{totalVerified}</h3>
+            <p className="text-[7.5px] text-slate-400 font-bold mt-1.5">Berkas Terverifikasi</p>
+          </div>
+
+          {/* Card 2: Valid / Aktif */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-3xs hover:border-emerald-200 transition-all relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-8 h-8 bg-emerald-500/5 rounded-full blur-xs -mt-2 -mr-2" />
+            <span className="text-[8px] font-black text-emerald-600 uppercase tracking-wider block">Aktif & Sah</span>
+            <h3 className="text-lg font-black text-emerald-600 mt-1 leading-none">{activeValid}</h3>
+            <p className="text-[7.5px] text-slate-400 font-bold mt-1.5">Lolos Audit Kamera HP</p>
+          </div>
+
+          {/* Card 3: Revoked / Invalid */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-3xs hover:border-rose-200 transition-all relative overflow-hidden">
+            <span className="text-[8px] font-black text-rose-500 uppercase tracking-wider block">Dicabut / Suspended</span>
+            <h3 className="text-lg font-black text-rose-600 mt-1 leading-none">{revokedInvalid}</h3>
+            <p className="text-[7.5px] text-slate-400 font-bold mt-1.5">Validasi Dinonaktifkan</p>
+          </div>
+
+          {/* Card 4: E-Rapor */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-3xs hover:border-slate-300 transition-all">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">E-Rapor QR</span>
+            <h3 className="text-lg font-black text-slate-800 mt-1 leading-none">{totalRapor}</h3>
+            <p className="text-[7.5px] text-slate-400 font-bold mt-1.5">Belajar Siswa Lulus.id</p>
+          </div>
+
+          {/* Card 5: PPDB */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-3xs hover:border-slate-300 transition-all">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Formulir PPDB</span>
+            <h3 className="text-lg font-black text-slate-800 mt-1 leading-none">{totalPPDB}</h3>
+            <p className="text-[7.5px] text-slate-400 font-bold mt-1.5">Pendaftaran Calon Siswa</p>
+          </div>
+
+          {/* Card 6: Academic / Certs */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-3xs hover:border-slate-300 transition-all">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Dokumen & Sertifikat</span>
+            <h3 className="text-lg font-black text-slate-800 mt-1 leading-none">{totalAkademik}</h3>
+            <p className="text-[7.5px] text-slate-400 font-bold mt-1.5">Ijazah, SKL, Piagam</p>
+          </div>
+        </div>
+      )}
+
+      {/* 3. CONTENT AREA */}
+      <div className="flex-1 px-4 pb-4 overflow-hidden flex flex-col">
+        
+        {role === 'guru' && (
+          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-2.5 text-[9px] text-amber-800 font-semibold shrink-0">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <div>
+              <span className="font-extrabold text-amber-950 block uppercase text-[8px] tracking-wide">Akses Monitoring Guru (Read-Only)</span>
+              <p className="font-medium text-amber-800 leading-normal">
+                Sebagai Guru, Anda berwenang memantau keabsahan dan rincian verifikasi dokumen siswa. Otoritas untuk mengubah validasi, mencabut sertifikat, dan mendaftarkan kode QR baru sepenuhnya dibatasi untuk Administrator.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: MAIN DIRECTORY LIST */}
+        {viewState === 'list' && (
+          <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-3xs flex flex-col overflow-hidden">
+            
+            {/* Filter controls row */}
+            <div className="p-3 bg-slate-50/50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                
+                {/* Search control */}
+                <div className="relative w-full md:w-56">
+                  <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Cari Kode QR / Nama Siswa / No Dokumen..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-2.5 py-1.5 text-[9px] font-semibold rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 bg-white placeholder:text-slate-400 text-slate-700"
+                  />
+                </div>
+
+                {/* Document type filter */}
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-3xs"
+                >
+                  <option value="all">Semua Dokumen</option>
+                  <option value="E-Rapor">E-Rapor</option>
+                  <option value="Formulir PPDB">Formulir PPDB</option>
+                  <option value="Ijazah">Ijazah</option>
+                  <option value="SKL">SKL</option>
+                  <option value="Transkrip Nilai">Transkrip Nilai</option>
+                  <option value="Sertifikat">Sertifikat</option>
+                  <option value="Piagam">Piagam</option>
+                  <option value="Surat Keterangan">Surat Keterangan</option>
+                </select>
+
+                {/* Validation status filter */}
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-600 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-3xs"
+                >
+                  <option value="all">Semua Status</option>
+                  <option value="valid">Valid & Aktif</option>
+                  <option value="invalid">Dicabut / Suspended</option>
+                </select>
+
+                {/* Reset filters */}
+                {(searchQuery || filterType !== 'all' || filterStatus !== 'all' || filterYear !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setFilterType('all');
+                      setFilterStatus('all');
+                      setFilterYear('all');
+                    }}
+                    className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-black text-[8px] uppercase tracking-tight transition-colors cursor-pointer"
+                  >
+                    Atur Ulang
+                  </button>
+                )}
+              </div>
+
+              {/* Export button */}
+              <button
+                onClick={handleSimulateExport}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-[9px] flex items-center justify-center gap-1 border border-slate-200 cursor-pointer self-start md:self-auto"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                Ekspor Data XLS
+              </button>
+            </div>
+
+            {/* Document Database list table */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredDocs.length === 0 ? (
+                <div className="h-64 flex flex-col items-center justify-center text-center text-slate-400 space-y-2">
+                  <div className="w-12 h-12 bg-white rounded-full border border-slate-150 flex items-center justify-center shadow-3xs">
+                    <QrCode className="w-5 h-5 text-slate-300" />
+                  </div>
+                  <div className="font-extrabold text-slate-700 text-xs">Arsip verifikasi tidak ditemukan</div>
+                  <div className="text-[9.5px] text-slate-400 font-semibold max-w-xs leading-normal">
+                    Cobalah mengubah parameter pencarian atau saring jenis dokumen yang dicari.
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[8.5px] font-black uppercase tracking-wider">
+                        <th className="px-4 py-2.5 text-center w-12">QR Code</th>
+                        <th className="px-4 py-2.5">Kode Verifikasi</th>
+                        <th className="px-4 py-2.5">Jenis Dokumen</th>
+                        <th className="px-4 py-2.5">Identitas Penerima (Siswa)</th>
+                        <th className="px-4 py-2.5">Tanggal Terbit</th>
+                        <th className="px-4 py-2.5">Pejabat Pengesahan</th>
+                        <th className="px-4 py-2.5 text-center">Status Validasi</th>
+                        <th className="px-4 py-2.5 text-right">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-[9.5px] font-semibold text-slate-600">
+                      {filteredDocs.map((doc) => {
+                        const hasSnapshot = !!doc.snapshotData;
+                        return (
+                          <tr key={doc.id} className="hover:bg-slate-50/40 transition-colors">
+                            
+                            {/* QR Thumbnail */}
+                            <td className="px-4 py-2 text-center">
+                              <button 
+                                onClick={() => handleOpenQR(doc.verificationCode)}
+                                className="hover:scale-105 transition-transform inline-block cursor-pointer focus:outline-none"
+                                title="Perbesar QR Code"
+                              >
+                                <DocumentQRCodeMini code={doc.verificationCode} size={36} />
+                              </button>
+                            </td>
+
+                            {/* Verification Code */}
+                            <td className="px-4 py-2">
+                              <span className="font-black text-slate-800 font-mono text-[10px] block">
+                                {doc.verificationCode}
+                              </span>
+                              <code className="text-[8px] text-slate-400 block font-mono">
+                                No: {doc.snapshotData?.documentNumber || doc.id.substring(0, 12)}
+                              </code>
+                            </td>
+
+                            {/* Document Type */}
+                            <td className="px-4 py-2">
+                              <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase inline-block border ${
+                                doc.documentType === 'E-Rapor' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
+                                doc.documentType === 'Formulir PPDB' ? 'bg-pink-50 text-pink-700 border-pink-100' :
+                                doc.documentType === 'Ijazah' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                                doc.documentType === 'SKL' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                                'bg-slate-100 text-slate-700 border-slate-200'
+                              }`}>
+                                {doc.documentType}
+                              </span>
+                            </td>
+
+                            {/* Student Profile */}
+                            <td className="px-4 py-2">
+                              <span className="font-black text-slate-900 block">{doc.studentName}</span>
+                              <span className="text-[8px] text-slate-400 block font-bold leading-normal">
+                                NISN: {doc.studentNisn || '-'} • {doc.studentProgram || '-'} ({doc.studentKelas || 'Umum'})
+                              </span>
+                            </td>
+
+                            {/* Issue Date */}
+                            <td className="px-4 py-2 text-slate-500 font-mono text-[9px]">
+                              {doc.issueDate}
+                            </td>
+
+                            {/* Authorized Signer */}
+                            <td className="px-4 py-2">
+                              <span className="text-slate-700 block font-bold">{doc.signerName}</span>
+                              <span className="text-[8px] text-slate-400 block font-semibold leading-none">{doc.signerRole}</span>
+                            </td>
+
+                            {/* Validation Status */}
+                            <td className="px-4 py-2 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase inline-flex items-center gap-1 border ${
+                                doc.isValid 
+                                  ? 'bg-emerald-50 text-emerald-600 border-emerald-150'
+                                  : 'bg-rose-50 text-rose-600 border-rose-150'
+                              }`}>
+                                {doc.isValid ? (
+                                  <>
+                                    <span className="w-1 h-1 rounded-full bg-emerald-500"></span>
+                                    Valid & Aktif
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="w-1 h-1 rounded-full bg-rose-500"></span>
+                                    Dicabut
+                                  </>
+                                )}
+                              </span>
+                              {doc.notes && (
+                                <span className="block text-[7px] text-amber-600 font-bold truncate max-w-[120px] mx-auto mt-0.5" title={doc.notes}>
+                                  "{doc.notes}"
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Actions Column */}
+                            <td className="px-4 py-2 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setSelectedDoc(doc);
+                                    setShowDetailModal(true);
+                                  }}
+                                  className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[8.5px] font-black cursor-pointer transition-all flex items-center gap-0.5 border border-slate-200"
+                                  title="Buka Snapshot Data"
+                                >
+                                  <Eye className="w-2.5 h-2.5" /> Snapshot
+                                </button>
+
+                                {role === 'admin' && (
+                                  <>
+                                    <button
+                                      onClick={() => handleToggleValidation(doc)}
+                                      className={`px-2 py-0.5 rounded text-[8.5px] font-black transition-all cursor-pointer flex items-center gap-0.5 ${
+                                        doc.isValid
+                                          ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200'
+                                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200'
+                                      }`}
+                                      title={doc.isValid ? "Mencabut Validasi" : "Pulihkan Validasi"}
+                                    >
+                                      {doc.isValid ? (
+                                        <>
+                                          <X className="w-2.5 h-2.5" /> Cabut
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Check className="w-2.5 h-2.5" /> Sahkan
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleDeleteRecord(doc)}
+                                      className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 border border-slate-100 hover:border-red-100 rounded transition-all cursor-pointer"
+                                      title="Hapus Arsip Permanent"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* VIEW: REGISTER NEW CUSTOM DOCUMENT FORM */}
+
+      </div>
+
+      {/* --- MODAL 1: VIEW DETAIL SNAPSHOT DATA --- */}
+      {showDetailModal && selectedDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs select-none">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden animate-fade-in text-slate-800">
+            
+            {/* Header */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-emerald-600" />
+                <div>
+                  <h4 className="text-xs font-black text-slate-900">Snapshot & Metadata Dokumen Resmi</h4>
+                  <code className="text-[8px] text-slate-400 font-mono">Kode QR: {selectedDoc.verificationCode}</code>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setSelectedDoc(null);
+                  setShowDetailModal(false);
+                }}
+                className="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 overflow-y-auto space-y-4 text-left">
+              
+              {/* Document Status banner */}
+              <div className={`p-4 rounded-2xl border flex items-center gap-3 ${
+                selectedDoc.isValid 
+                  ? 'bg-emerald-50 border-emerald-100 text-emerald-800' 
+                  : 'bg-rose-50 border-rose-100 text-rose-800'
+              }`}>
+                {selectedDoc.isValid ? (
+                  <>
+                    <ShieldCheck className="w-6 h-6 text-emerald-600 shrink-0" />
+                    <div>
+                      <span className="font-extrabold uppercase tracking-wide block text-[10px]">Dokumen Sah & Terverifikasi Aktif</span>
+                      <p className="text-[8.5px] text-emerald-600 font-medium leading-normal mt-0.5">
+                        Dokumen ini dinyatakan sah dan aktif di dalam pangkalan data verifikasi digital Lulus.id.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0" />
+                    <div>
+                      <span className="font-extrabold uppercase tracking-wide block text-[10px]">Dokumen Ditangguhkan / Dicabut</span>
+                      <p className="text-[8.5px] text-rose-600 font-medium leading-normal mt-0.5">
+                        Otorisasi verifikasi dokumen ini ditarik sementara oleh administrator.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Bento details grid */}
+              <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-4 space-y-3">
+                <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-200 pb-1.5">Identitas Arsip Resmi</h5>
+                
+                <div className="grid grid-cols-3 gap-y-2 text-xs font-semibold text-slate-600">
+                  <span className="text-[8.5px] font-extrabold text-slate-400">Jenis Dokumen</span>
+                  <span className="col-span-2 text-slate-800 font-black uppercase text-[9px]">{selectedDoc.documentType}</span>
+
+                  <span className="text-[8.5px] font-extrabold text-slate-400">Nama Penerima</span>
+                  <span className="col-span-2 text-slate-950 font-black">{selectedDoc.studentName}</span>
+
+                  <span className="text-[8.5px] font-extrabold text-slate-400">NISN Siswa</span>
+                  <span className="col-span-2 font-mono text-slate-800">{selectedDoc.studentNisn || '-'}</span>
+
+                  <span className="text-[8.5px] font-extrabold text-slate-400">Program / Kelas</span>
+                  <span className="col-span-2 text-slate-700">{selectedDoc.studentProgram || '-'} ({selectedDoc.studentKelas || 'Umum'})</span>
+
+                  <span className="text-[8.5px] font-extrabold text-slate-400">Nomor Dokumen</span>
+                  <span className="col-span-2 font-mono text-slate-800">{selectedDoc.snapshotData?.documentNumber || '-'}</span>
+
+                  <span className="text-[8.5px] font-extrabold text-slate-400">Tanggal Terbit</span>
+                  <span className="col-span-2 text-slate-700">{selectedDoc.issueDate}</span>
+
+                  <span className="text-[8.5px] font-extrabold text-slate-400">Pejabat Pengesah</span>
+                  <span className="col-span-2 text-slate-800 font-bold">{selectedDoc.signerName} ({selectedDoc.signerRole})</span>
+                </div>
+              </div>
+
+              {/* Snapshot data view based on type */}
+              <div className="space-y-2">
+                <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Snapshot Isi Dokumen</h5>
+                
+                {selectedDoc.documentType === 'E-Rapor' && selectedDoc.snapshotData?.subjects ? (
+                  <div className="border border-slate-200 rounded-2xl p-3.5 space-y-2 bg-white">
+                    <span className="text-[8px] font-black text-indigo-600 uppercase tracking-wide block">Rincian Hasil Belajar Semester</span>
+                    <div className="divide-y divide-slate-100 overflow-hidden">
+                      {selectedDoc.snapshotData.subjects.map((sub: any) => (
+                        <div key={sub.id} className="py-1.5 flex items-center justify-between text-[10px]">
+                          <span className="font-extrabold text-slate-700">{sub.name}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[8.5px] font-semibold text-slate-400">SKK: {sub.bobotSkk}</span>
+                            <span className="font-black text-slate-900 bg-slate-50 px-2 py-0.5 border border-slate-100 rounded">{sub.grade}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : selectedDoc.documentType === 'Formulir PPDB' ? (
+                  <div className="border border-slate-200 rounded-2xl p-4 space-y-3 bg-white text-[9.5px]">
+                    <span className="text-[8px] font-black text-pink-600 uppercase tracking-wide block">Rincian Berkas Pendaftaran Siswa</span>
+                    
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-slate-600 font-semibold">
+                      <div>
+                        <span className="text-[8px] text-slate-400 uppercase block">NIK</span>
+                        <span className="text-slate-800 font-bold">{selectedDoc.snapshotData?.nik || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[8px] text-slate-400 uppercase block">No. KK</span>
+                        <span className="text-slate-800 font-bold">{selectedDoc.snapshotData?.kk || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[8px] text-slate-400 uppercase block">Nama Ibu Kandung</span>
+                        <span className="text-slate-800 font-bold">{selectedDoc.snapshotData?.ibu || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[8px] text-slate-400 uppercase block">Nama Ayah</span>
+                        <span className="text-slate-800 font-bold">{selectedDoc.snapshotData?.ayah || '-'}</span>
+                      </div>
+                      <div className="col-span-2 border-t border-slate-100 pt-2 mt-1">
+                        <span className="text-[8px] text-slate-400 uppercase block">Alamat Domisili</span>
+                        <span className="text-slate-800">{selectedDoc.snapshotData?.alamat || '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-2xl p-4 bg-slate-900 text-emerald-400 font-mono text-[9px] whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(selectedDoc.snapshotData, null, 2)}
+                  </div>
+                )}
+              </div>
+
+              {/* Verifier Notes text */}
+              {selectedDoc.notes && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <span className="text-[8px] font-black text-amber-800 uppercase tracking-wide block">Catatan Verifikator Utama</span>
+                  <p className="text-[9px] text-amber-900 mt-1 font-medium leading-relaxed italic">
+                    "{selectedDoc.notes}"
+                  </p>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex justify-between items-center shrink-0">
+              <span className="text-[7.5px] font-bold text-slate-400">DIKUNCI OLEH SERVER Django ORM</span>
+              <button
+                onClick={() => {
+                  setSelectedDoc(null);
+                  setShowDetailModal(false);
+                }}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[9.5px] font-black uppercase tracking-wider cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 2: EXPANDED QR CODE FOR CAMERA SCANNING --- */}
+      {showQRModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-xs select-none">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 text-center w-full max-w-sm flex flex-col items-center animate-fade-in text-slate-800">
+            
+            <div className="flex justify-between items-center w-full border-b border-slate-100 pb-3 mb-4">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sertifikasi QR Code</span>
+              <button 
+                onClick={() => setShowQRModal(false)}
+                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-4.5 h-4.5" />
+              </button>
+            </div>
+
+            <div className="w-64 h-64 bg-slate-50 border border-slate-100 rounded-3xl p-4 flex items-center justify-center shadow-inner relative">
+              <img src={largeQRCodeSrc} alt="Verified QR Code" className="w-full h-full object-contain" />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="p-1 bg-white rounded-lg border border-slate-200/80 shadow">
+                  <ShieldCheck className="w-6 h-6 text-emerald-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-1">
+              <h4 className="text-xs font-black text-slate-900 uppercase">Pindai Dengan Kamera HP</h4>
+              <p className="text-[10px] text-slate-400 font-semibold max-w-xs leading-relaxed">
+                Arahkan lensa kamera handphone Anda ke QR Code di atas untuk membuka portal verifikasi dokumen resmi Lulus.id PKBM Agrabinta.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowQRModal(false)}
+              className="mt-5 w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer"
+            >
+              Selesai Memindai
+            </button>
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

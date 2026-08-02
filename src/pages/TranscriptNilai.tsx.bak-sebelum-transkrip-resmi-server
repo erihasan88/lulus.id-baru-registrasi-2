@@ -1,0 +1,588 @@
+import React, { useState, useEffect } from 'react';
+import { api } from '../lib/api';
+import { AcademicTranscript, TranscriptSubject } from '../interfaces/academicTranscript';
+import { Student, Subject } from '../types';
+import StudentPerformanceSummary from '../components/StudentPerformanceSummary';
+import TranscriptTable from '../components/TranscriptTable';
+import { 
+  Award, 
+  FileText, 
+  Filter, 
+  Download, 
+  Share2, 
+  Eye, 
+  AlertTriangle, 
+  Sparkles, 
+  CheckCircle,
+  Copy,
+  Check,
+  Send,
+  HelpCircle,
+  Clock
+} from 'lucide-react';
+import PdfViewer from '../components/PdfViewer';
+
+interface TranscriptNilaiProps {
+  students: Student[];
+  subjects: Subject[];
+  loggedInUser: {
+    id: string;
+    nama: string;
+    role: 'siswa' | 'guru' | 'admin';
+  };
+  lembagaIdentitas?: any;
+}
+
+export default function TranscriptNilai({
+  students,
+  subjects,
+  loggedInUser,
+  lembagaIdentitas: propsLembagaIdentitas
+}: TranscriptNilaiProps) {
+  const [transcripts, setTranscripts] = useState<AcademicTranscript[]>([]);
+  const [selectedTranscript, setSelectedTranscript] = useState<AcademicTranscript | null>(null);
+  const [showPdfView, setShowPdfView] = useState<boolean>(false);
+  const [loadingGrades, setLoadingGrades] = useState<boolean>(true);
+  const [gradesError, setGradesError] = useState<string>('');
+
+  // Dynamic fallback for lembagaIdentitas
+  const [lembagaIdentitas, setLembagaIdentitas] = useState<any>(() => {
+    if (propsLembagaIdentitas) return propsLembagaIdentitas;
+    const saved = localStorage.getItem('lulus_lembaga_identitas');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (propsLembagaIdentitas) {
+      setLembagaIdentitas(propsLembagaIdentitas);
+    }
+  }, [propsLembagaIdentitas]);
+
+  
+  // Filter States
+  const [filterSemester, setFilterSemester] = useState<string>('all');
+  const [filterTahunAjaran, setFilterTahunAjaran] = useState<string>('all');
+  const [filterProgram, setFilterProgram] = useState<string>('all');
+
+  // Sharing states
+  const [showShareSuccess, setShowShareSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadStudentGrades = async () => {
+      setLoadingGrades(true);
+      setGradesError('');
+
+      try {
+        // Backend otomatis membatasi siswa hanya pada nilainya sendiri.
+        const rows = await api.getStudentGrades();
+        const gradeRows = Array.isArray(rows) ? rows : [];
+
+        const currentStudent = students.find(
+          (student: any) =>
+            String(student.id) === String(loggedInUser.id) ||
+            String(student.username || '').toLowerCase() ===
+              String(loggedInUser.nama || '').toLowerCase() ||
+            String(student.nama || '').toLowerCase() ===
+              String(loggedInUser.nama || '').toLowerCase()
+        ) as any;
+
+        const grouped = new Map<string, any[]>();
+
+        gradeRows.forEach((grade: any) => {
+          const academicYear =
+            grade.academic_year || 'Belum Ditentukan';
+          const semester =
+            grade.semester || 'Belum Ditentukan';
+          const key = `${academicYear}__${semester}`;
+
+          if (!grouped.has(key)) {
+            grouped.set(key, []);
+          }
+
+          grouped.get(key)!.push(grade);
+        });
+
+        const mappedTranscripts: AcademicTranscript[] =
+          Array.from(grouped.entries()).map(
+            ([key, grades], index) => {
+              const [academicYear, semester] =
+                key.split('__');
+
+              const mappedSubjects: TranscriptSubject[] =
+                grades.map((grade: any) => {
+                  const score = Number(
+                    grade.final_grade || 0
+                  );
+                  const kkm = Number(grade.kkm || 75);
+
+                  return {
+                    id: String(
+                      grade.subject ||
+                      grade.id
+                    ),
+                    name:
+                      grade.subject_name ||
+                      'Mata Pelajaran',
+                    category: 'Mata Pelajaran',
+                    kkm,
+                    score,
+                    status:
+                      score >= kkm
+                        ? 'Lulus'
+                        : 'Perlu Perbaikan',
+                  };
+                });
+
+              const totalScore = mappedSubjects.reduce(
+                (sum, subject) => sum + subject.score,
+                0
+              );
+
+              const averageScore =
+                mappedSubjects.length > 0
+                  ? Number(
+                      (
+                        totalScore /
+                        mappedSubjects.length
+                      ).toFixed(2)
+                    )
+                  : 0;
+
+              const averageKkm =
+                mappedSubjects.length > 0
+                  ? Number(
+                      (
+                        mappedSubjects.reduce(
+                          (sum, subject) =>
+                            sum + subject.kkm,
+                          0
+                        ) / mappedSubjects.length
+                      ).toFixed(2)
+                    )
+                  : 75;
+
+              const predicate =
+                averageScore >= 90
+                  ? 'Sangat Baik'
+                  : averageScore >= 80
+                    ? 'Baik'
+                    : averageScore >= averageKkm
+                      ? 'Cukup'
+                      : 'Perlu Perbaikan';
+
+              const latestUpdated =
+                grades
+                  .map(
+                    (grade: any) =>
+                      grade.updated_at ||
+                      grade.created_at
+                  )
+                  .filter(Boolean)
+                  .sort()
+                  .at(-1) ||
+                new Date().toISOString();
+
+              const program =
+                currentStudent?.program === 'Paket A' ||
+                currentStudent?.program === 'Paket B' ||
+                currentStudent?.program === 'Paket C'
+                  ? currentStudent.program
+                  : 'Paket C';
+
+              return {
+                id: `NILAI-${academicYear}-${semester}-${index}`,
+                studentId: String(
+                  currentStudent?.id ||
+                  loggedInUser.id ||
+                  ''
+                ),
+                studentName:
+                  currentStudent?.nama ||
+                  loggedInUser.nama ||
+                  'Siswa',
+                nisn:
+                  currentStudent?.nisn || '',
+                nipd:
+                  currentStudent?.nipd ||
+                  currentStudent?.no_registrasi ||
+                  currentStudent?.username ||
+                  '',
+                program,
+                kelas:
+                  currentStudent?.kelas ||
+                  currentStudent?.rombel_nama ||
+                  '',
+                tahunAjaran: academicYear,
+                semester,
+                subjects: mappedSubjects,
+                kkm: averageKkm,
+                score: totalScore,
+                status: 'Publish',
+                averageScore,
+                predicate,
+                documentNumber:
+                  `RINGKASAN-NILAI-${academicYear}-${index + 1}`,
+                issueDate:
+                  String(latestUpdated).split('T')[0],
+                verificationCode: '',
+                createdBy: 'Sistem Akademik Lulus.id',
+                createdAt: latestUpdated,
+                updatedAt: latestUpdated,
+              };
+            }
+          );
+
+        if (active) {
+          setTranscripts(mappedTranscripts);
+          setSelectedTranscript(null);
+        }
+      } catch (error: any) {
+        console.error(
+          'Gagal memuat nilai siswa:',
+          error
+        );
+
+        if (active) {
+          setTranscripts([]);
+          setGradesError(
+            error?.message ||
+            'Nilai belum berhasil dimuat dari server.'
+          );
+        }
+      } finally {
+        if (active) {
+          setLoadingGrades(false);
+        }
+      }
+    };
+
+    loadStudentGrades();
+
+    return () => {
+      active = false;
+    };
+  }, [loggedInUser.id, loggedInUser.nama, students]);
+
+  // Retrieve student details
+  const studentDetail: any =
+    students.find(
+      (student: any) =>
+        String(student.id) === String(loggedInUser.id) ||
+        String(student.nama || '').toLowerCase() ===
+          String(loggedInUser.nama || '').toLowerCase()
+    ) || {
+      id: loggedInUser.id || '',
+      nama: loggedInUser.nama || 'Siswa',
+      nisn: '',
+      nipd: '',
+      program: '',
+      kelas: '',
+      tahunAjaran: '',
+    };
+
+  // Find the published transcripts
+  const publishedTranscripts = transcripts.filter(t => t.status === 'Publish');
+
+  // Filter application
+  const filteredTranscripts = publishedTranscripts.filter(t => {
+    if (filterSemester !== 'all' && t.semester !== filterSemester) return false;
+    if (filterTahunAjaran !== 'all' && t.tahunAjaran !== filterTahunAjaran) return false;
+    if (filterProgram !== 'all' && t.program !== filterProgram) return false;
+    return true;
+  });
+
+  // Active view transcript (take first matching or first overall)
+  const activeTranscript = selectedTranscript || filteredTranscripts[0];
+
+  const handleShare = (transcript: AcademicTranscript) => {
+    const url = `https://lulus.id/verifikasi/${transcript.verificationCode}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setShowShareSuccess(transcript.id);
+      setTimeout(() => setShowShareSuccess(null), 3000);
+    });
+  };
+
+  // Extract failing subjects
+  const failingSubjects = activeTranscript 
+    ? activeTranscript.subjects.filter(sub => sub.score < sub.kkm)
+    : [];
+
+  const passedCount = activeTranscript 
+    ? activeTranscript.subjects.filter(sub => sub.score >= sub.kkm).length
+    : 0;
+
+  if (showPdfView && activeTranscript) {
+    return (
+      <PdfViewer 
+        transcript={activeTranscript} 
+        lembagaIdentitas={lembagaIdentitas}
+        onClose={() => setShowPdfView(false)}
+      />
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden text-[11px] h-full">
+      {/* Scrollable Work Area */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 no-scrollbar">
+        
+        {/* Academic Header Info Card */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-150/80 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
+              <FileText className="w-5 h-5 text-pink-600" /> Nilai Akademik Saya
+            </h2>
+            <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+              Ringkasan nilai mata pelajaran yang telah diinput dan divalidasi oleh guru.
+            </p>
+          </div>
+
+          {/* Quick Stats or Program badge */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-3 py-1 bg-pink-50 border border-pink-100 text-pink-700 font-black rounded-full uppercase tracking-wider text-[8.5px]">
+              {studentDetail.program || 'Kesetaraan'}
+            </span>
+            <span className="px-3 py-1 bg-slate-100 border border-slate-200 text-slate-600 font-bold rounded-full font-mono text-[8.5px]">
+              NISN: {studentDetail.nisn || '-'}
+            </span>
+          </div>
+        </div>
+
+        {/* Filters Panel */}
+        <div className="bg-white p-4 rounded-3xl border border-slate-150/80 shadow-xs flex flex-wrap gap-4 items-center">
+          <div className="flex items-center gap-1.5 text-slate-500 font-bold shrink-0">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <span>Saring Dokumen :</span>
+          </div>
+
+          <div className="flex flex-wrap gap-2.5 flex-1">
+            {/* Semester Filter */}
+            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-2xl border border-slate-150">
+              <span className="text-slate-400 font-bold text-[8.5px] uppercase">Semester</span>
+              <select 
+                value={filterSemester} 
+                onChange={(e) => {
+                  setFilterSemester(e.target.value);
+                  setSelectedTranscript(null);
+                }}
+                className="bg-transparent border-none text-slate-700 font-extrabold focus:outline-none focus:ring-0 text-[10.5px] cursor-pointer"
+              >
+                <option value="all">Semua</option>
+                <option value="Semester 1 (Ganjil)">Semester 1 (Ganjil)</option>
+                <option value="Semester 2 (Genap)">Semester 2 (Genap)</option>
+              </select>
+            </div>
+
+            {/* Tahun Ajaran Filter */}
+            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-2xl border border-slate-150">
+              <span className="text-slate-400 font-bold text-[8.5px] uppercase">Tahun Ajaran</span>
+              <select 
+                value={filterTahunAjaran} 
+                onChange={(e) => {
+                  setFilterTahunAjaran(e.target.value);
+                  setSelectedTranscript(null);
+                }}
+                className="bg-transparent border-none text-slate-700 font-extrabold focus:outline-none focus:ring-0 text-[10.5px] cursor-pointer"
+              >
+                <option value="all">Semua</option>
+                <option value="2025/2026">2025/2026</option>
+                <option value="2026/2027">2026/2027</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Work Split Grid */}
+        {loadingGrades ? (
+          <div className="bg-white p-12 rounded-3xl border border-slate-150 text-center">
+            <Clock className="w-7 h-7 text-pink-500 mx-auto mb-3 animate-spin" />
+            <p className="text-xs font-black text-slate-700">
+              Memuat nilai dari server...
+            </p>
+          </div>
+        ) : gradesError ? (
+          <div className="bg-rose-50 p-6 rounded-3xl border border-rose-200 text-center">
+            <AlertTriangle className="w-7 h-7 text-rose-500 mx-auto mb-2" />
+            <p className="text-xs font-black text-rose-700">
+              Gagal Memuat Nilai
+            </p>
+            <p className="text-[10px] text-rose-600 mt-1">
+              {gradesError}
+            </p>
+          </div>
+        ) : filteredTranscripts.length === 0 ? (
+          <div className="bg-white p-12 rounded-3xl border border-slate-150 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto">
+              <HelpCircle className="w-6 h-6" />
+            </div>
+            <h4 className="text-xs font-black text-slate-800">Belum Ada Nilai</h4>
+            <p className="text-[10px] text-slate-400 font-semibold max-w-sm mx-auto leading-relaxed">
+              Guru belum menginput nilai untuk semester dan tahun ajaran yang dipilih.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* Left Side: Performance Summaries & Detail Tables */}
+            <div className="lg:col-span-8 space-y-6">
+              
+              {/* Stats Summary Bento Grid */}
+              <StudentPerformanceSummary 
+                totalSubjects={activeTranscript.subjects.length}
+                passedSubjects={passedCount}
+                failedSubjects={failingSubjects.length}
+                averageScore={activeTranscript.averageScore}
+                predicate={activeTranscript.predicate}
+              />
+
+              {/* Special Remedial Insight Panel (If failing mapels exist) */}
+              {failingSubjects.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 p-5 rounded-3xl space-y-4 shadow-2xs">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-amber-100 text-amber-600 rounded-2xl">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-black text-amber-900 uppercase tracking-wide">Mata Pelajaran yang Perlu Diperbaiki</h4>
+                      <p className="text-[9.5px] text-amber-700/95 font-semibold leading-relaxed">
+                        Berikut adalah daftar modul mata pelajaran yang berada di bawah kriteria KKM kelulusan. Silakan pelajari kembali materi dan lakukan perbaikan nilai sesuai arahan tutor.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
+                    {failingSubjects.map((sub, idx) => (
+                      <div key={sub.id || idx} className="bg-white p-3.5 rounded-2xl border border-amber-100/80 shadow-3xs flex justify-between items-center">
+                        <div className="space-y-1">
+                          <span className="text-[10.5px] font-black text-slate-800 block line-clamp-1">{sub.name}</span>
+                          <div className="flex gap-3 text-[9px] font-bold text-slate-400">
+                            <span>Nilai: <b className="text-rose-500 font-mono">{sub.score}</b></span>
+                            <span>KKM: <b className="text-slate-600 font-mono">{sub.kkm}</b></span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[8px] font-black uppercase text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full block">
+                            Kekurangan: -{sub.kkm - sub.score} Poin
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Grades Table */}
+              <TranscriptTable 
+                subjects={activeTranscript.subjects}
+                role="siswa"
+              />
+            </div>
+
+            {/* Right Side: Identity Profiles & Document PDF Actions */}
+            <div className="lg:col-span-4 space-y-6">
+              
+              {/* Active Transcript Document Card */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-150/80 shadow-xs space-y-4">
+                <div className="border-b border-slate-50 pb-3">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Identitas Akademik Transkrip</span>
+                  <h4 className="text-xs font-black text-slate-900 mt-1 uppercase leading-snug">
+                    {activeTranscript.studentName}
+                  </h4>
+                  <p className="text-[9px] text-slate-400 font-semibold font-mono tracking-wider mt-0.5">
+                    {activeTranscript.documentNumber}
+                  </p>
+                </div>
+
+                 <div className="space-y-3 font-semibold text-[10px] text-slate-600">
+                  <div className="flex justify-between items-center">
+                    <span>Program Belajar</span>
+                    <span className="font-extrabold text-slate-800 uppercase tracking-wide bg-pink-50 text-pink-700 px-2.5 py-0.5 rounded-lg border border-pink-100/60 text-[9px]">
+                      {activeTranscript.program}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Kelas Akademik</span>
+                    <span className="font-extrabold text-slate-800">{activeTranscript.kelas}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Tahun Ajaran</span>
+                    <span className="font-mono text-slate-800 font-bold">{activeTranscript.tahunAjaran}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Semester Terbit</span>
+                    <span className="font-extrabold text-slate-800">{activeTranscript.semester}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-t border-slate-50 pt-3">
+                    <span>Tanggal Terbit</span>
+                    <span className="font-mono text-slate-500">{new Date(activeTranscript.issueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                  </div>
+                </div>
+
+                {/* Main PDF and Printing Action Buttons */}
+                <div className="space-y-2 pt-2">
+                  <button
+                    onClick={() => setShowPdfView(true)}
+                    className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-2xl text-xs font-black shadow-xs hover:shadow transition-all duration-250 cursor-pointer flex items-center justify-center gap-1.5"
+                    type="button"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Lihat Dokumen Resmi & Cetak
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleShare(activeTranscript)}
+                      className="py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl text-slate-700 text-[10.5px] font-black transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      type="button"
+                    >
+                      {showShareSuccess === activeTranscript.id ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <span className="text-emerald-600">Disalin!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Share2 className="w-3.5 h-3.5 text-pink-500" />
+                          Bagikan TTE
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => setShowPdfView(true)}
+                      className="py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl border border-emerald-100 text-[10.5px] font-black transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      type="button"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-600" />
+                      Unduh PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Info Security Tips */}
+              <div className="bg-slate-100/50 p-4 rounded-3xl border border-slate-200/60 text-[9px] text-slate-500 space-y-1.5 leading-relaxed">
+                <p className="font-black text-slate-800 uppercase tracking-wide flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" /> Sinkronisasi Otomatis
+                </p>
+                <p>
+                  Transkrip Nilai Anda dikalkulasi otomatis oleh sistem Lulus.id dari data nilai harian, modul CBT, dan tugas terunggah yang divalidasi oleh dewan tutor PKBM.
+                </p>
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}

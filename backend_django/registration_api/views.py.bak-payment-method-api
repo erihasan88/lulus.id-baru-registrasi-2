@@ -1,0 +1,2153 @@
+from django.contrib.auth import get_user_model
+User = get_user_model()
+import secrets
+import datetime
+import uuid
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from rest_framework.authtoken.models import Token
+from django.utils import timezone
+from django.utils.text import slugify
+from rest_framework import views, status, permissions
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from django.db import models, transaction
+from .models import (
+    Rombel,
+    StudentRegistration,
+    PaymentInvoice,
+    RejectionLog,
+    AcademicYear,
+    Teacher,
+    UserProfile,
+    ProgramBelajar,
+    Fase,
+    MataPelajaran,
+    Announcement,
+    AcademicDocument,
+    AcademicTranscript,
+    StudentGrade,
+    StudentBill,
+    PaymentSetting,
+)
+from .serializers import (
+    StudentRegistrationSerializer,
+    PaymentInvoiceSerializer,
+    RejectionLogSerializer,
+    AcademicYearSerializer,
+    TeacherSerializer,
+    FaseSerializer,
+    MataPelajaranSerializer,
+    RombelSerializer,
+    ProgramBelajarSerializer,
+    AnnouncementSerializer,
+    AcademicDocumentSerializer,
+    AcademicTranscriptSerializer,
+    StudentGradeSerializer,
+    StudentBillSerializer,
+    PaymentSettingSerializer
+)
+
+class CustomLoginView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+
+        user = authenticate(
+            username=username,
+            password=password
+        )
+
+        if not user:
+            return Response(
+                {"detail": "Username atau password salah."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        token, created = Token.objects.get_or_create(user=user)
+
+        try:
+            profile = user.profile
+            role = profile.role
+            nama_lengkap = profile.nama_lengkap
+        except UserProfile.DoesNotExist:
+            role = 'admin' if user.is_staff else 'siswa'
+            nama_lengkap = user.get_full_name() or user.username
+
+        return Response({
+            "token": token.key,
+            "user": {
+                "id": str(user.id),
+                "username": user.username,
+                "email": user.email,
+                "nama_lengkap": nama_lengkap,
+                "role": role
+            }
+        })
+
+
+
+class StudentRegistrationMeView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        registration = StudentRegistration.objects.filter(user=request.user).first()
+        if not registration:
+            return Response({"detail": "Belum ada riwayat pendaftaran."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = StudentRegistrationSerializer(registration)
+        return Response(serializer.data)
+
+    def post(self, request):
+        # Create or update draft
+        registration, created = StudentRegistration.objects.get_or_create(
+            user=request.user,
+            defaults={
+                'program_paket': request.data.get('program_paket', 'Paket C'),
+                'tipe_kelas': request.data.get('tipe_kelas', 'Reguler'),
+                'registration_status': 'DRAFT',
+                'biodata': request.data.get('biodata', {}),
+                'dokumen': request.data.get('dokumen', {})
+            }
+        )
+        if not created:
+            registration.program_paket = request.data.get('program_paket', registration.program_paket)
+            registration.tipe_kelas = request.data.get('tipe_kelas', registration.tipe_kelas)
+            registration.biodata = request.data.get('biodata', registration.biodata)
+            registration.dokumen = request.data.get('dokumen', registration.dokumen)
+            registration.save()
+        
+        serializer = StudentRegistrationSerializer(registration)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class StudentRegistrationSubmitView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        registration = get_object_or_404(StudentRegistration, user=request.user)
+        if registration.registration_status not in ['DRAFT', 'PERBAIKAN_DOKUMEN', 'KLARIFIKASI_DATA']:
+            return Response(
+                {"detail": f"Status pendaftaran saat ini ({registration.registration_status}) tidak dapat disubmit ulang."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate critical documents presence
+        docs = registration.dokumen or {}
+        required_docs = ['foto', 'kk', 'ktp', 'ijazah']
+        missing_docs = [d for d in required_docs if not docs.get(d)]
+        if missing_docs:
+            return Response(
+                {"detail": f"Dokumen wajib belum lengkap: {', '.join(missing_docs)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        registration.registration_status = 'MENUNGGU_VERIFIKASI'
+        registration.save()
+        
+        serializer = StudentRegistrationSerializer(registration)
+        return Response(serializer.data)
+
+
+class PaymentInvoiceMeView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        registration = get_object_or_404(StudentRegistration, user=request.user)
+        invoice = getattr(registration, 'invoice', None)
+        if not invoice:
+            return Response({"detail": "Tagihan pembayaran belum diterbitkan."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = PaymentInvoiceSerializer(invoice)
+        return Response(serializer.data)
+
+
+class PaymentInvoiceUploadProofView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        registration = get_object_or_404(StudentRegistration, user=request.user)
+        invoice = getattr(registration, 'invoice', None)
+        if not invoice:
+            return Response({"detail": "Tagihan pembayaran belum diterbitkan."}, status=status.HTTP_404_NOT_FOUND)
+        
+        bukti = request.data.get('bukti_transfer')
+        metode = request.data.get('metode_pembayaran', 'TRANSFER_MANUAL')
+        if not bukti:
+            return Response({"detail": "File bukti transfer wajib diunggah."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        invoice.bukti_transfer = bukti
+        invoice.metode_pembayaran = metode
+        invoice.payment_status = 'WAITING_CONFIRMATION'
+        invoice.save()
+        
+        serializer = PaymentInvoiceSerializer(invoice)
+        return Response(serializer.data)
+
+
+# ==========================================
+# ADMIN VIEW ENDPOINTS
+# ==========================================
+
+class AdminRegistrationListView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        status_filter = request.query_params.get('status')
+        queryset = StudentRegistration.objects.all().order_by('-created_at')
+        if status_filter:
+            queryset = queryset.filter(registration_status=status_filter)
+        
+        serializer = StudentRegistrationSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+class AdminRegistrationDetailView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request, pk):
+        registration = get_object_or_404(StudentRegistration, pk=pk)
+        serializer = StudentRegistrationSerializer(registration)
+        return Response(serializer.data)
+
+    def patch(self, request, pk):
+        registration = get_object_or_404(StudentRegistration, pk=pk)
+        action = request.data.get('action') # 'ACCEPT' or 'REJECT'
+        
+        if action == 'ACCEPT':
+            registration.registration_status = 'DITERIMA'
+            registration.catatan_admin = request.data.get('catatan_admin', 'Berkas lengkap dan lolos seleksi.')
+            registration.save()
+            
+            # Auto-generate Invoice
+            is_karyawan = registration.tipe_kelas == 'Karyawan'
+            amount = 150000 if is_karyawan else 100000
+            
+            # Generate unique invoice number: INV/YYYY/MM/[RAND_4_DIGIT]
+            now = timezone.now()
+            invoice_num = (
+                f"INV/{now.year}/{now.strftime('%m')}/"
+                f"{str(pk)[:8].upper()}"
+            )
+            
+            PaymentInvoice.objects.update_or_create(
+                registration=registration,
+                defaults={
+                    'invoice_number': invoice_num,
+                    'amount': amount,
+                    'payment_status': 'UNPAID',
+                    'expired_at': now + datetime.timedelta(days=3)
+                }
+            )
+            
+        elif action == 'REJECT':
+            category = request.data.get('category') # 'PERBAIKAN_DOKUMEN', 'KLARIFIKASI_DATA', 'DITOLAK_PERMANEN'
+            reason = request.data.get('reason', 'Ada dokumen yang tidak sesuai.')
+            rejected_fields = request.data.get('rejected_fields', [])
+            
+            if not category:
+                return Response({"detail": "Kategori penolakan wajib disertakan."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Set registration status based on category choice
+            registration.registration_status = category
+            registration.catatan_admin = reason
+            registration.save()
+            
+            # Create rejection log
+            RejectionLog.objects.create(
+                registration=registration,
+                category=category,
+                reason=reason,
+                rejected_fields=rejected_fields,
+                created_by=request.user
+            )
+            
+        else:
+            return Response({"detail": "Aksi tidak dikenal. Gunakan 'ACCEPT' atau 'REJECT'."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = StudentRegistrationSerializer(registration)
+        return Response(serializer.data)
+
+
+class AdminPaymentVerifyView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def patch(self, request, pk):
+        invoice = get_object_or_404(PaymentInvoice, pk=pk)
+        action = request.data.get('action') # 'APPROVE' or 'DECLINE'
+        
+        if action == 'APPROVE':
+            if invoice.payment_status != 'WAITING_CONFIRMATION':
+                return Response(
+                    {"detail": "Pembayaran belum menunggu verifikasi."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            invoice.payment_status = 'PAID'
+            invoice.paid_at = timezone.now()
+            invoice.verified_by = request.user
+            invoice.save()
+
+            registration = invoice.registration
+            registration.registration_status = 'MENUNGGU_PLOTTING_ROMBEL'
+            registration.catatan_admin = (
+                'Pembayaran telah diverifikasi. '
+                'Menunggu plotting rombel.'
+            )
+            registration.save(
+                update_fields=[
+                    'registration_status',
+                    'catatan_admin',
+                    'updated_at'
+                ]
+            )
+
+            # Akun belum aktif dan belum dibuatkan password final.
+            registration.user.is_active = False
+            registration.user.save(update_fields=['is_active'])
+
+        elif action == 'DECLINE':
+            invoice.payment_status = 'UNPAID'
+            invoice.bukti_transfer = None
+            invoice.paid_at = None
+            invoice.verified_by = None
+            invoice.save()
+        else:
+            return Response({"detail": "Aksi tidak dikenal. Gunakan 'APPROVE' atau 'DECLINE'."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        serializer = PaymentInvoiceSerializer(invoice)
+        return Response(serializer.data)
+
+
+# ==========================================
+# DASHBOARD SUMMARY ENDPOINT
+# ==========================================
+
+class DashboardSummaryView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        total_registrations = StudentRegistration.objects.count()
+
+        pending = StudentRegistration.objects.filter(
+            registration_status='MENUNGGU_VERIFIKASI'
+        ).count()
+
+        diterima = StudentRegistration.objects.filter(
+            registration_status='DITERIMA'
+        ).count()
+
+        total_invoice = PaymentInvoice.objects.count()
+
+        lunas = PaymentInvoice.objects.filter(
+            payment_status='PAID'
+        ).count()
+
+        return Response({
+            "total_pendaftaran": total_registrations,
+            "menunggu_verifikasi": pending,
+            "diterima": diterima,
+            "total_tagihan": total_invoice,
+            "pembayaran_lunas": lunas
+        })
+
+
+# ==========================================
+# ADMIN SISWA ENDPOINT
+# ==========================================
+
+class AdminSiswaListView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        registrations = StudentRegistration.objects.filter(
+            registration_status='AKUN_AKTIF',
+            invoice__payment_status='PAID',
+            user__is_active=True
+        ).order_by('-created_at')
+
+        data = []
+
+        for reg in registrations:
+            biodata = reg.biodata or {}
+
+            # Belum masuk Data Siswa sebelum plotting rombel selesai.
+            if not biodata.get('kelas_plotted'):
+                continue
+
+            data.append({
+                "id": str(reg.id),
+                "nama": (
+                    biodata.get("nama_lengkap")
+                    or biodata.get("nama")
+                    or reg.user.username
+                ),
+                "nik": biodata.get("nik", ""),
+                "nisn": biodata.get("nisn", ""),
+                "program": reg.program_paket,
+                "kelas": (
+                    biodata.get("rombel_nama")
+                    or "Belum Ditentukan"
+                ),
+                "tipeKelas": reg.tipe_kelas,
+                "username": reg.user.username,
+                "status": "Aktif",
+
+                "registration_status": reg.registration_status,
+                "email": biodata.get("email") or reg.user.email or "",
+                "tahun_ajaran": biodata.get("tahun_ajaran", ""),
+                "biodata": biodata,
+                "dokumen": reg.dokumen or {},
+                "catatan_admin": reg.catatan_admin or "",
+                "created_at": reg.created_at,
+                "updated_at": reg.updated_at
+            })
+
+        return Response(data)
+
+
+# ==========================================
+# ADMIN TAHUN AJARAN
+# ==========================================
+
+class AcademicYearListView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        years = AcademicYear.objects.all().order_by('-created_at')
+        serializer = AcademicYearSerializer(years, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = AcademicYearSerializer(data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ==========================================
+# ACADEMIC CONTEXT
+# ==========================================
+
+class AcademicContextView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        active_year = AcademicYear.objects.filter(
+            aktif=True
+        ).first()
+
+        if not active_year:
+            return Response({
+                "tahun_ajaran": None,
+                "semester": None
+            })
+
+        return Response({
+            "tahun_ajaran": active_year.nama,
+            "semester": active_year.semester,
+            "tanggal_mulai": active_year.tanggal_mulai,
+            "tanggal_selesai": active_year.tanggal_selesai
+        })
+
+
+# ==========================================
+# ADMIN GURU ENDPOINT
+# ==========================================
+
+class TeacherListView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        teachers = Teacher.objects.all().order_by('-created_at')
+        serializer = TeacherSerializer(teachers, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        data = request.data.copy()
+
+        nama = data.get('nama')
+        nip = data.get('nip', '')
+        mapels = data.get('mapels', [])
+        kelas_list = data.get('kelas_list', [])
+
+        if not nama:
+            return Response(
+                {"detail": "Nama guru wajib diisi"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Generate username otomatis
+        tahun_masuk = int(
+            biodata.get(
+                'tahun_masuk',
+                registration.created_at.year
+            )
+        )
+        tahun_pendek = str(tahun_masuk)[-2:]
+
+        nomor_urut_siswa = int(
+            biodata.get('nomor_urut_siswa') or 0
+        )
+
+        if nomor_urut_siswa <= 0:
+            nomor_urut_terbesar = 0
+
+            for existing in StudentRegistration.objects.filter(
+                created_at__year=tahun_masuk
+            ):
+                existing_biodata = existing.biodata or {}
+                nomor = str(
+                    existing_biodata.get('nomor_urut_siswa', '')
+                ).strip()
+
+                if nomor.isdigit():
+                    nomor_urut_terbesar = max(
+                        nomor_urut_terbesar,
+                        int(nomor)
+                    )
+
+            nomor_urut_siswa = nomor_urut_terbesar + 1
+            biodata['nomor_urut_siswa'] = nomor_urut_siswa
+
+        program_code = {
+            'Paket A': 'A',
+            'Paket B': 'B',
+            'Paket C': 'C',
+        }[registration.program_paket]
+
+        kelas_code = {
+            'Reguler': 'R',
+            'Karyawan': 'K',
+        }[registration.tipe_kelas]
+
+        nomor_registrasi = (
+            f"{program_code}{kelas_code}-"
+            f"{tahun_pendek}-"
+            f"{nomor_urut_siswa:04d}"
+        )
+
+        nipd = (
+            f"{program_code}"
+            f"{tahun_pendek}"
+            f"{nomor_urut_siswa:04d}"
+        )
+
+        username = nipd
+
+        if User.objects.filter(
+            username=username
+        ).exclude(pk=user.pk).exists():
+            return Response(
+                {"detail": "NIPD sudah digunakan akun lain."},
+                status=status.HTTP_409_CONFLICT
+            )
+
+        tanggal_lahir = str(
+            biodata.get('tgl_lahir', '')
+        ).strip()
+
+        try:
+            tanggal_lahir_obj = datetime.datetime.strptime(
+                tanggal_lahir[:10],
+                '%Y-%m-%d'
+            )
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "detail": (
+                        "Tanggal lahir tidak valid. "
+                        "Gunakan format YYYY-MM-DD."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        password = tanggal_lahir_obj.strftime('%d%m%Y')
+
+        biodata['tahun_masuk'] = tahun_masuk
+        biodata['no_registrasi'] = nomor_registrasi
+        biodata['nipd'] = nipd
+
+        user.username = username
+        user.set_password(password)
+        user.is_active = True
+        user.save()
+
+        biodata['kelas_plotted'] = True
+        biodata['rombel_id'] = str(rombel.id)
+        biodata['rombel_nama'] = rombel.nama_rombel
+        biodata['tahun_ajaran_id'] = str(rombel.tahun_ajaran_id)
+        biodata['plotting_at'] = timezone.now().isoformat()
+
+        # Ditampilkan pada halaman Registrasi Berhasil.
+        # Siswa wajib mengganti password setelah login pertama.
+        biodata['password_awal_sementara'] = password
+
+        registration.biodata = biodata
+        registration.registration_status = 'AKUN_AKTIF'
+        registration.catatan_admin = (
+            f'Akun aktif dan ditempatkan pada rombel '
+            f'{rombel.nama_rombel}.'
+        )
+        registration.save()
+
+        return Response({
+            "detail": "Plotting berhasil dan akun siswa telah aktif.",
+            "registration_id": str(registration.id),
+            "nama": nama,
+            "rombel": rombel.nama_rombel,
+            "username": username,
+            "password_awal": password,
+            "status": registration.registration_status
+        })
+
+
+# ==========================================
+# PUBLIC REGISTRATION
+# ==========================================
+
+class PublicRegistrationView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    @transaction.atomic
+    def post(self, request):
+        email = str(request.data.get('email', '')).strip()
+        program_paket = request.data.get('program_paket', 'Paket C')
+        tipe_kelas = request.data.get('tipe_kelas', 'Reguler')
+        biodata = request.data.get('biodata') or {}
+        dokumen = request.data.get('dokumen') or {}
+        registration_fee = request.data.get('registration_fee', 0)
+
+        if program_paket not in ['Paket A', 'Paket B', 'Paket C']:
+            return Response(
+                {"detail": "Program pendidikan tidak valid."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if tipe_kelas not in ['Reguler', 'Karyawan']:
+            return Response(
+                {"detail": "Tipe kelas tidak valid."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        required_docs = ['foto', 'kk', 'ktp', 'ijazah']
+        missing_docs = [
+            key for key in required_docs
+            if not dokumen.get(key)
+        ]
+
+        if missing_docs:
+            return Response(
+                {
+                    "detail": (
+                        "Dokumen wajib belum lengkap: "
+                        + ", ".join(missing_docs)
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        tahun_masuk = timezone.localdate().year
+        tahun_pendek = str(tahun_masuk)[-2:]
+
+        program_code = {
+            'Paket A': 'A',
+            'Paket B': 'B',
+            'Paket C': 'C',
+        }[program_paket]
+
+        kelas_code = {
+            'Reguler': 'R',
+            'Karyawan': 'K',
+        }[tipe_kelas]
+
+        nomor_urut_terbesar = 0
+
+        for existing in StudentRegistration.objects.select_for_update().filter(
+            created_at__year=tahun_masuk
+        ):
+            existing_biodata = existing.biodata or {}
+            nomor = str(
+                existing_biodata.get('nomor_urut_siswa', '')
+            ).strip()
+
+            if nomor.isdigit():
+                nomor_urut_terbesar = max(
+                    nomor_urut_terbesar,
+                    int(nomor)
+                )
+
+        nomor_urut_siswa = nomor_urut_terbesar + 1
+
+        nomor_registrasi = (
+            f"{program_code}{kelas_code}-"
+            f"{tahun_pendek}-"
+            f"{nomor_urut_siswa:04d}"
+        )
+
+        biodata['tahun_masuk'] = tahun_masuk
+        biodata['nomor_urut_siswa'] = nomor_urut_siswa
+        biodata['no_registrasi'] = nomor_registrasi
+
+        username = f"pending_{uuid.uuid4().hex[:12]}"
+
+        user = User(
+            username=username,
+            email=email,
+            is_active=False
+        )
+        user.set_unusable_password()
+        user.save()
+
+        nama_lengkap = (
+            biodata.get('nama')
+            or biodata.get('nama_lengkap')
+            or username
+        )
+
+        UserProfile.objects.create(
+            user=user,
+            nama_lengkap=nama_lengkap,
+            role='siswa'
+        )
+
+        registration = StudentRegistration.objects.create(
+            user=user,
+            program_paket=program_paket,
+            tipe_kelas=tipe_kelas,
+            registration_status='MENUNGGU_VERIFIKASI',
+            biodata=biodata,
+            dokumen=dokumen
+        )
+
+        try:
+            amount = int(float(registration_fee or 0))
+        except (TypeError, ValueError):
+            amount = 0
+
+        invoice = None
+
+        if amount > 0:
+            invoice = PaymentInvoice.objects.create(
+                registration=registration,
+                invoice_number=(
+                    f"REG-{timezone.now():%Y%m%d}-"
+                    f"{str(registration.id)[:8].upper()}"
+                ),
+                amount=amount,
+                payment_status='UNPAID',
+                expired_at=timezone.now() + datetime.timedelta(days=1)
+            )
+
+        return Response(
+            {
+                "success": True,
+                "registration": StudentRegistrationSerializer(
+                    registration
+                ).data,
+                "invoice": (
+                    PaymentInvoiceSerializer(invoice).data
+                    if invoice else None
+                )
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class PublicDocumentUploadView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        from django.core.files.storage import default_storage
+        import os
+
+        uploaded_file = request.FILES.get('file')
+
+        if not uploaded_file:
+            return Response(
+                {"detail": "File wajib diunggah."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
+        extension = os.path.splitext(uploaded_file.name)[1].lower()
+
+        if extension not in allowed_extensions:
+            return Response(
+                {"detail": "Format file tidak didukung."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if uploaded_file.size > 5 * 1024 * 1024:
+            return Response(
+                {"detail": "Ukuran file maksimal 5 MB."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        header = uploaded_file.read(12)
+        uploaded_file.seek(0)
+
+        valid_signatures = {
+            '.pdf': lambda data: data.startswith(b'%PDF-'),
+            '.jpg': lambda data: data.startswith(b'\xff\xd8\xff'),
+            '.jpeg': lambda data: data.startswith(b'\xff\xd8\xff'),
+            '.png': lambda data: data.startswith(b'\x89PNG\r\n\x1a\n'),
+        }
+
+        if not valid_signatures[extension](header):
+            return Response(
+                {"detail": "Isi file tidak sesuai dengan format yang dipilih."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        filename = f"documents/{uuid.uuid4().hex}{extension}"
+        saved_path = default_storage.save(filename, uploaded_file)
+
+        return Response({
+            "success": True,
+            "file": {
+                "originalName": uploaded_file.name,
+                "filename": os.path.basename(saved_path),
+                "size": uploaded_file.size,
+                "url": request.build_absolute_uri(
+                    default_storage.url(saved_path)
+                )
+            }
+        })
+
+
+class PublicRegistrationStatusView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request, pk):
+        registration = get_object_or_404(
+            StudentRegistration,
+            pk=pk
+        )
+
+        data = StudentRegistrationSerializer(registration).data
+
+        if registration.registration_status != 'AKUN_AKTIF':
+            data.pop('username', None)
+        else:
+            biodata = registration.biodata or {}
+
+            data['username'] = registration.user.username
+            data['password_awal'] = biodata.get(
+                'password_awal_sementara',
+                ''
+            )
+            data['rombel_nama'] = biodata.get(
+                'rombel_nama',
+                ''
+            )
+            data['nipd'] = biodata.get('nipd', '')
+            data['no_registrasi'] = biodata.get(
+                'no_registrasi',
+                ''
+            )
+            data['status_akun'] = (
+                'AKTIF'
+                if registration.user.is_active
+                else 'NONAKTIF'
+            )
+
+        return Response(data)
+
+
+class PublicPaymentProofView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request, pk):
+        registration = get_object_or_404(
+            StudentRegistration,
+            pk=pk
+        )
+        invoice = getattr(registration, 'invoice', None)
+
+        if registration.registration_status != 'DITERIMA':
+            return Response(
+                {"detail": "Berkas belum diterima oleh admin."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not invoice:
+            return Response(
+                {"detail": "Tagihan belum diterbitkan."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        bukti = request.data.get('bukti_transfer')
+        metode = request.data.get(
+            'metode_pembayaran',
+            'TRANSFER_MANUAL'
+        )
+
+        if not bukti:
+            return Response(
+                {"detail": "Bukti pembayaran wajib diunggah."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        invoice.bukti_transfer = bukti
+        invoice.metode_pembayaran = metode
+        invoice.payment_status = 'WAITING_CONFIRMATION'
+        invoice.save()
+
+        return Response(
+            PaymentInvoiceSerializer(invoice).data
+        )
+
+
+class AdminRegistrationPlotRombelView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    @transaction.atomic
+    def patch(self, request, pk):
+        registration = get_object_or_404(
+            StudentRegistration,
+            pk=pk
+        )
+
+        if registration.registration_status != 'MENUNGGU_PLOTTING_ROMBEL':
+            return Response(
+                {
+                    "detail": (
+                        "Pendaftar belum berada pada tahap "
+                        "menunggu penempatan rombel."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        invoice = getattr(registration, 'invoice', None)
+
+        if not invoice or invoice.payment_status != 'PAID':
+            return Response(
+                {"detail": "Pembayaran belum diverifikasi lunas."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        rombel_id = request.data.get('rombel_id')
+
+        if not rombel_id:
+            return Response(
+                {"detail": "Rombel wajib dipilih."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        rombel = get_object_or_404(
+            Rombel,
+            pk=rombel_id,
+            status='Aktif'
+        )
+
+        if rombel.sistem_belajar != registration.tipe_kelas:
+            return Response(
+                {
+                    "detail": (
+                        f"Rombel ini untuk {rombel.sistem_belajar}, "
+                        f"sedangkan siswa memilih "
+                        f"{registration.tipe_kelas}."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = registration.user
+        biodata = registration.biodata or {}
+
+        tahun_masuk = int(
+            biodata.get(
+                'tahun_masuk',
+                registration.created_at.year
+            )
+        )
+        tahun_pendek = str(tahun_masuk)[-2:]
+
+        nomor_urut_siswa = int(
+            biodata.get('nomor_urut_siswa') or 0
+        )
+
+        if nomor_urut_siswa <= 0:
+            nomor_urut_terbesar = 0
+
+            for existing in StudentRegistration.objects.select_for_update().filter(
+                created_at__year=tahun_masuk
+            ):
+                existing_biodata = existing.biodata or {}
+                nomor = str(
+                    existing_biodata.get(
+                        'nomor_urut_siswa',
+                        ''
+                    )
+                ).strip()
+
+                if nomor.isdigit():
+                    nomor_urut_terbesar = max(
+                        nomor_urut_terbesar,
+                        int(nomor)
+                    )
+
+            nomor_urut_siswa = nomor_urut_terbesar + 1
+
+        program_code = {
+            'Paket A': 'A',
+            'Paket B': 'B',
+            'Paket C': 'C',
+        }[registration.program_paket]
+
+        kelas_code = {
+            'Reguler': 'R',
+            'Karyawan': 'K',
+        }[registration.tipe_kelas]
+
+        nomor_registrasi = (
+            f"{program_code}{kelas_code}-"
+            f"{tahun_pendek}-"
+            f"{nomor_urut_siswa:04d}"
+        )
+
+        nipd = (
+            f"{program_code}"
+            f"{tahun_pendek}"
+            f"{nomor_urut_siswa:04d}"
+        )
+
+        if User.objects.filter(
+            username=nipd
+        ).exclude(pk=user.pk).exists():
+            return Response(
+                {"detail": "NIPD sudah digunakan akun lain."},
+                status=status.HTTP_409_CONFLICT
+            )
+
+        tanggal_lahir = str(
+            biodata.get('tgl_lahir', '')
+        ).strip()
+
+        try:
+            tanggal_lahir_obj = datetime.datetime.strptime(
+                tanggal_lahir[:10],
+                '%Y-%m-%d'
+            )
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "detail": (
+                        "Tanggal lahir tidak valid. "
+                        "Gunakan format YYYY-MM-DD."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        password = tanggal_lahir_obj.strftime('%d%m%Y')
+
+        user.username = nipd
+        user.set_password(password)
+        user.is_active = True
+        user.save()
+
+        biodata['tahun_masuk'] = tahun_masuk
+        biodata['nomor_urut_siswa'] = nomor_urut_siswa
+        biodata['no_registrasi'] = nomor_registrasi
+        biodata['nipd'] = nipd
+        biodata['kelas_plotted'] = True
+        biodata['rombel_id'] = str(rombel.id)
+        biodata['rombel_nama'] = rombel.nama_rombel
+        biodata['tahun_ajaran_id'] = str(
+            rombel.tahun_ajaran_id
+        )
+        biodata['plotting_at'] = timezone.now().isoformat()
+        biodata['password_awal_sementara'] = password
+
+        registration.biodata = biodata
+        registration.registration_status = 'AKUN_AKTIF'
+        registration.catatan_admin = (
+            f'Akun aktif dan ditempatkan pada rombel '
+            f'{rombel.nama_rombel}.'
+        )
+        registration.save()
+
+        return Response({
+            "detail": (
+                "Penempatan rombel berhasil dan akun siswa aktif."
+            ),
+            "registration_id": str(registration.id),
+            "nama": (
+                biodata.get('nama')
+                or biodata.get('nama_lengkap')
+                or nipd
+            ),
+            "rombel": rombel.nama_rombel,
+            "no_registrasi": nomor_registrasi,
+            "nipd": nipd,
+            "username": nipd,
+            "password_awal": password,
+            "status": registration.registration_status
+        })
+
+
+# ==========================================
+# ENDPOINT ADMIN YANG DIPULIHKAN
+# ==========================================
+
+class AdminChangePasswordView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        password_lama = request.data.get('password_lama')
+        password_baru = request.data.get('password_baru')
+
+        if not password_lama or not password_baru:
+            return Response(
+                {
+                    "detail": (
+                        "Password lama dan password baru wajib diisi."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not request.user.check_password(password_lama):
+            return Response(
+                {"detail": "Password lama tidak sesuai."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if password_baru == password_lama:
+            return Response(
+                {
+                    "detail": (
+                        "Password baru tidak boleh sama "
+                        "dengan password lama."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(password_baru) < 8:
+            return Response(
+                {
+                    "detail": (
+                        "Password baru minimal terdiri dari 8 karakter."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        request.user.set_password(password_baru)
+        request.user.save()
+
+        Token.objects.filter(user=request.user).delete()
+
+        return Response({
+            "detail": (
+                "Password admin berhasil diubah. "
+                "Silakan login kembali."
+            )
+        })
+
+
+class FaseListView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        queryset = Fase.objects.all().order_by('nama')
+        return Response(
+            FaseSerializer(queryset, many=True).data
+        )
+
+    def post(self, request):
+        serializer = FaseSerializer(data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class MataPelajaranListView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        queryset = MataPelajaran.objects.all().order_by('nama')
+        return Response(
+            MataPelajaranSerializer(queryset, many=True).data
+        )
+
+    def post(self, request):
+        serializer = MataPelajaranSerializer(data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class MataPelajaranDetailView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_object(self, pk):
+        return get_object_or_404(MataPelajaran, pk=pk)
+
+    def get(self, request, pk):
+        obj = self.get_object(pk)
+        return Response(
+            MataPelajaranSerializer(obj).data
+        )
+
+    def patch(self, request, pk):
+        obj = self.get_object(pk)
+        serializer = MataPelajaranSerializer(
+            obj,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, pk):
+        obj = self.get_object(pk)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RombelListView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        queryset = Rombel.objects.all().order_by('-created_at')
+        return Response(
+            RombelSerializer(queryset, many=True).data
+        )
+
+    def post(self, request):
+        serializer = RombelSerializer(data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class RombelDetailView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_object(self, pk):
+        return get_object_or_404(Rombel, pk=pk)
+
+    def get(self, request, pk):
+        obj = self.get_object(pk)
+        return Response(RombelSerializer(obj).data)
+
+    def patch(self, request, pk):
+        obj = self.get_object(pk)
+        serializer = RombelSerializer(
+            obj,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, pk):
+        obj = self.get_object(pk)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TeacherDetailView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_object(self, pk):
+        return get_object_or_404(Teacher, pk=pk)
+
+    def get(self, request, pk):
+        obj = self.get_object(pk)
+        return Response(TeacherSerializer(obj).data)
+
+    def patch(self, request, pk):
+        obj = self.get_object(pk)
+        serializer = TeacherSerializer(
+            obj,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, pk):
+        obj = self.get_object(pk)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProgramBelajarListView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        queryset = ProgramBelajar.objects.all().order_by(
+            '-created_at'
+        )
+        return Response(
+            ProgramBelajarSerializer(
+                queryset,
+                many=True
+            ).data
+        )
+
+    def post(self, request):
+        serializer = ProgramBelajarSerializer(data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class ProgramBelajarDetailView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_object(self, pk):
+        return get_object_or_404(ProgramBelajar, pk=pk)
+
+    def get(self, request, pk):
+        obj = self.get_object(pk)
+        return Response(
+            ProgramBelajarSerializer(obj).data
+        )
+
+    def patch(self, request, pk):
+        obj = self.get_object(pk)
+        serializer = ProgramBelajarSerializer(
+            obj,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, pk):
+        obj = self.get_object(pk)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PublicRegistrationResubmitView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    @transaction.atomic
+    def post(self, request, pk):
+        registration = get_object_or_404(
+            StudentRegistration,
+            pk=pk
+        )
+
+        allowed_statuses = [
+            'PERBAIKAN_DOKUMEN',
+            'KLARIFIKASI_DATA',
+        ]
+
+        if registration.registration_status not in allowed_statuses:
+            return Response(
+                {
+                    "detail": (
+                        "Pendaftaran ini tidak berada pada tahap "
+                        "perbaikan berkas."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        dokumen_baru = request.data.get('dokumen') or {}
+
+        if not isinstance(dokumen_baru, dict):
+            return Response(
+                {"detail": "Format dokumen tidak valid."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        dokumen_lama = registration.dokumen or {}
+        dokumen_lama.update(dokumen_baru)
+
+        required_docs = ['foto', 'kk', 'ktp', 'ijazah']
+        missing_docs = [
+            item for item in required_docs
+            if not dokumen_lama.get(item)
+        ]
+
+        if missing_docs:
+            return Response(
+                {
+                    "detail": (
+                        "Dokumen wajib belum lengkap: "
+                        + ", ".join(missing_docs)
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        registration.dokumen = dokumen_lama
+        registration.registration_status = 'MENUNGGU_VERIFIKASI'
+        registration.catatan_admin = (
+            'Berkas perbaikan telah dikirim dan menunggu '
+            'pemeriksaan ulang admin.'
+        )
+        registration.save()
+
+        return Response({
+            "success": True,
+            "detail": "Berkas perbaikan berhasil dikirim.",
+            "registration_status": registration.registration_status
+        })
+
+
+class PublicAnnouncementListView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        target = request.query_params.get('target', 'Semua')
+        today = timezone.localdate()
+
+        queryset = Announcement.objects.filter(
+            status='Aktif',
+            tanggal_publikasi__lte=today
+        ).filter(
+            models.Q(tanggal_berakhir__isnull=True)
+            | models.Q(tanggal_berakhir__gte=today)
+        )
+
+        if target == 'Siswa':
+            queryset = queryset.filter(
+                target__in=['Semua', 'Siswa']
+            )
+        elif target == 'Guru':
+            queryset = queryset.filter(
+                target__in=['Semua', 'Guru']
+            )
+
+        return Response(
+            AnnouncementSerializer(
+                queryset,
+                many=True
+            ).data
+        )
+
+
+class AdminAnnouncementListView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        queryset = Announcement.objects.all()
+
+        return Response(
+            AnnouncementSerializer(
+                queryset,
+                many=True
+            ).data
+        )
+
+    def post(self, request):
+        serializer = AnnouncementSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+            serializer.save(
+                created_by=request.user,
+                created_role='admin'
+            )
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class AdminAnnouncementDetailView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_object(self, pk):
+        return get_object_or_404(
+            Announcement,
+            pk=pk
+        )
+
+    def get(self, request, pk):
+        announcement = self.get_object(pk)
+
+        return Response(
+            AnnouncementSerializer(
+                announcement
+            ).data
+        )
+
+    def patch(self, request, pk):
+        announcement = self.get_object(pk)
+
+        serializer = AnnouncementSerializer(
+            announcement,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, pk):
+        announcement = self.get_object(pk)
+        announcement.delete()
+
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+
+# ==========================================
+# API PERPUSTAKAAN
+# ==========================================
+from django.db.models import F
+from .models import LibraryBook
+from .serializers import LibraryBookSerializer
+
+
+class LibraryBookListCreateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        books = (
+            LibraryBook.objects.all()
+            if request.user.is_staff
+            else LibraryBook.objects.filter(status='PUBLISHED')
+        )
+
+        return Response(
+            LibraryBookSerializer(
+                books.order_by('-created_at'),
+                many=True
+            ).data
+        )
+
+    def post(self, request):
+        serializer = LibraryBookSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        is_admin = request.user.is_staff
+
+        book = serializer.save(
+            uploaded_by=request.user,
+            uploaded_role='ADMIN' if is_admin else 'GURU',
+            status='PUBLISHED' if is_admin else 'PENDING',
+            approved_by=request.user if is_admin else None,
+            published_at=timezone.now() if is_admin else None
+        )
+
+        return Response(
+            LibraryBookSerializer(book).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+class LibraryBookDetailView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self, pk):
+        return get_object_or_404(LibraryBook, pk=pk)
+
+    def get(self, request, pk):
+        book = self.get_object(pk)
+
+        if not request.user.is_staff and book.status != 'PUBLISHED':
+            return Response(
+                {'detail': 'Buku belum tersedia.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        LibraryBook.objects.filter(pk=pk).update(
+            views_count=F('views_count') + 1
+        )
+        book.refresh_from_db()
+
+        return Response(LibraryBookSerializer(book).data)
+
+    def patch(self, request, pk):
+        book = self.get_object(pk)
+        is_owner = book.uploaded_by_id == request.user.id
+
+        if not request.user.is_staff and not is_owner:
+            return Response(
+                {'detail': 'Tidak berhak mengubah buku ini.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = LibraryBookSerializer(
+            book,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+
+        if request.user.is_staff:
+            updated = serializer.save()
+        else:
+            updated = serializer.save(
+                status='PENDING',
+                approved_by=None,
+                published_at=None,
+                rejection_reason=''
+            )
+
+        return Response(LibraryBookSerializer(updated).data)
+
+    def delete(self, request, pk):
+        book = self.get_object(pk)
+
+        if not request.user.is_staff:
+            return Response(
+                {'detail': 'Hanya admin yang dapat menghapus buku.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        book.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LibraryBookModerationView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        book = get_object_or_404(LibraryBook, pk=pk)
+
+        action = request.data.get('action')
+        reason = request.data.get('reason', '')
+
+        if action == 'approve':
+            book.status = 'PUBLISHED'
+            book.approved_by = request.user
+            book.published_at = timezone.now()
+            book.rejection_reason = ''
+        elif action == 'reject':
+            book.status = 'REJECTED'
+            book.approved_by = request.user
+            book.rejection_reason = reason
+        elif action == 'archive':
+            book.status = 'ARCHIVED'
+        elif action == 'draft':
+            book.status = 'DRAFT'
+        else:
+            return Response(
+                {'detail': 'Aksi tidak valid.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        book.save()
+        return Response(LibraryBookSerializer(book).data)
+
+
+class LibraryBookDownloadView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        book = get_object_or_404(
+            LibraryBook,
+            pk=pk,
+            status='PUBLISHED'
+        )
+
+        LibraryBook.objects.filter(pk=pk).update(
+            downloads_count=F('downloads_count') + 1
+        )
+        book.refresh_from_db()
+
+        return Response({
+            'url': book.file_url if book.source_type == 'PDF' else book.ebook_url,
+            'downloads_count': book.downloads_count
+        })
+
+
+class AcademicDocumentListCreateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if request.user.is_staff:
+            queryset = AcademicDocument.objects.all()
+        else:
+            queryset = AcademicDocument.objects.filter(
+                student=request.user,
+                status='PUBLISHED'
+            )
+
+        return Response(
+            AcademicDocumentSerializer(queryset, many=True).data
+        )
+
+    def post(self, request):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat membuat dokumen."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        data = request.data.copy()
+        student_ref = data.get('student')
+
+        try:
+            student_user = User.objects.get(pk=student_ref)
+        except Exception:
+            registration = get_object_or_404(
+                StudentRegistration,
+                pk=student_ref
+            )
+            student_user = registration.user
+
+        data['student'] = student_user.pk
+
+        serializer = AcademicDocumentSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(created_by=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AcademicDocumentDetailView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self, request, pk):
+        queryset = AcademicDocument.objects.all()
+
+        if not request.user.is_staff:
+            queryset = queryset.filter(
+                student=request.user,
+                status='PUBLISHED'
+            )
+
+        return get_object_or_404(queryset, pk=pk)
+
+    def get(self, request, pk):
+        document = self.get_object(request, pk)
+
+        document.views_count += 1
+        document.save(update_fields=['views_count'])
+
+        return Response(
+            AcademicDocumentSerializer(document).data
+        )
+
+    def patch(self, request, pk):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat mengubah dokumen."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        document = get_object_or_404(AcademicDocument, pk=pk)
+        serializer = AcademicDocumentSerializer(
+            document,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+
+    def delete(self, request, pk):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat menghapus dokumen."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        document = get_object_or_404(AcademicDocument, pk=pk)
+        document.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AcademicDocumentDownloadView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        queryset = AcademicDocument.objects.all()
+
+        if not request.user.is_staff:
+            queryset = queryset.filter(
+                student=request.user,
+                status='PUBLISHED'
+            )
+
+        document = get_object_or_404(queryset, pk=pk)
+
+        document.downloads_count += 1
+        document.save(update_fields=['downloads_count'])
+
+        return Response({
+            "url": document.file_url,
+            "downloads_count": document.downloads_count
+        })
+
+
+class AcademicTranscriptListCreateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if request.user.is_staff:
+            queryset = AcademicTranscript.objects.all()
+        else:
+            queryset = AcademicTranscript.objects.filter(
+                student=request.user,
+                status='PUBLISHED'
+            )
+
+        return Response(
+            AcademicTranscriptSerializer(queryset, many=True).data
+        )
+
+    def post(self, request):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat membuat transkrip."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        data = request.data.copy()
+        student_ref = data.get('student')
+
+        try:
+            student_user = User.objects.get(pk=student_ref)
+        except Exception:
+            registration = get_object_or_404(
+                StudentRegistration,
+                pk=student_ref
+            )
+            student_user = registration.user
+
+        data['student'] = student_user.pk
+
+        serializer = AcademicTranscriptSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(created_by=request.user)
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AcademicTranscriptDetailView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self, request, pk):
+        queryset = AcademicTranscript.objects.all()
+
+        if not request.user.is_staff:
+            queryset = queryset.filter(
+                student=request.user,
+                status='PUBLISHED'
+            )
+
+        return get_object_or_404(queryset, pk=pk)
+
+    def get(self, request, pk):
+        transcript = self.get_object(request, pk)
+        return Response(
+            AcademicTranscriptSerializer(transcript).data
+        )
+
+    def patch(self, request, pk):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat mengubah transkrip."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        transcript = get_object_or_404(AcademicTranscript, pk=pk)
+
+        serializer = AcademicTranscriptSerializer(
+            transcript,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+
+    def delete(self, request, pk):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat menghapus transkrip."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        transcript = get_object_or_404(AcademicTranscript, pk=pk)
+        transcript.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StudentGradeListCreateView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        queryset = StudentGrade.objects.select_related(
+            'student', 'subject', 'updated_by'
+        )
+
+        if request.user.is_staff:
+            student_id = request.query_params.get('student')
+            academic_year = request.query_params.get('academic_year')
+            semester = request.query_params.get('semester')
+
+            if student_id:
+                queryset = queryset.filter(student_id=student_id)
+            if academic_year:
+                queryset = queryset.filter(academic_year=academic_year)
+            if semester:
+                queryset = queryset.filter(semester=semester)
+        else:
+            queryset = queryset.filter(student=request.user)
+
+        return Response(
+            StudentGradeSerializer(queryset, many=True).data
+        )
+
+    def post(self, request):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin atau guru yang dapat menginput nilai."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        data = request.data.copy()
+        student_ref = data.get('student')
+
+        try:
+            student_user = User.objects.get(pk=student_ref)
+        except Exception:
+            registration = get_object_or_404(
+                StudentRegistration,
+                pk=student_ref
+            )
+            student_user = registration.user
+
+        data['student'] = student_user.pk
+
+        subject_id = data.get('subject')
+        academic_year = data.get('academic_year')
+        semester = data.get('semester')
+
+        existing = StudentGrade.objects.filter(
+            student=student_user,
+            subject_id=subject_id,
+            academic_year=academic_year,
+            semester=semester
+        ).first()
+
+        serializer = StudentGradeSerializer(
+            existing,
+            data=data,
+            partial=bool(existing)
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK if existing else status.HTTP_201_CREATED
+        )
+
+
+class StudentGradeDetailView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin atau guru yang dapat mengubah nilai."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        grade = get_object_or_404(StudentGrade, pk=pk)
+        serializer = StudentGradeSerializer(
+            grade,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+
+        return Response(serializer.data)
+
+    def delete(self, request, pk):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat menghapus nilai."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        grade = get_object_or_404(StudentGrade, pk=pk)
+        grade.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminStudentBillListCreateView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        bills = StudentBill.objects.select_related(
+            'student',
+            'verified_by'
+        ).all()
+
+        serializer = StudentBillSerializer(bills, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = StudentBillSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+class AdminStudentBillVerifyView(views.APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def patch(self, request, pk):
+        bill = get_object_or_404(StudentBill, pk=pk)
+        action = request.data.get('action')
+        reason = request.data.get('reason', '')
+
+        if action == 'APPROVE':
+            if bill.status != 'WAITING_CONFIRMATION':
+                return Response(
+                    {"detail": "Tagihan belum menunggu verifikasi."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            bill.status = 'PAID'
+            bill.paid_at = timezone.now()
+            bill.verified_by = request.user
+            bill.rejection_reason = ''
+
+        elif action == 'DECLINE':
+            bill.status = 'DECLINED'
+            bill.paid_at = None
+            bill.verified_by = request.user
+            bill.rejection_reason = reason
+
+        else:
+            return Response(
+                {"detail": "Gunakan action APPROVE atau DECLINE."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        bill.save()
+
+        return Response(StudentBillSerializer(bill).data)
+
+
+class PaymentSettingView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        setting, _ = PaymentSetting.objects.get_or_create(pk=1)
+        return Response(PaymentSettingSerializer(setting).data)
+
+    def patch(self, request):
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Hanya admin yang dapat mengubah pengaturan biaya."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        setting, _ = PaymentSetting.objects.get_or_create(pk=1)
+        serializer = PaymentSettingSerializer(
+            setting,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+
+        return Response(serializer.data)

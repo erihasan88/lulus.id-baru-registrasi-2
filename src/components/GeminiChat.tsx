@@ -117,25 +117,38 @@ export default function GeminiChat({
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Server error');
+      const responseText = await response.text();
+
+      let data: any = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = {};
       }
 
-      const data = await response.json();
-      
+      if (!response.ok) {
+        throw new Error(
+          'Lulus AI sedang tidak tersedia. Silakan coba kembali nanti.'
+        );
+      }
+
       setChatHistory(prev => [
-        ...prev, 
-        { role: 'model', text: data.text }
+        ...prev,
+        {
+          role: 'model',
+          text:
+            data.text ||
+            'Lulus AI sedang tidak tersedia. Silakan coba kembali nanti.'
+        }
       ]);
     } catch (error: any) {
       console.error('Gemini error:', error);
       setChatHistory(prev => [
         ...prev,
-        { 
-          role: 'model', 
-          text: `Maaf, terjadi kendala saat menghubungi Lulus AI. Hubungi admin atau atur API Key Anda di setelan. Detail: ${error.message}`,
-          isError: true 
+        {
+          role: 'model',
+          text: 'Lulus AI sedang tidak tersedia. Silakan coba kembali nanti.',
+          isError: true
         }
       ]);
     } finally {

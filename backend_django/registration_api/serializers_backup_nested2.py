@@ -1,0 +1,96 @@
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from .models import StudentRegistration, PaymentInvoice, RejectionLog, AcademicYear, Teacher, Fase, MataPelajaran, Rombel
+
+User = get_user_model()
+
+class RejectionLogSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.ReadOnlyField(source='created_by.username')
+
+    class Meta:
+        model = RejectionLog
+        fields = ['id', 'registration', 'category', 'reason', 'rejected_fields', 'created_by_name', 'created_at']
+
+
+class PaymentInvoiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentInvoice
+        fields = [
+            'id', 'registration', 'invoice_number', 'amount', 'payment_status',
+            'metode_pembayaran', 'bukti_transfer', 'expired_at', 'paid_at', 'created_at'
+        ]
+
+
+class StudentRegistrationSerializer(serializers.ModelSerializer):
+    invoice = PaymentInvoiceSerializer(read_only=True)
+    rejection_logs = RejectionLogSerializer(many=True, read_only=True)
+    username = serializers.ReadOnlyField(source='user.username')
+    email = serializers.ReadOnlyField(source='user.email')
+
+    class Meta:
+        model = StudentRegistration
+        fields = [
+            'id', 'username', 'email', 'program_paket', 'tipe_kelas',
+            'registration_status', 'biodata', 'dokumen', 'catatan_admin',
+            'invoice', 'rejection_logs', 'created_at', 'updated_at'
+        ]
+
+
+class AcademicYearSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicYear
+        fields = [
+            'id',
+            'nama',
+            'semester',
+            'tanggal_mulai',
+            'tanggal_selesai',
+            'aktif',
+            'created_at',
+            'updated_at'
+        ]
+
+
+class TeacherSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Teacher
+        fields = [
+            'id',
+            'nama',
+            'nip',
+            'mapels',
+            'kelas_list',
+            'status',
+            'rekening_type',
+            'rekening_nomor',
+            'rekening_nama',
+            'is_wali_kelas',
+            'tanda_tangan',
+            'qr_tanda_tangan',
+            'photo',
+            'created_at',
+            'updated_at'
+        ]
+
+
+
+
+class MataPelajaranSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MataPelajaran
+        fields = '__all__'
+
+
+class FaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Fase
+        fields = '__all__'
+
+
+class RombelSerializer(serializers.ModelSerializer):
+    fase_detail = FaseSerializer(source='fase', read_only=True)
+
+    class Meta:
+        model = Rombel
+        fields = '__all__'
+        extra_fields = ['fase_detail']

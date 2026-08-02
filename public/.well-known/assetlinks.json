@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "click.lulusdigital.twa",
+      "sha256_cert_fingerprints": [
+        "04:EA:EC:CD:04:FB:2F:3C:BF:BB:34:23:9B:43:97:B1:F6:D1:14:98:B2:5E:31:EB:DE:21:98:CD:13:AA:6F:44"
+      ]
+    }
+  }
+]

@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Award, FileText, CheckCircle, GraduationCap, 
   Map, Sparkles, BookOpen, Layers, Users, Calendar, Download, Lock, ShieldAlert,
-  Activity
+  Activity, Eye
 } from 'lucide-react';
 import { Subject, AcademicYear, Student } from '../types';
 import QRCode from 'qrcode';
 import VerificationQRCode from './VerificationQRCode';
+import { api } from '../lib/api';
 
 interface RaporMerdekaProps {
   subjects: Subject[];
@@ -32,7 +33,7 @@ const safeSrc = (src: string) => {
 
 export default function RaporMerdeka({ subjects, onBack, showModal, activeAcademicYear }: RaporMerdekaProps) {
   const [activeSubTab, setActiveSubTab] = useState<'intra' | 'p5'>('intra');
-  const [docStatus, setDocStatus] = useState<'Rapor Semester' | 'Rapor Akhir' | 'Dokumen Kelulusan'>('Rapor Semester');
+  const [docStatus, setDocStatus] = useState<'Rapor Semester' | 'Rapor Akhir'>('Rapor Semester');
 
   const getPredikat = (avg: number) => {
     if (avg >= 90) return 'A (Sangat Baik)';
@@ -71,10 +72,15 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
     return null;
   })();
 
-  const studentName = (userObj?.nama_lengkap || userObj?.username || 'FAJAR PRATAMA').toUpperCase();
-  const studentNisn = userObj?.siswa_detail?.nisn || userObj?.nisn || '0098765432';
-  const studentKelas = userObj?.siswa_detail?.kelas || userObj?.kelas || 'Kelas X - Paket C';
-  const studentId = userObj?.siswa_detail?.id || userObj?.id || 'SIS-1001';
+  const studentName = (userObj?.nama_lengkap || userObj?.username || 'SISWA').toUpperCase();
+  const studentNisn = userObj?.siswa_detail?.nisn || userObj?.nisn || '-';
+  const studentKelas =
+    userObj?.siswa_detail?.kelas ||
+    userObj?.kelas ||
+    userObj?.siswa_detail?.rombel_nama ||
+    userObj?.rombel_nama ||
+    '';
+  const studentId = userObj?.siswa_detail?.id || userObj?.id || '';
 
   const studentProgram = userObj?.siswa_detail?.program || userObj?.program || 'Paket C';
   const studentSistemBelajar = userObj?.siswa_detail?.tipeKelas || userObj?.tipeKelas || userObj?.sistemBelajar || 'Reguler';
@@ -101,7 +107,10 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
     return 'E';
   };
 
-  const studentFase = getFase(studentProgram, studentKelas);
+  const studentFase =
+    userObj?.siswa_detail?.fase ||
+    userObj?.fase ||
+    getFase(studentProgram, studentKelas);
 
   const normalizeClass = (c: string) => {
     let s = (c || '').toLowerCase();
@@ -138,7 +147,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
       if (currentStudent.ayah) return currentStudent.ayah;
       if (currentStudent.ibu) return currentStudent.ibu;
     }
-    return 'Slamet Rahardjo'; // Default fallback
+    return 'Orang Tua/Wali';
   })();
 
   // Resolve Class Object to find Wali Kelas
@@ -175,42 +184,79 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
     return null;
   })();
 
-  const waliKelasName = waliKelas?.nama || 'Bu Rina, S.Pd.';
-  const waliKelasNip = waliKelas?.nip || '198810242015042001';
-  const waliKelasSignature = waliKelas?.tandaTangan || '';
+  const waliKelasName =
+    userObj?.siswa_detail?.wali_kelas ||
+    userObj?.wali_kelas ||
+    'Wali Kelas Belum Ditetapkan';
 
-  // Resolve Institutional Identity
-  const lembagaIdentitas = (() => {
-    try {
-      const saved = localStorage.getItem('lulus_lembaga_identitas');
-      if (saved) {
-        return JSON.parse(saved);
+  const waliKelasNip = '';
+
+  const waliKelasSignature =
+    userObj?.siswa_detail?.wali_kelas_tanda_tangan ||
+    userObj?.siswa_detail?.waliKelasTandaTangan ||
+    userObj?.wali_kelas_tanda_tangan ||
+    userObj?.waliKelasTandaTangan ||
+    '';
+
+  // Identitas resmi lembaga dari server
+  const [lembagaIdentitas, setLembagaIdentitas] = useState<any>({});
+
+  useEffect(() => {
+    let active = true;
+
+    const loadInstitutionSettings = async () => {
+      try {
+        const saved = await api.getInstitutionSettings();
+
+        if (!active || !saved) return;
+
+        setLembagaIdentitas({
+          namaPkbm: saved.nama_pkbm || '',
+          namaYayasan: saved.nama_yayasan || '',
+          npsn: saved.npsn || '',
+          nomorIzinOperasional: saved.nomor_izin_operasional || '',
+          alamat: saved.alamat || '',
+          kecamatan: saved.kecamatan || '',
+          kabupaten: saved.kabupaten || '',
+          provinsi: saved.provinsi || '',
+          kodePos: saved.kode_pos || '',
+          nomorTelepon: saved.nomor_telepon || '',
+          emailLembaga: saved.email_lembaga || '',
+          website: saved.website || '',
+          logoPkbm: saved.logo_pkbm || '',
+          logoYayasan: saved.logo_yayasan || '',
+          atributPengesahanDigital:
+            saved.atribut_pengesahan_digital || '',
+          namaKepalaSekolah:
+            saved.nama_penandatangan ||
+            saved.nama_kepala_sekolah ||
+            '',
+          nuptkKepalaSekolah:
+            saved.nuptk_kepala_sekolah ||
+            saved.nuptk_penandatangan ||
+            saved.nuptk ||
+            saved.nip_kepala_sekolah ||
+            '',
+          namaPejabatTtd:
+            saved.nama_penandatangan ||
+            saved.nama_kepala_sekolah ||
+            '',
+          jabatanPejabatTtd: 'Kepala PKBM'
+        });
+      } catch (error) {
+        console.error(
+          'Gagal memuat identitas lembaga untuk e-Rapor:',
+          error
+        );
       }
-    } catch (e) {}
-    return {
-      namaPkbm: 'PKBM Agrabinta Lulus.id',
-      namaYayasan: 'Yayasan Pendidikan Agrabinta Sukabumi',
-      npsn: 'P9961234',
-      nis: '400120',
-      alamat: 'Jl. Raya Agrabinta No. 45, RT 02/RW 03',
-      kecamatan: 'Agrabinta',
-      kabupaten: 'Cianjur',
-      provinsi: 'Jawa Barat',
-      kodePos: '43273',
-      nomorTelepon: '0263-221144',
-      emailLembaga: 'pkbm@lulus.id',
-      website: 'https://pkbm.lulus.id',
-      logoPkbm: 'https://placehold.co/150x150/00a884/ffffff?text=PKBM',
-      logoYayasan: 'https://placehold.co/150x150/1e3a8a/ffffff?text=YAYASAN',
-      namaKepalaSekolah: 'Drs. H. Mulyadi, M.Pd.',
-      nipKepalaSekolah: '197205121998031002',
-      qrTandaTanganKepalaSekolah: 'https://placehold.co/150x150/ffffff/000000?text=QR+TTE+Kepsek',
-      capStempelDigital: 'https://placehold.co/150x150/e11d48/ffffff?text=CAP+RESMI',
-      tandaTanganKepalaSekolah: 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan',
-      namaPejabatTtd: 'Drs. H. Mulyadi, M.Pd.',
-      jabatanPejabatTtd: 'Kepala PKBM'
     };
-  })();
+
+    loadInstitutionSettings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const formatIndonesianDate = (date: Date) => {
     const months = [
@@ -411,10 +457,10 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
   const resolvedKeaktifanStatus = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.keaktifan.status : keaktifanStatus;
   const resolvedKeaktifanDesc = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.keaktifan.desc : keaktifanDesc;
   const resolvedParentName = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.parentName : parentName;
-  const resolvedWaliKelasName = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.waliKelasName : waliKelasName;
-  const resolvedWaliKelasNip = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.waliKelasNip : waliKelasNip;
-  const resolvedWaliKelasSignature = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.waliKelasSignature : waliKelasSignature;
-  const resolvedLembagaIdentitas = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.lembagaIdentitas : lembagaIdentitas;
+  const resolvedWaliKelasName = waliKelasName;
+  const resolvedWaliKelasNip = '';
+  const resolvedWaliKelasSignature = waliKelasSignature;
+  const resolvedLembagaIdentitas = lembagaIdentitas;
   const inst = resolvedLembagaIdentitas || {};
   const resolvedTanggalPengesahan = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.tanggalPengesahan : tanggalPengesahan;
   const resolvedTempatPengesahan = raporSavedDoc && raporSavedDoc.snapshotData ? raporSavedDoc.snapshotData.pengesahan.tempatPengesahan : tempatPengesahan;
@@ -741,10 +787,10 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
       <tr>
         <td>Tingkat / Kelas</td>
         <td>:</td>
-        <td>${studentKelas}</td>
+        <td>Fase ${studentFase}</td>
         <td>Program Belajar</td>
         <td>:</td>
-        <td>${studentProgram} (${studentSistemBelajar})</td>
+        <td>${studentProgram} • Layanan ${studentSistemBelajar}</td>
       </tr>
     </table>
 
@@ -797,18 +843,20 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
             ${pengesahan.waliKelasSignature ? `<img src="${safeSrc(pengesahan.waliKelasSignature)}" alt="Ttd Wali Kelas">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
           </div>
           <p style="font-weight: bold; text-decoration: underline; margin-top: 15px;">${pengesahan.waliKelasName}</p>
-          <p style="color: #64748b; font-size: 10px;">NIP. ${pengesahan.waliKelasNip}</p>
         </td>
 
         <td class="sig-block">
           <p>Mengetahui,</p>
           <p>${inst.jabatanPejabatTtd || 'Kepala PKBM'}</p>
           <div class="sig-space">
-            ${inst.capStempelDigital ? `<img src="${safeSrc(inst.capStempelDigital)}" alt="Stempel Resmi" style="position: absolute; opacity: 0.55; width: 65px; left: calc(50% - 45px); mix-blend-multiply; z-index: 1;">` : ''}
-            ${inst.tandaTanganKepalaSekolah ? `<img src="${safeSrc(inst.tandaTanganKepalaSekolah)}" alt="Ttd Kepala Sekolah" style="position: relative; z-index: 2;">` : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
+            ${inst.atributPengesahanDigital
+              ? `<img src="${safeSrc(inst.atributPengesahanDigital)}" alt="Atribut Pengesahan Digital Kepala PKBM" style="position: relative; z-index: 2; max-height: 75px; max-width: 180px; object-fit: contain;">`
+              : '<div style="border-bottom: 1px dashed #ccc; width: 120px; margin-top: 40px;"></div>'}
           </div>
           <p style="font-weight: bold; text-decoration: underline; margin-top: 15px;">${inst.namaKepalaSekolah}</p>
-          <p style="color: #64748b; font-size: 10px;">NIP. ${inst.nipKepalaSekolah}</p>
+          ${inst.nuptkKepalaSekolah
+            ? `<p style="color: #64748b; font-size: 10px;">NIP/NUPTK: ${inst.nuptkKepalaSekolah}</p>`
+            : ''}
         </td>
       </tr>
     </table>
@@ -830,6 +878,54 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
 </body>
 </html>
     `;
+  };
+
+  const handlePreview = async () => {
+    const previewWindow = window.open('', '_blank');
+
+    if (!previewWindow) {
+      showModal(
+        'Pratinjau Diblokir',
+        'Izinkan pop-up browser untuk membuka pratinjau rapor.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      previewWindow.document.write(
+        '<p style="font-family:Arial;padding:30px">Menyiapkan pratinjau rapor...</p>'
+      );
+      previewWindow.document.close();
+
+      const verificationUrl =
+        `https://lulus.id/verifikasi/${activeVerificationCode}`;
+
+      const qrCodeDataUrl = await QRCode.toDataURL(
+        verificationUrl,
+        {
+          width: 220,
+          margin: 1,
+          errorCorrectionLevel: 'H'
+        }
+      );
+
+      const htmlContent = generateRaporHtml(qrCodeDataUrl);
+
+      previewWindow.document.open();
+      previewWindow.document.write(htmlContent);
+      previewWindow.document.close();
+      previewWindow.focus();
+    } catch (error) {
+      console.error('Gagal membuat pratinjau e-Rapor:', error);
+      previewWindow.close();
+
+      showModal(
+        'Pratinjau Gagal',
+        'Dokumen belum dapat ditampilkan.',
+        'warning'
+      );
+    }
   };
 
   const handleDownload = async (docName: string) => {
@@ -1099,7 +1195,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
           <h2 className="text-base font-extrabold text-slate-800">E-Rapor Kurikulum Merdeka</h2>
         </div>
         <span className="px-2 py-0.5 text-[8px] font-extrabold bg-purple-100 text-purple-700 rounded-full border border-purple-200 shrink-0">
-          Fase E - Kelas X
+          {studentProgram} • Fase {studentFase}
         </span>
       </div>
 
@@ -1119,7 +1215,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
             <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] font-medium text-emerald-100 pt-1 border-t border-white/20">
               <div>NISN: {studentNisn}</div>
               <div className="text-right">TA: {activeAcademicYear?.nama || '2026/2027'}</div>
-              <div>{inst.namaPkbm} (Kelas {studentKelas})</div>
+              <div>{inst.namaPkbm} • Layanan {studentSistemBelajar}</div>
               <div className="text-right">Semester: {activeAcademicYear?.semester || 'Ganjil'}</div>
             </div>
           </div>
@@ -1128,7 +1224,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
         {/* Status / Tipe Dokumen Selector */}
         <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm space-y-2 shrink-0 select-none">
           <span className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider block">Status / Jenis Dokumen</span>
-          <div className="grid grid-cols-3 gap-2 text-[9.5px] font-extrabold">
+          <div className="grid grid-cols-2 gap-2 text-[9.5px] font-extrabold">
             <button 
               type="button"
               onClick={() => setDocStatus('Rapor Semester')}
@@ -1153,18 +1249,6 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
               <Award className="w-3.5 h-3.5" />
               <span>Rapor Akhir</span>
             </button>
-            <button 
-              type="button"
-              onClick={() => setDocStatus('Dokumen Kelulusan')}
-              className={`py-2 px-1 rounded-xl text-center border transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
-                docStatus === 'Dokumen Kelulusan' 
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 shadow-sm shadow-indigo-500/5' 
-                  : 'bg-slate-50 border-slate-150 text-slate-500 hover:bg-slate-100'
-              }`}
-            >
-              <GraduationCap className="w-3.5 h-3.5" />
-              <span>Kelulusan</span>
-            </button>
           </div>
           <div className="text-[8px] font-semibold text-slate-400 leading-normal pt-1 flex items-center gap-1">
             <CheckCircle className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
@@ -1173,7 +1257,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                 ? 'Format Rapor Semester: Pengesahan oleh Wali Kelas & Orang Tua/Wali saja.'
                 : docStatus === 'Rapor Akhir'
                 ? 'Format Rapor Akhir Tahun: Ditandatangani lengkap termasuk Kepala Sekolah & Stempel Lembaga.'
-                : 'Format Dokumen Kelulusan: Dilengkapi pengesahan Kepala PKBM secara digital.'}
+                : 'Format Rapor Akhir: Dilengkapi pengesahan Kepala PKBM secara digital.'}
             </span>
           </div>
         </div>
@@ -1411,7 +1495,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                 ) : (
                   <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100 text-center flex flex-col justify-center items-center shadow-sm">
                     <span className="text-[8px] font-extrabold text-emerald-600 uppercase">Keputusan Semester</span>
-                    <h4 className="text-[10px] font-black text-emerald-800 mt-1 uppercase">NAIK KELAS XI</h4>
+                    <h4 className="text-[10px] font-black text-emerald-800 mt-1 uppercase">MELANJUTKAN KE SEMESTER BERIKUTNYA</h4>
                     <span className="text-[7px] text-emerald-600/80 font-bold mt-0.5">Tuntas Belajar</span>
                   </div>
                 )}
@@ -1420,7 +1504,7 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
               {hasAgendaWajib && (
                 <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100 text-center flex flex-col justify-center items-center shadow-sm">
                   <span className="text-[8px] font-extrabold text-emerald-600 uppercase">Keputusan Semester</span>
-                  <h4 className="text-[10px] font-black text-emerald-800 mt-1 uppercase">NAIK KELAS XI</h4>
+                  <h4 className="text-[10px] font-black text-emerald-800 mt-1 uppercase">MELANJUTKAN KE SEMESTER BERIKUTNYA</h4>
                   <span className="text-[7px] text-emerald-600/80 font-bold mt-0.5">Tuntas Belajar</span>
                 </div>
               )}
@@ -1447,7 +1531,10 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
 
                 // Match student's program and level
                 const myProgram = userObj?.siswa_detail?.program || userObj?.program || 'Paket C';
-                const myClass = userObj?.siswa_detail?.kelas || userObj?.kelas || 'Kelas X - Paket C';
+                const myClass =
+                  userObj?.siswa_detail?.fase ||
+                  userObj?.fase ||
+                  studentFase;
                 const myClassObj = classes.find((c: any) => c.nama === myClass || c.tingkat === myClass);
 
                 const getSemesterString = (tingkat: string, semesterName: string): string => {
@@ -1586,34 +1673,22 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
               </p>
             </div>
 
-            {/* Project Card */}
-            <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm space-y-2.5">
-              <span className="inline-block text-[8px] px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-extrabold border border-purple-200">
-                Tema: Gaya Hidup Berkelanjutan
-              </span>
-              <h4 className="text-xs font-extrabold text-slate-800 mt-1">Agrabinta Berseri: Pengolahan Sampah Organik PKBM</h4>
-              <p className="text-[9px] leading-relaxed text-slate-500">
-                Projek pengumpulan dan pengolahan limbah sayuran masyarakat sekitar Agrabinta menjadi pupuk cair organik bermutu tinggi.
-              </p>
-              
-              <div className="pt-2.5 border-t border-slate-50 space-y-2">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight block">Dimensi Karakter Terbentuk:</span>
-                <div className="space-y-1.5 text-[9px] font-bold text-slate-700">
-                  <div className="flex justify-between items-center">
-                    <span>1. Bergotong Royong (Kolaborasi)</span>
-                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded font-extrabold text-[8px]">Sangat Berkembang</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>2. Bernalar Kritis (Eksperimentasi)</span>
-                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-extrabold text-[8px]">Sesuai Harapan</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>3. Kreatif (Pengembangan Solusi)</span>
-                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-extrabold text-[8px]">Sesuai Harapan</span>
-                  </div>
+              {/* Empty state P5 sampai data resmi diterbitkan */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center">
+                <div className="w-12 h-12 rounded-2xl bg-purple-50 flex items-center justify-center mx-auto">
+                  <Layers className="w-5 h-5 text-purple-500" />
                 </div>
+
+                <h4 className="text-xs font-black text-slate-800 mt-3">
+                  Belum Ada Data Projek P5
+                </h4>
+
+                <p className="text-[9px] leading-relaxed text-slate-400 font-semibold mt-1 max-w-sm mx-auto">
+                  Data projek akan tampil setelah guru atau administrator
+                  menerbitkan penilaian Projek Penguatan Profil Pelajar
+                  Pancasila untuk peserta didik.
+                </p>
               </div>
-            </div>
           </div>
         )}
 
@@ -1689,9 +1764,6 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                     <div className="text-slate-855 font-black border-b border-dashed border-slate-350 pb-0.5 min-w-[100px]">
                       {waliKelasName}
                     </div>
-                    <div className="text-[7.5px] text-slate-400 font-semibold">
-                      {waliKelasNip ? `NIP. ${waliKelasNip}` : 'NIP. -'}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1762,9 +1834,6 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                     <div className="text-slate-855 font-black border-b border-dashed border-slate-350 pb-0.5 min-w-[100px]">
                       {waliKelasName}
                     </div>
-                    <div className="text-[7.5px] text-slate-400 font-semibold">
-                      {waliKelasNip ? `NIP. ${waliKelasNip}` : 'NIP. -'}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1774,42 +1843,17 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                 <span className="text-slate-400 uppercase tracking-wider text-[8px]">{lembagaIdentitas.jabatanPejabatTtd || 'Kepala Sekolah'}</span>
                 
                 <div className="h-14 flex items-center justify-center relative w-full gap-4">
-                  {/* Digital seal/stamp if available */}
-                  {lembagaIdentitas.capStempelDigital && (
-                    <div className="absolute left-[calc(50%-75px)] h-14 w-14 flex items-center justify-center pointer-events-none opacity-45 mix-blend-multiply z-10">
-                      <img 
-                        src={safeSrc(lembagaIdentitas.capStempelDigital)} 
-                        alt="Cap Stempel Resmi" 
-                        className="h-14 object-contain max-w-[56px]" 
-                        referrerPolicy="no-referrer" 
-                      />
-                    </div>
-                  )}
-
-                  {lembagaIdentitas.tandaTanganKepalaSekolah ? (
-                    <img 
-                      src={safeSrc(lembagaIdentitas.tandaTanganKepalaSekolah)} 
-                      alt="Ttd Kepala Sekolah" 
-                      className="h-14 object-contain max-w-[140px] relative z-20" 
-                      referrerPolicy="no-referrer" 
+                  {lembagaIdentitas.atributPengesahanDigital ? (
+                    <img
+                      src={safeSrc(
+                        lembagaIdentitas.atributPengesahanDigital
+                      )}
+                      alt="Atribut Pengesahan Digital Kepala PKBM"
+                      className="h-14 max-w-[180px] object-contain relative z-20"
+                      referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="h-12 w-32 border-b border-dashed border-slate-200 relative z-20" />
-                  )}
-
-                  {/* QR Code if Kepala Sekolah has it */}
-                  {lembagaIdentitas.qrTandaTanganKepalaSekolah && (
-                    <div className="flex flex-col items-center shrink-0 bg-slate-50 p-1 rounded-md border border-slate-100 shadow-2xs group relative z-20">
-                      <img 
-                        src={lembagaIdentitas.qrTandaTanganKepalaSekolah} 
-                        alt="QR TTE Kepsek" 
-                        className="w-8 h-8 object-contain" 
-                        referrerPolicy="no-referrer" 
-                      />
-                      <span className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 scale-0 group-hover:scale-100 transition-all bg-slate-855 text-white text-[7px] py-0.5 px-1.5 rounded shadow-lg font-semibold whitespace-nowrap z-30">
-                        Scan untuk verifikasi
-                      </span>
-                    </div>
+                    <div className="h-12 w-32 border-b border-dashed border-slate-200" />
                   )}
                 </div>
                 
@@ -1818,7 +1862,9 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
                     {lembagaIdentitas.namaKepalaSekolah}
                   </div>
                   <div className="text-[7.5px] text-slate-400 font-semibold">
-                    {lembagaIdentitas.nipKepalaSekolah ? `NIP. ${lembagaIdentitas.nipKepalaSekolah}` : 'NIP. -'}
+                    {lembagaIdentitas.nuptkKepalaSekolah
+      ? `NIP/NUPTK: ${lembagaIdentitas.nuptkKepalaSekolah}`
+      : ''}
                   </div>
                 </div>
               </div>
@@ -1846,7 +1892,16 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
         </div>
 
         {/* Download Rapor PDF Action Button */}
-        <div className="px-1 pb-4">
+        <div className="px-1 pb-4 space-y-2.5">
+            <button
+              type="button"
+              onClick={handlePreview}
+              className="w-full py-3.5 bg-white hover:bg-indigo-50 text-indigo-600 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-indigo-200 shadow-sm"
+            >
+              <Eye className="w-4 h-4" />
+              <span>Pratinjau {docStatus}</span>
+            </button>
+
           {hasMissingCp ? (
             <button 
               type="button"
@@ -1859,7 +1914,12 @@ export default function RaporMerdeka({ subjects, onBack, showModal, activeAcadem
             </button>
           ) : (
             <button 
-              onClick={() => handleDownload('E-Rapor_Lengkap_Fajar')}
+              onClick={() =>
+                handleDownload(
+                  `E-Rapor_${studentName
+                    .replace(/\s+/g, '_')}_Fase_${studentFase}_${activeSem}_${activeTa.replace('/', '-')}`
+                )
+              }
               className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-500/10"
             >
               <Download className="w-4 h-4" />

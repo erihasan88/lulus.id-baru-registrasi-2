@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, UserCheck, ShieldCheck, Download, GraduationCap, Users, Bookmark, CheckCircle, LogOut, FileText, Camera, Trash2 } from 'lucide-react';
+import { ArrowLeft, UserCheck, ShieldCheck, Download, GraduationCap, Users, Bookmark, CheckCircle, AlertTriangle, LogOut, FileText, Camera, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import FormulirPendaftaranModal from './FormulirPendaftaranModal';
 
@@ -41,47 +41,148 @@ export default function ProfilSiswa({
           localStorage.setItem('user', JSON.stringify(data));
         }
       } catch (e) {
-        console.warn('Gagal memuat profil terbaru dari API Django, menggunakan data lokal/mock.', e);
+        console.warn('Gagal memuat profil terbaru dari API Django. Data cache login digunakan sementara.', e);
       }
     }
     loadProfile();
   }, []);
 
-  const currentStudent = (students && students.find(s => 
-    s.nama === username || 
+  const currentStudent = (students || []).find(s =>
     s.username?.toLowerCase() === username?.toLowerCase() ||
-    s.id === profileData?.id
-  )) || (students && students[0]) || {
-    id: 'SIS-1001',
-    nama: 'Fajar Pratama',
-    dokumen: { foto: '' }
-  };
+    s.nama?.toLowerCase() === username?.toLowerCase() ||
+    String(s.userId || '') === String(profileData?.id || '')
+  ) || null;
 
-  // Map fields dynamically with fallbacks
-  const getField = (pathStr: string, fallback: string) => {
+  // Membaca data profil nyata. Data kosong ditampilkan sebagai "-".
+  const getField = (pathStr: string, fallback = '-') => {
     if (!profileData) return fallback;
+
     const parts = pathStr.split('.');
-    let current = profileData;
+    let current: any = profileData;
+
     for (const part of parts) {
-      if (current === null || current === undefined) return fallback;
+      if (current === null || current === undefined) {
+        return fallback;
+      }
+
       current = current[part];
     }
-    return current !== undefined && current !== null ? String(current) : fallback;
+
+    if (
+      current === undefined ||
+      current === null ||
+      String(current).trim() === ''
+    ) {
+      return fallback;
+    }
+
+    return String(current);
   };
 
-  const namaLengkap = getField('nama_lengkap', getField('username', 'Fajar Pratama')).toUpperCase();
-  const nisn = getField('siswa_detail.nisn', getField('nisn', '0098765432'));
-  const nis = getField('siswa_detail.nis', getField('nis', '2025100039'));
-  const program = getField('siswa_detail.program', getField('program', 'Kesetaraan Paket C'));
-  const kelas = getField('siswa_detail.kelas', getField('kelas', 'X (Sepuluh)'));
-  const nik = getField('siswa_detail.nik', getField('nik', '3201234567890123'));
-  const tglLahir = getField('siswa_detail.tanggal_lahir', '14 April 2008');
-  const tempatLahir = getField('siswa_detail.tempat_lahir', 'Cianjur');
-  const jk = getField('siswa_detail.jenis_kelamin', 'Laki-Laki');
-  const agama = getField('siswa_detail.agama', 'Islam');
-  const namaAyah = getField('siswa_detail.nama_ayah', 'Slamet Rahardjo');
-  const namaIbu = getField('siswa_detail.nama_ibu', 'Siti Aminah');
-  const alamat = getField('siswa_detail.alamat', 'Kp. Agrabinta RT 03 / RW 04, Desa Agrabinta, Cianjur, Jawa Barat');
+  const namaLengkap = (
+    getField(
+      'nama_lengkap',
+      currentStudent?.nama || username || 'Siswa'
+    )
+  ).toUpperCase();
+
+  const nisn = getField(
+    'siswa_detail.nisn',
+    currentStudent?.nisn || getField('nisn')
+  );
+
+  const nis = getField(
+    'siswa_detail.nis',
+    getField('nis')
+  );
+
+  const program = getField(
+    'siswa_detail.program',
+    currentStudent?.program || getField('program')
+  );
+
+  const kelas = getField(
+    'siswa_detail.kelas',
+    currentStudent?.kelas || getField('kelas')
+  );
+
+  const nik = getField(
+    'siswa_detail.nik',
+    currentStudent?.nik || getField('nik')
+  );
+
+  const tglLahir = getField(
+    'siswa_detail.tanggal_lahir',
+    currentStudent?.tglLahir || getField('tanggal_lahir')
+  );
+
+  const tempatLahir = getField(
+    'siswa_detail.tempat_lahir',
+    currentStudent?.tempatLahir || getField('tempat_lahir')
+  );
+
+  const jk = getField(
+    'siswa_detail.jenis_kelamin',
+    currentStudent?.jk || getField('jenis_kelamin')
+  );
+
+  const agama = getField(
+    'siswa_detail.agama',
+    getField('agama')
+  );
+
+  const namaAyah = getField(
+    'siswa_detail.nama_ayah',
+    currentStudent?.ayah || getField('nama_ayah')
+  );
+
+  const namaIbu = getField(
+    'siswa_detail.nama_ibu',
+    currentStudent?.ibu || getField('nama_ibu')
+  );
+
+  const alamat = getField(
+    'siswa_detail.alamat',
+    currentStudent?.alamat || getField('alamat')
+  );
+
+  const pekerjaanAyah = getField(
+    'siswa_detail.pekerjaan_ayah',
+    currentStudent?.pekerjaanAyah || getField('pekerjaan_ayah')
+  );
+
+  const pekerjaanIbu = getField(
+    'siswa_detail.pekerjaan_ibu',
+    currentStudent?.pekerjaanIbu || getField('pekerjaan_ibu')
+  );
+
+  const statusDalamKeluarga = getField(
+    'siswa_detail.status_dalam_keluarga'
+  );
+
+  const anakKe = getField(
+    'siswa_detail.anak_ke'
+  );
+
+  const sekolahAsal = getField(
+    'siswa_detail.sekolah_asal'
+  );
+
+  const tanggalMasuk = getField(
+    'siswa_detail.tanggal_masuk'
+  );
+
+  const waliKelas = getField(
+    'siswa_detail.wali_kelas'
+  );
+
+  const tahunPelajaran = getField(
+    'siswa_detail.tahun_ajaran'
+  );
+
+  const statusSinkronisasi = getField(
+    'siswa_detail.status_sinkronisasi'
+  );
 
   // Photo handlers
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,8 +306,29 @@ export default function ProfilSiswa({
     showModal('Foto Profil Dihapus', 'Foto profil telah dihapus dan dikembalikan ke default.', 'success');
   };
 
-  const currentPhoto = tempPhoto || currentStudent?.photo || profileData?.photo || (profileData?.siswa_detail?.dokumen?.foto && (profileData.siswa_detail.dokumen.foto.startsWith('data:') || profileData.siswa_detail.dokumen.foto.startsWith('blob:')) ? profileData.siswa_detail.dokumen.foto : null);
-  const displayPhotoUrl = currentPhoto || `https://placehold.co/150x150/15803d/ffffff?text=${encodeURIComponent(namaLengkap[0] || 'S')}`;
+  const rawPhoto =
+    tempPhoto ||
+    currentStudent?.photo ||
+    currentStudent?.dokumen?.foto ||
+    profileData?.photo ||
+    profileData?.siswa_detail?.dokumen?.foto ||
+    profileData?.dokumen?.foto ||
+    '';
+
+  const isValidPhoto =
+    typeof rawPhoto === 'string' &&
+    (
+      rawPhoto.startsWith('https://') ||
+      rawPhoto.startsWith('http://') ||
+      rawPhoto.startsWith('data:image/') ||
+      rawPhoto.startsWith('blob:')
+    );
+
+  const currentPhoto = isValidPhoto ? rawPhoto : null;
+
+  const displayPhotoUrl =
+    currentPhoto ||
+    `https://placehold.co/150x150/15803d/ffffff?text=${encodeURIComponent(namaLengkap[0] || 'S')}`;
 
   const handleDownload = (docName: string) => {
     showModal(
@@ -294,7 +416,7 @@ export default function ProfilSiswa({
             <div>Tingkat Kelas</div>
             <div className="text-slate-800 text-right">{kelas}</div>
             <div>Tahun Pelajaran</div>
-            <div className="text-slate-800 text-right">2025/2026 - Genap</div>
+            <div className="text-slate-800 text-right">{tahunPelajaran}</div>
           </div>
         </div>
 
@@ -330,11 +452,11 @@ export default function ProfilSiswa({
             </div>
             <div className="flex justify-between items-center py-1.5">
               <span>Status dalam Keluarga</span>
-              <strong className="text-slate-800">Anak Kandung</strong>
+              <strong className="text-slate-800">{statusDalamKeluarga}</strong>
             </div>
             <div className="flex justify-between items-center py-1.5">
               <span>Anak Ke-</span>
-              <strong className="text-slate-800">2 (Dua)</strong>
+              <strong className="text-slate-800">{anakKe}</strong>
             </div>
             <div className="flex flex-col py-1.5 space-y-1">
               <span>Alamat Domisili Tempat Tinggal</span>
@@ -361,11 +483,11 @@ export default function ProfilSiswa({
             </div>
             <div className="flex justify-between items-center py-1.5">
               <span>Pekerjaan Ayah</span>
-              <strong className="text-slate-800">Petani</strong>
+              <strong className="text-slate-800">{pekerjaanAyah}</strong>
             </div>
             <div className="flex justify-between items-center py-1.5">
               <span>Pekerjaan Ibu</span>
-              <strong className="text-slate-800">Ibu Rumah Tangga</strong>
+              <strong className="text-slate-800">{pekerjaanIbu}</strong>
             </div>
           </div>
         </div>
@@ -378,21 +500,33 @@ export default function ProfilSiswa({
           <div className="space-y-2 text-[10px] text-slate-500 font-semibold divide-y divide-slate-50">
             <div className="flex justify-between items-center py-1.5">
               <span>Sekolah Asal Terakhir</span>
-              <strong className="text-slate-800">SMP Negeri 1 Agrabinta</strong>
+              <strong className="text-slate-800">{sekolahAsal}</strong>
             </div>
             <div className="flex justify-between items-center py-1.5">
               <span>Tanggal Masuk Sekolah</span>
-              <strong className="text-slate-800">12 Juli 2025</strong>
+              <strong className="text-slate-800">{tanggalMasuk}</strong>
             </div>
             <div className="flex justify-between items-center py-1.5">
-              <span>Sinkronisasi Data Akademik Kemdikbud</span>
-              <strong className="text-emerald-600 flex items-center gap-1">
-                <CheckCircle className="w-3.5 h-3.5" /> Sudah Sinkron
-              </strong>
+              <span>Status Pendataan Dapodik</span>
+              {statusSinkronisasi === 'Sudah Terdaftar' ? (
+                <strong className="text-emerald-600 flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Sudah Terdaftar
+                </strong>
+              ) : statusSinkronisasi === 'Data Bermasalah' ? (
+                <strong className="text-rose-600 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Data Bermasalah
+                </strong>
+              ) : (
+                <strong className="text-slate-800">
+                  {statusSinkronisasi}
+                </strong>
+              )}
             </div>
             <div className="flex justify-between items-center py-1.5">
               <span>Wali Kelas Akademik</span>
-              <strong className="text-slate-800">Bu Rina, S.Pd.</strong>
+              <strong className="text-slate-800">{waliKelas}</strong>
             </div>
           </div>
         </div>
@@ -400,7 +534,7 @@ export default function ProfilSiswa({
         {/* Download Identity Sheet Action Button */}
         <div className="px-1 pb-2 space-y-2">
           <button 
-            onClick={() => handleDownload('Lembar_Identitas_Rapor_Fajar')}
+            onClick={() => handleDownload(`Lembar_Identitas_Rapor_${namaLengkap.replace(/\s+/g, '_')}`)}
             className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-500/10 cursor-pointer"
           >
             <Download className="w-4 h-4" />

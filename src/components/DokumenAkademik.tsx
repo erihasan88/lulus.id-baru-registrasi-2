@@ -9,6 +9,7 @@ import {
 import QRCode from 'qrcode';
 import { AcademicDocument, Student, Role } from '../types';
 import PdfCanvasViewer from './PdfCanvasViewer';
+import { api } from '../lib/api';
 
 const safeSrc = (src: string) => {
   if (!src) return '';
@@ -117,128 +118,6 @@ const DEFAULT_CATEGORIES = [
   'Dokumen Lainnya'
 ];
 
-const DEFAULT_DOCUMENTS: AcademicDocument[] = [
-  {
-    id: 'DOC-001',
-    studentId: 'SIS-1001',
-    studentName: 'Fajar Pratama',
-    nisn: '0098765432',
-    program: 'Paket C',
-    kelas: 'Kelas XII - Paket C',
-    tahunLulus: '2026',
-    documentType: 'Ijazah',
-    documentNumber: 'DN-01/C/0098765432/2026',
-    verificationCode: 'IJZ-2026-H8K2P9',
-    issueDate: '2026-06-20',
-    title: 'Ijazah Pendidikan Kesetaraan Paket C',
-    description: 'Ijazah Kelulusan Jenjang Menengah Atas Paket C Fajar Pratama.',
-    file: 'ijazah_paket_c_fajar.pdf',
-    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
-    thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-    status: 'Publish',
-    uploadedBy: 'Administrator',
-    uploadedAt: '2026-06-25T08:00:00.000Z',
-    updatedAt: '2026-06-25T08:00:00.000Z',
-    downloads: 12,
-    views: 45
-  },
-  {
-    id: 'DOC-002',
-    studentId: 'SIS-1001',
-    studentName: 'Fajar Pratama',
-    nisn: '0098765432',
-    program: 'Paket C',
-    kelas: 'Kelas XII - Paket C',
-    tahunLulus: '2026',
-    documentType: 'Transkrip Nilai',
-    documentNumber: 'TR-01/C/0098765432/2026',
-    verificationCode: 'TRK-2026-Y4M7V3',
-    issueDate: '2026-06-20',
-    title: 'Transkrip Nilai Hasil Belajar Kumulatif',
-    description: 'Daftar nilai pencapaian hasil belajar seluruh mata pelajaran Paket C.',
-    file: 'transkrip_nilai_c_fajar.pdf',
-    fileUrl: '/uploads/documents/transkrip_nilai_c_fajar.pdf',
-    thumbnail: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-    status: 'Publish',
-    uploadedBy: 'Administrator',
-    uploadedAt: '2026-06-25T08:15:00.000Z',
-    updatedAt: '2026-06-25T08:15:00.000Z',
-    downloads: 8,
-    views: 32
-  },
-  {
-    id: 'DOC-003',
-    studentId: 'SIS-1001',
-    studentName: 'Fajar Pratama',
-    nisn: '0098765432',
-    program: 'Paket C',
-    kelas: 'Kelas XII - Paket C',
-    tahunLulus: '2026',
-    documentType: 'SKL',
-    documentNumber: 'SKL-01/PKBM-AGR/VI/2026',
-    verificationCode: 'SKL-2026-X9N5J1',
-    issueDate: '2026-05-15',
-    title: 'Surat Keterangan Lulus (SKL) Sementara',
-    description: 'Surat keterangan kelulusan sementara sebelum ijazah fisik terbit.',
-    file: 'skl_paket_c_fajar.pdf',
-    fileUrl: '/uploads/documents/skl_paket_c_fajar.pdf',
-    thumbnail: 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-    status: 'Publish',
-    uploadedBy: 'Administrator',
-    uploadedAt: '2026-05-16T10:00:00.000Z',
-    updatedAt: '2026-05-16T10:00:00.000Z',
-    downloads: 15,
-    views: 52
-  },
-  {
-    id: 'DOC-004',
-    studentId: 'SIS-1001',
-    studentName: 'Fajar Pratama',
-    nisn: '0098765432',
-    program: 'Paket C',
-    kelas: 'Kelas XII - Paket C',
-    tahunLulus: '2026',
-    documentType: 'Sertifikat',
-    documentNumber: 'CERT-041/COMP/2026',
-    verificationCode: 'CRT-2026-F2W6Q8',
-    issueDate: '2026-03-10',
-    title: 'Sertifikat Kompetensi Digital',
-    description: 'Sertifikat kelulusan uji kecakapan komputer dan literasi digital.',
-    file: 'sertifikat_komputer_fajar.pdf',
-    fileUrl: '/uploads/documents/sertifikat_komputer_fajar.pdf',
-    thumbnail: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-    status: 'Publish',
-    uploadedBy: 'Administrator',
-    uploadedAt: '2026-03-12T09:00:00.000Z',
-    updatedAt: '2026-03-12T09:00:00.000Z',
-    downloads: 5,
-    views: 18
-  },
-  {
-    id: 'DOC-005',
-    studentId: 'SIS-1002',
-    studentName: 'Siti Aminah',
-    nisn: '0087654321',
-    program: 'Paket B',
-    kelas: 'Kelas IX - Paket B',
-    tahunLulus: '2025',
-    documentType: 'Ijazah',
-    documentNumber: 'DN-02/B/0087654321/2025',
-    verificationCode: 'IJZ-2025-E7Z3C4',
-    issueDate: '2025-06-22',
-    title: 'Ijazah Pendidikan Kesetaraan Paket B',
-    description: 'Ijazah Kelulusan Jenjang Menengah Pertama Paket B Siti Aminah.',
-    file: 'ijazah_paket_b_siti.pdf',
-    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
-    thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-    status: 'Publish',
-    uploadedBy: 'Administrator',
-    uploadedAt: '2025-06-25T08:00:00.000Z',
-    updatedAt: '2025-06-25T08:00:00.000Z',
-    downloads: 2,
-    views: 12
-  }
-];
 
 export default function DokumenAkademik({ role, students, loggedInUser, showModal }: DokumenAkademikProps) {
   // --- STATE PERSISTENCE ---
@@ -291,7 +170,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
     const [formStatus, setFormStatus] = useState('Publish');
     const [formTahunLulus, setFormTahunLulus] = useState('2026');
     const [formThumbnail, setFormThumbnail] = useState('');
-    const [formStudentId, setFormStudentId] = useState('SIS-1001');
+    const [formStudentId, setFormStudentId] = useState('');
     const [formDocNumber, setFormDocNumber] = useState('');
     const [formTitle, setFormTitle] = useState('');
     const [formIssueDate, setFormIssueDate] = useState('');
@@ -303,17 +182,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
     const [pdfSearchQuery, setPdfSearchQuery] = useState('');
     const [zoomScale, setZoomScale] = useState(1);
     const pdfContainerRef = useRef<HTMLDivElement>(null);
-    const [downloadLogs, setDownloadLogs] = useState<any[]>(() => {
-      const saved = localStorage.getItem('studentDocuments');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          return [];
-        }
-      }
-      return [];
-    });
+    const [downloadLogs, setDownloadLogs] = useState<any[]>([]);
 
 
 
@@ -326,10 +195,6 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
         setFormNisn(student.nisn || '');
         setFormProgram(student.program || '');
         setFormKelas(student.kelas || '');
-      } else if (studentId === 'SIS-1001') {
-        setFormNisn('0098765432');
-        setFormProgram('Paket C');
-        setFormKelas('Kelas XII - Paket C');
       } else {
         setFormNisn('');
         setFormProgram('');
@@ -349,7 +214,7 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
     const result = await response.json();
 
     if (!response.ok) {
-      throw new Error(result.error || 'Upload dokumen gagal');
+      throw new Error(result.detail || result.error || 'Upload dokumen gagal');
     }
 
     return result.file.url;
@@ -358,47 +223,42 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
 
 
 
+  const mapDocument = (d: any): AcademicDocument => ({
+    id: d.id,
+    studentId: d.student,
+    studentName: d.student_name || '',
+    nisn: d.student_username || '',
+    program: '',
+    kelas: '',
+    tahunLulus: d.graduation_year || '',
+    documentType:
+      d.document_type === 'TRANSKRIP' ? 'Transkrip Nilai' :
+      d.document_type === 'SERTIFIKAT' ? 'Sertifikat' :
+      d.document_type === 'SKL' ? 'SKL' : 'Ijazah',
+    documentNumber: d.document_number,
+    verificationCode: d.verification_code,
+    issueDate: d.issue_date || '',
+    title: d.title,
+    description: '',
+    file: d.file_url?.split('/').pop() || 'dokumen.pdf',
+    fileUrl: d.file_url,
+    thumbnail: '',
+    status: d.status === 'PUBLISHED' ? 'Publish' :
+            d.status === 'ARCHIVED' ? 'Arsip' : 'Draft',
+    uploadedBy: d.created_by_name || 'Admin',
+    uploadedAt: d.created_at,
+    updatedAt: d.updated_at,
+    downloads: d.downloads_count || 0,
+    views: d.views_count || 0
+  });
+
   const loadDocuments = async () => {
     try {
-      const isStudent = (role === 'siswa' || (role as string) === 'student') && (loggedInUser.studentId || loggedInUser.id);
-      const endpoint = isStudent
-        ? `/api/documents/student/${loggedInUser.studentId || loggedInUser.id}`
-        : '/api/documents';
-
-      const response = await fetch(endpoint);
-
-      if (!response.ok) {
-        throw new Error('Gagal mengambil data dokumen');
-      }
-
-      const data = await response.json();
-
-      if (Array.isArray(data)) {
-        if (data.length === 0 && role === 'admin') {
-          // Seed default mock documents if backend storage is initially empty
-          for (const doc of DEFAULT_DOCUMENTS) {
-            await fetch('/api/documents', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(doc)
-            }).catch(() => {});
-          }
-          const retryRes = await fetch(endpoint);
-          if (retryRes.ok) {
-            const retryData = await retryRes.json();
-            if (Array.isArray(retryData)) {
-              setDocuments(retryData);
-              return;
-            }
-          }
-          setDocuments(DEFAULT_DOCUMENTS);
-        } else {
-          setDocuments(data);
-        }
-      }
+      const data = await api.getAcademicDocuments();
+      setDocuments(Array.isArray(data) ? data.map(mapDocument) : []);
     } catch (err) {
       console.error('Load documents error:', err);
-      setDocuments(DEFAULT_DOCUMENTS);
+      setDocuments([]);
     }
   };
 
@@ -409,167 +269,110 @@ export default function DokumenAkademik({ role, students, loggedInUser, showModa
 
   const handleCreateDocument = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!formStudentId || !formDocNumber || !formTitle || !formIssueDate) {
-      showModal('Input Tidak Lengkap', 'Nama Siswa, Nomor Dokumen, Judul Dokumen, dan Tanggal Terbit wajib diisi.', 'warning');
+      showModal('Input Tidak Lengkap', 'Data wajib belum lengkap.', 'warning');
       return;
     }
 
     let finalFileUrl = formFileUrl;
+
     if (formFilePdf && !finalFileUrl) {
       try {
         finalFileUrl = await uploadDocumentFile(formFilePdf);
-        setFormFileUrl(finalFileUrl);
-      } catch (uploadErr: any) {
-        showModal('Upload PDF Gagal', uploadErr.message || 'Gagal mengunggah berkas PDF.', 'warning');
+      } catch (err: any) {
+        showModal('Upload Gagal', err.message, 'warning');
         return;
       }
     }
 
     if (!finalFileUrl) {
-      showModal('Berkas PDF Belum Ada', 'Silakan pilih dan unggah berkas PDF terlebih dahulu.', 'warning');
+      showModal('PDF Belum Ada', 'Pilih berkas PDF.', 'warning');
       return;
     }
 
-    const studentName = students.find(s => s.id === formStudentId)?.nama || (formStudentId === 'SIS-1001' ? 'Fajar Pratama' : 'Siswa');
-
-    const newDoc: AcademicDocument = {
-      id: `DOC-${Date.now()}`,
-      studentId: formStudentId,
-      studentName,
-      nisn: formNisn,
-      program: formProgram,
-      kelas: formKelas,
-      tahunLulus: formTahunLulus,
-      documentType: formDocType as any,
-      documentNumber: formDocNumber,
-      verificationCode: generateDocVerificationCode(formDocType, formTahunLulus),
-      issueDate: formIssueDate,
-      title: formTitle,
-      description: formDescription,
-      file: formFilePdf ? formFilePdf.name : (formFileName || `${formTitle.toLowerCase().replace(/\s+/g, '_')}.pdf`),
-      fileUrl: finalFileUrl,
-      thumbnail: formThumbnail || 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-      status: formStatus,
-      uploadedBy: loggedInUser.nama || 'Administrator',
-      uploadedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      downloads: 0,
-      views: 0
+    const typeMap: Record<string, string> = {
+      'Ijazah': 'IJAZAH',
+      'SKL': 'SKL',
+      'Transkrip Nilai': 'TRANSKRIP',
+      'Sertifikat': 'SERTIFIKAT'
     };
 
+    const selectedStudent: any =
+      students.find(s => s.id === formStudentId);
+
     try {
-      const response = await fetch('/api/documents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newDoc)
-      });
-
-      if (!response.ok) {
-        throw new Error('Gagal menyimpan metadata dokumen');
-      }
-
-      // Reset filters and search so newly created document is immediately visible
-      setSearchQuery('');
-      setFilterType('all');
-      setFilterStatus('all');
-      setFilterYear('all');
+      await api.createAcademicDocument({
+        student:
+          selectedStudent?.user_id ||
+          selectedStudent?.userId ||
+          formStudentId,
+        document_type: typeMap[formDocType] || 'IJAZAH',
+        title: formTitle,
+        document_number: formDocNumber,
+        issue_date: formIssueDate,
+        graduation_year: formTahunLulus,
+        file_url: finalFileUrl,
+        status: formStatus === 'Publish' ? 'PUBLISHED' : 'DRAFT'
+      } as any);
 
       await loadDocuments();
-
-      showModal('Berhasil', 'Dokumen akademik berhasil ditambahkan dan disimpan.', 'success');
       resetForm();
       setViewState('list');
+      showModal('Berhasil', 'Dokumen berhasil disimpan.', 'success');
     } catch (err: any) {
-      showModal('Gagal', err.message || 'Gagal menyimpan dokumen', 'warning');
+      showModal('Gagal', err.message || 'Dokumen gagal disimpan.', 'warning');
     }
   };
 
   const handleUpdateDocument = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc) return;
-    if (!formDocNumber || !formTitle || !formIssueDate) {
-      showModal('Input Tidak Lengkap', 'Nomor Dokumen, Judul Dokumen, dan Tanggal Terbit wajib diisi.', 'warning');
-      return;
-    }
 
-    let finalFileUrl = formFileUrl;
+    let finalFileUrl = formFileUrl || selectedDoc.fileUrl;
+
     if (formFilePdf) {
-      try {
-        finalFileUrl = await uploadDocumentFile(formFilePdf);
-        setFormFileUrl(finalFileUrl);
-      } catch (uploadErr: any) {
-        showModal('Upload PDF Gagal', uploadErr.message || 'Gagal mengunggah berkas PDF.', 'warning');
-        return;
-      }
+      finalFileUrl = await uploadDocumentFile(formFilePdf);
     }
 
-    const studentName = students.find(s => s.id === formStudentId)?.nama || selectedDoc.studentName;
-
-    const updatedDoc = {
-      ...selectedDoc,
-      studentId: formStudentId,
-      studentName,
-      nisn: formNisn,
-      program: formProgram,
-      kelas: formKelas,
-      tahunLulus: formTahunLulus,
-      documentType: formDocType as any,
-      documentNumber: formDocNumber,
-      verificationCode: selectedDoc.verificationCode || generateDocVerificationCode(formDocType, formTahunLulus),
-      issueDate: formIssueDate,
-      title: formTitle,
-      description: formDescription,
-      file: formFilePdf ? formFilePdf.name : (formFileName || selectedDoc.file),
-      fileUrl: finalFileUrl || selectedDoc.fileUrl,
-      thumbnail: formThumbnail,
-      status: formStatus,
-      updatedAt: new Date().toISOString()
+    const typeMap: Record<string, string> = {
+      'Ijazah': 'IJAZAH',
+      'SKL': 'SKL',
+      'Transkrip Nilai': 'TRANSKRIP',
+      'Sertifikat': 'SERTIFIKAT'
     };
 
     try {
-      const response = await fetch(`/api/documents/${selectedDoc.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updatedDoc)
-      });
-
-      if (!response.ok) {
-        throw new Error('Gagal memperbarui dokumen');
-      }
+      await api.updateAcademicDocument(selectedDoc.id, {
+        document_type: typeMap[formDocType] || 'IJAZAH',
+        title: formTitle,
+        document_number: formDocNumber,
+        issue_date: formIssueDate,
+        graduation_year: formTahunLulus,
+        file_url: finalFileUrl,
+        status: formStatus === 'Publish' ? 'PUBLISHED' : 'DRAFT'
+      } as any);
 
       await loadDocuments();
-
-      showModal('Berhasil Diperbarui', 'Dokumen akademik berhasil diperbarui.', 'success');
       resetForm();
       setViewState('list');
+      showModal('Berhasil', 'Dokumen berhasil diperbarui.', 'success');
     } catch (err: any) {
-      showModal('Gagal', err.message || 'Gagal memperbarui dokumen', 'warning');
+      showModal('Gagal', err.message || 'Dokumen gagal diperbarui.', 'warning');
     }
   };
 
   const handleDeleteDocument = async (id: string) => {
-      if (confirm('Apakah Anda yakin ingin menghapus dokumen akademik ini secara permanen?')) {
-        try {
-          const response = await fetch(`/api/documents/${id}`, {
-            method: 'DELETE'
-          });
+    if (!confirm('Hapus dokumen ini secara permanen?')) return;
 
-          if (!response.ok) {
-            throw new Error('Gagal menghapus dokumen');
-          }
-
-          await loadDocuments();
-
-          showModal('Terhapus', 'Dokumen telah dihapus dari sistem.', 'success');
-        } catch (err) {
-          showModal('Gagal', 'Dokumen tidak berhasil dihapus.', 'warning');
-        }
-      }
-    };
+    try {
+      await api.deleteAcademicDocument(id);
+      await loadDocuments();
+      showModal('Terhapus', 'Dokumen telah dihapus.', 'success');
+    } catch {
+      showModal('Gagal', 'Dokumen tidak berhasil dihapus.', 'warning');
+    }
+  };
 
 const resetForm = () => {
     setSelectedDoc(null);
@@ -599,10 +402,6 @@ const resetForm = () => {
       setFormNisn(student.nisn || doc.nisn || '');
       setFormProgram(student.program || doc.program || '');
       setFormKelas(student.kelas || doc.kelas || '');
-    } else if (studentId === 'SIS-1001') {
-      setFormNisn(doc.nisn || '0098765432');
-      setFormProgram(doc.program || 'Paket C');
-      setFormKelas(doc.kelas || 'Kelas XII - Paket C');
     } else {
       setFormNisn(doc.nisn || '');
       setFormProgram(doc.program || '');
@@ -729,8 +528,8 @@ const resetForm = () => {
     publish: documents.filter(d => d.status === 'Publish').length,
   };
 
-  // Student stats (Fajar Pratama): Total Dokumen, Dokumen Terbaru, Dokumen Sudah Diunduh
-  const studentIdForFilter = loggedInUser.studentId || loggedInUser.id || 'SIS-1001';
+  // Statistik dokumen siswa
+  const studentIdForFilter = loggedInUser.studentId || loggedInUser.id || '';
   const myDocs = documents.filter(d => (d.studentId === studentIdForFilter || (loggedInUser.nisn && d.nisn === loggedInUser.nisn)) && d.status === 'Publish');
   const myDownloadedCount = Array.from(new Set(downloadLogs.filter(l => l.studentId === studentIdForFilter).map(l => l.docId))).length;
   const myLatestDoc = myDocs.length > 0 ? myDocs[0].title : 'Belum Ada';
@@ -1285,8 +1084,7 @@ const resetForm = () => {
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
                   >
                     <option value="">-- Pilih Siswa --</option>
-                    <option value="SIS-1001">Fajar Pratama (SIS-1001)</option>
-                    {students.filter(s => s.id !== 'SIS-1001').map(student => (
+                    {students.map(student => (
                       <option key={student.id} value={student.id}>
                         {student.nama} ({student.id})
                       </option>
@@ -1389,7 +1187,7 @@ const resetForm = () => {
                   <input
                     type="text"
                     required
-                    placeholder="Contoh: Ijazah Pendidikan Kesetaraan Paket C Fajar Pratama"
+                    placeholder="Contoh: Ijazah Pendidikan Kesetaraan Paket C"
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
@@ -1521,8 +1319,7 @@ const resetForm = () => {
                     onChange={(e) => handleStudentSelectChange(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"
                   >
-                    <option value="SIS-1001">Fajar Pratama (SIS-1001)</option>
-                    {students.filter(s => s.id !== 'SIS-1001').map(student => (
+                    {students.map(student => (
                       <option key={student.id} value={student.id}>
                         {student.nama} ({student.id})
                       </option>
@@ -1623,7 +1420,7 @@ const resetForm = () => {
                   <input
                     type="text"
                     required
-                    placeholder="Contoh: Ijazah Pendidikan Kesetaraan Paket C Fajar Pratama"
+                    placeholder="Contoh: Ijazah Pendidikan Kesetaraan Paket C"
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[10.5px] font-bold text-slate-700 bg-white focus:outline-none focus:border-rose-500 shadow-sm"

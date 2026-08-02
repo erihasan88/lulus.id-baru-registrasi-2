@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
   ArrowLeft, ArrowRight, X, IdCard, MapPin, GraduationCap, 
-  Users, UserCheck, ShieldAlert, FileText, CheckCircle, 
+  Users, UserCheck, ShieldAlert, FileText, CheckCircle,
+  Clock, 
   Trash2, Sparkles, Upload, FileSignature, Wallet, Check, QrCode
 } from 'lucide-react';
 import { RegistrationData, Student, PaymentMethod } from '../types';
@@ -79,18 +80,18 @@ export default function RegistrationWizard({
     provinsi: '',
     kodepos: '',
     pendidikan: 'SMP',
-    sekolah_asal: 'SMP Negeri 1 Agrabinta',
-    tahun_lulus: '2024',
-    no_ijazah: 'DN-01/D-SMP/21/00123',
+    sekolah_asal: '',
+    tahun_lulus: '',
+    no_ijazah: '',
     program: 'Paket C',
     nama_ayah: '',
-    nik_ayah: '3201234567890456',
-    pekerjaan_ayah: 'Tani',
-    pendidikan_ayah: 'SMA',
+    nik_ayah: '',
+    pekerjaan_ayah: '',
+    pendidikan_ayah: '',
     nama_ibu: '',
-    nik_ibu: '3201234567890789',
-    pekerjaan_ibu: 'Ibu Rumah Tangga',
-    pendidikan_ibu: 'SMA',
+    nik_ibu: '',
+    pekerjaan_ibu: '',
+    pendidikan_ibu: '',
     gunakan_wali: false,
     nama_wali: '',
     hubungan_wali: '',
@@ -109,7 +110,7 @@ export default function RegistrationWizard({
   const [statementChecked, setStatementChecked] = useState<boolean>(false);
   const [paymentDone, setPaymentDone] = useState<boolean>(false);
   const [regNumber, setRegNumber] = useState<string>('');
-  const [generatedUsername, setGeneratedUsername] = useState<string>('');
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
 
   // Signature canvas refs
   const canvasSiswaRef = useRef<HTMLCanvasElement>(null);
@@ -226,10 +227,43 @@ export default function RegistrationWizard({
     }
   };
 
-  // Mock document upload
-  const handleDocUpload = (docKey: keyof RegistrationData, fileName: string) => {
-    setFormData(prev => ({ ...prev, [docKey]: fileName }));
-    showModal('Dokumen Unggah', `${fileName} berhasil dikompresi dan divalidasi.`, 'success');
+  const handleDocUpload = async (docKey: keyof RegistrationData, file: File) => {
+    try {
+      setUploadedFiles(prev => ({ ...prev, [docKey]: file }));
+
+      const form = new FormData();
+      form.append('file', file);
+
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: form
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.file?.url) {
+        setFormData(prev => ({ 
+          ...prev, 
+          [docKey]: data.file.url 
+        }));
+
+        showModal(
+          'Dokumen Unggah',
+          `${file.name} berhasil diupload.`,
+          'success'
+        );
+      } else {
+        throw new Error('URL file tidak ditemukan');
+      }
+
+    } catch (error) {
+      console.error('Upload dokumen gagal:', error);
+      showModal(
+        'Upload Gagal',
+        'Dokumen gagal diupload ke server.',
+        'warning'
+      );
+    }
   };
 
   const handleInputChange = (field: keyof RegistrationData, value: any) => {
@@ -279,101 +313,142 @@ export default function RegistrationWizard({
         return false;
       }
     } else if (step === 6) {
-      if (!formData.metode_pembayaran) {
-        showModal('Metode Pembayaran', 'Pilih salah satu kanal pembayaran untuk melunasi biaya administrasi.', 'warning');
+      if (!statementChecked) {
+        showModal(
+          'Persetujuan Belum Dicentang',
+          'Centang persetujuan kebenaran data sebelum mengirim pendaftaran.',
+          'warning'
+        );
         return false;
       }
     }
     return true;
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
     if (!validateStep()) return;
 
     if (step < 6) {
       setStep(prev => prev + 1);
-    } else if (step === 6) {
-      // Simulate final confirmation payment and generate account
-      showModal('Memproses Registrasi', 'Verifikasi berkas administrasi dan gerbang pembayaran sedang diproses...', 'info');
-      setTimeout(() => {
-        const generatedNum = `REG-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-        const user = formData.nama.toLowerCase().replace(/\s+/g, '_') + `${Math.floor(10 + Math.random() * 90)}`;
-        
-        const newStudentObj: Student = {
-          id: generatedNum,
-          nama: formData.nama,
-          nik: formData.nik,
-          nisn: formData.nisn || '',
-          kk: '3201234567890008',
-          jk: formData.jk || 'Laki-laki',
-          tempatLahir: formData.tempat_lahir,
-          tglLahir: formData.tgl_lahir,
-          program: formData.program as any,
-          kelas: `Belum Ditentukan (${formData.tipe_kelas || 'Reguler'})`,
-          tipeKelas: formData.tipe_kelas || 'Reguler',
-          tahunAjaran: '2025/2026',
-          alamat: `${formData.alamat}, RT ${formData.rt}/RW ${formData.rw}, Ds. ${formData.desa}, Kec. ${formData.kecamatan}, ${formData.kota}`,
-          ibu: formData.nama_ibu,
-          pekerjaanIbu: formData.pekerjaan_ibu || 'Ibu Rumah Tangga',
-          ayah: formData.nama_ayah,
-          pekerjaanAyah: formData.pekerjaan_ayah || 'Tani',
-          status: 'Menunggu Verifikasi',
-          dokumen: {
-            foto: formData.doc_foto || 'pas_foto_default.jpg',
-            ktp: formData.doc_ktp || 'ktp_default.png',
-            kk: formData.doc_kk || 'kk_default.pdf',
-            ijazah: formData.doc_ijazah || 'ijazah_default.pdf'
-          },
-          pendaftarBaru: true,
-          namaWali: formData.gunakan_wali ? formData.nama_wali : undefined,
-          hubunganWali: formData.gunakan_wali ? formData.hubungan_wali : undefined,
-          tandaTanganOrangTua: formData.sig_ortu_data,
-          tandaTanganSiswa: formData.sig_siswa_data,
-          pendaftaranData: formData
-        };
+      return;
+    }
 
+    if (step === 6) {
+      showModal(
+        'Mengirim Pendaftaran',
+        'Formulir dan dokumen sedang disimpan ke sistem.',
+        'info'
+      );
 
-        // Sinkronisasi data pendaftaran ke backend V2
-        fetch('/api/registration/public/register/', {
+      try {
+        const response = await fetch('/api/registration/public/register/', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            username: user,
-            email: formData.email || `${user}@gmail.com`,
+            email: formData.email || '',
             program_paket: formData.program,
             tipe_kelas: formData.tipe_kelas,
+
             biodata: {
               nama: formData.nama,
               nik: formData.nik,
-              nisn: formData.nisn,
+              nisn: formData.nisn || '',
               tempat_lahir: formData.tempat_lahir,
               tgl_lahir: formData.tgl_lahir,
-              jk: formData.jk || 'Laki-laki',
+              jk: formData.jk,
+              agama: formData.agama,
+              kewarganegaraan: formData.kewarganegaraan,
               no_hp: formData.no_hp,
-              alamat: `${formData.alamat}, RT ${formData.rt}/RW ${formData.rw}, Ds. ${formData.desa}, Kec. ${formData.kecamatan}, ${formData.kota}`,
+              email: formData.email || '',
+
+              alamat: formData.alamat,
+              rt: formData.rt,
+              rw: formData.rw,
+              dusun: formData.dusun,
+              desa: formData.desa,
+              kecamatan: formData.kecamatan,
+              kota: formData.kota,
+              provinsi: formData.provinsi,
+              kodepos: formData.kodepos,
+
+              pendidikan: formData.pendidikan,
+              sekolah_asal: formData.sekolah_asal,
+              tahun_lulus: formData.tahun_lulus,
+              no_ijazah: formData.no_ijazah,
+
+              nama_ayah: formData.nama_ayah,
+              pekerjaan_ayah: formData.pekerjaan_ayah,
               nama_ibu: formData.nama_ibu,
-              nama_ayah: formData.nama_ayah
+              pekerjaan_ibu: formData.pekerjaan_ibu,
+
+              gunakan_wali: formData.gunakan_wali,
+              nama_wali: formData.gunakan_wali
+                ? formData.nama_wali
+                : '',
+              hubungan_wali: formData.gunakan_wali
+                ? formData.hubungan_wali
+                : '',
+              hp_wali: formData.gunakan_wali
+                ? formData.hp_wali
+                : '',
+
+              tanda_tangan_siswa: formData.sig_siswa_data || '',
+              tanda_tangan_ortu: formData.sig_ortu_data || ''
             },
+
             dokumen: {
-              foto: formData.doc_foto || 'pas_foto_default.jpg',
-              ktp: formData.doc_ktp || 'ktp_default.png',
-              kk: formData.doc_kk || 'kk_default.pdf',
-              ijazah: formData.doc_ijazah || 'ijazah_default.pdf'
+              foto: formData.doc_foto || '',
+              ktp: formData.doc_ktp || '',
+              kk: formData.doc_kk || '',
+              ijazah: formData.doc_ijazah || '',
+              akta: formData.doc_akta || ''
             }
           })
-        }).catch(err => {
-          console.error('Gagal sinkronisasi pendaftaran:', err);
         });
 
-        setCreatedStudent(newStudentObj);
-        setRegNumber(generatedNum);
-        setGeneratedUsername(user);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.detail ||
+            'Pendaftaran gagal disimpan.'
+          );
+        }
+
+        const nomorPendaftaran =
+          result.registration?.id ||
+          result.id ||
+          '';
+
+        setRegNumber(nomorPendaftaran);
+
+        if (nomorPendaftaran) {
+          localStorage.setItem(
+            'lulus_registration_id',
+            nomorPendaftaran
+          );
+        }
+
         setStep(7);
-        setPaymentDone(true);
-        showModal('Registrasi Sukses', 'Berkas Anda terverifikasi! Akun siswa Anda sedang menunggu verifikasi akhir Admin.', 'success');
-      }, 2000);
+        setPaymentDone(false);
+
+        showModal(
+          'Pendaftaran Berhasil Dikirim',
+          'Formulir Anda sudah diterima dan sedang menunggu verifikasi admin.',
+          'success'
+        );
+      } catch (error: any) {
+        console.error('Pendaftaran gagal:', error);
+
+        showModal(
+          'Pendaftaran Gagal',
+          error?.message ||
+          'Data belum berhasil disimpan. Silakan periksa kembali.',
+          'warning'
+        );
+      }
     }
   };
 
@@ -974,13 +1049,20 @@ export default function RegistrationWizard({
                         </span>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDocUpload(doc.key as keyof RegistrationData, `doc_verified_${doc.key}.pdf`)}
-                      className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-[10px] font-black rounded-lg transition-colors border border-emerald-100"
-                    >
+                    <label className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-[10px] font-black rounded-lg transition-colors border border-emerald-100 cursor-pointer">
                       Unggah File
-                    </button>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleDocUpload(doc.key as keyof RegistrationData, file);
+                          }
+                        }}
+                      />
+                    </label>
                   </div>
                 </div>
               ))}
@@ -1215,135 +1297,163 @@ export default function RegistrationWizard({
           </div>
         )}
 
-        {/* STEP 6: Fee Payment */}
+        {/* STEP 6: Ringkasan dan Kirim Pendaftaran */}
         {step === 6 && (
-          <div className="space-y-3.5">
-            <div className="bg-gradient-to-r from-emerald-600 to-teal-500 p-5 rounded-3xl text-white shadow-lg space-y-2.5 text-center">
-              <span className="text-[9px] font-extrabold bg-white/20 text-white px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                Uang Pangkal Registrasi Baru (Kelas {formData.tipe_kelas || 'Reguler'})
-              </span>
-              <h3 className="text-3xl font-black">
-                Rp {(formData.tipe_kelas === 'Karyawan' ? regFeeKaryawan : regFeeReguler).toLocaleString('id-ID')}
-              </h3>
-              <p className="text-[10px] text-emerald-100 font-bold -mt-1 bg-white/10 py-1 px-3 rounded-xl inline-block">
-                Estimasi SPP Bulanan: Rp {(formData.tipe_kelas === 'Karyawan' ? sppKaryawan : sppReguler).toLocaleString('id-ID')}/bulan
-              </p>
-              <div className="text-[9px] text-emerald-50 font-bold border-t border-white/20 pt-2.5 text-left space-y-1">
-                <p className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-white" /> Akses CBT Ujian, Tugas & Materi Kesetaraan</p>
-                <p className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-white" /> Hak Konsultasi Chat Asisten AI Lulus Tanpa Batas</p>
-                <p className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-white" /> Kartu Pelajar PKBM & Sinkronisasi Data Akademik Kemdikbud</p>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-              <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                <Wallet className="w-4 h-4 text-emerald-500" /> Metode Pembayaran Instan
-              </h3>
-              
-              <div className="grid grid-cols-1 gap-2">
-                {activeMethods.map((pay) => (
-                  <button
-                    key={pay.id}
-                    type="button"
-                    onClick={() => handleInputChange('metode_pembayaran', pay.id)}
-                    className={`border rounded-xl p-3 flex justify-between items-center transition-all text-left ${
-                      formData.metode_pembayaran === pay.id 
-                        ? 'border-emerald-500 bg-emerald-50/10' 
-                        : 'border-slate-150 bg-white hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 bg-slate-50 rounded-lg flex items-center justify-center border border-slate-100 shrink-0">
-                        {getProviderIcon(pay.provider)}
-                      </span>
-                      <span className="text-xs font-bold text-slate-800">{pay.name}</span>
-                    </div>
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                      formData.metode_pembayaran === pay.id 
-                        ? 'border-emerald-500 bg-emerald-500 text-white' 
-                        : 'border-slate-300 bg-white'
-                    }`}>
-                      {formData.metode_pembayaran === pay.id && <Check className="w-2.5 h-2.5" />}
-                    </div>
-                  </button>
-                ))}
+          <div className="space-y-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-800">
+                  Ringkasan Pendaftaran
+                </h3>
+                <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                  Periksa kembali data sebelum dikirim kepada admin.
+                </p>
               </div>
 
-              {(formData.metode_pembayaran === 'qris' || 
-                (activeMethods.find(m => m.id === formData.metode_pembayaran)?.provider === 'qris') || 
-                (formData.metode_pembayaran && formData.metode_pembayaran.toLowerCase().includes('qris'))) && (
-                <div className="p-4 border border-dashed border-slate-200 rounded-xl bg-slate-50 text-center space-y-2 animate-fade-in">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase">Pindai Kode QRIS Resmi</span>
-                  <div className="w-32 h-32 bg-white border border-slate-200 rounded-xl flex items-center justify-center mx-auto shadow-sm">
-                    {/* Mock QR SVG */}
-                    <svg className="w-28 h-28 text-slate-800" viewBox="0 0 100 100" fill="currentColor">
-                      <rect x="5" y="5" width="25" height="25" />
-                      <rect x="10" y="10" width="15" height="15" fill="white" />
-                      <rect x="13" y="13" width="9" height="9" />
-                      <rect x="70" y="5" width="25" height="25" />
-                      <rect x="75" y="10" width="15" height="15" fill="white" />
-                      <rect x="78" y="13" width="9" height="9" />
-                      <rect x="5" y="70" width="25" height="25" />
-                      <rect x="10" y="75" width="15" height="15" fill="white" />
-                      <rect x="13" y="78" width="9" height="9" />
-                      <rect x="35" y="35" width="10" height="10" />
-                      <rect x="55" y="55" width="10" height="10" />
-                      <rect x="45" y="45" width="10" height="10" />
-                      <rect x="80" y="45" width="10" height="15" />
-                      <rect x="45" y="80" width="15" height="10" />
-                    </svg>
-                  </div>
-                  <span className="text-[8px] font-extrabold text-slate-400 animate-pulse">Menunggu konfirmasi pembayaran Anda...</span>
+              <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-[10px] space-y-2">
+                <div className="flex justify-between gap-3">
+                  <span className="font-bold text-slate-500">Nama:</span>
+                  <span className="font-black text-slate-800 text-right">
+                    {formData.nama}
+                  </span>
                 </div>
-              )}
+
+                <div className="flex justify-between gap-3">
+                  <span className="font-bold text-slate-500">NIK:</span>
+                  <span className="font-black text-slate-800">
+                    {formData.nik}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-3">
+                  <span className="font-bold text-slate-500">Program:</span>
+                  <span className="font-black text-slate-800">
+                    {formData.program}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-3">
+                  <span className="font-bold text-slate-500">Tipe Kelas:</span>
+                  <span className="font-black text-slate-800">
+                    {formData.tipe_kelas}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-3">
+                  <span className="font-bold text-slate-500">WhatsApp:</span>
+                  <span className="font-black text-slate-800">
+                    {formData.no_hp}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl">
+                <p className="text-[10px] text-amber-800 font-bold leading-relaxed">
+                  Setelah dikirim, pendaftaran akan diperiksa admin.
+                  Tagihan baru diterbitkan setelah berkas dinyatakan diterima.
+                </p>
+              </div>
+
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={statementChecked}
+                  onChange={(e) => setStatementChecked(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded text-emerald-500 border-slate-300"
+                />
+                <span className="text-[10px] font-bold text-slate-500 leading-normal">
+                  Saya menyatakan seluruh data dan dokumen yang dikirim benar
+                  serta dapat dipertanggungjawabkan.
+                </span>
+              </label>
             </div>
           </div>
         )}
 
-        {/* STEP 7: Success! Account details shown */}
+        {/* STEP 7: Menunggu Verifikasi Admin */}
         {step === 7 && (
           <div className="space-y-4 animate-scale-up">
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center space-y-4">
-              <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full border border-emerald-100 flex items-center justify-center text-3xl mx-auto shadow-md">
-                <CheckCircle className="w-10 h-10" />
+              <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full border border-amber-100 flex items-center justify-center mx-auto shadow-sm">
+                <Clock className="w-9 h-9" />
               </div>
-              
+
               <div>
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Selamat! Registrasi Berhasil</h3>
-                <p className="text-[10px] text-slate-400 font-semibold mt-1 leading-normal">
-                  Uang pangkal berhasil diterima dan diverifikasi. Data administrasi Anda telah sinkron di Data Peserta Didik PKBM Agrabinta.
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                  Pendaftaran Sedang Diverifikasi
+                </h3>
+
+                <p className="text-[10px] text-slate-500 font-semibold mt-2 leading-relaxed">
+                  Terima kasih, formulir dan berkas pendaftaran Anda
+                  telah berhasil dikirim.
+                </p>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl text-left space-y-2">
+                <p className="text-[10px] text-amber-800 font-bold leading-relaxed">
+                  Tim admin Lulus.id sedang memeriksa kelengkapan dan
+                  kesesuaian data Anda.
+                </p>
+
+                <p className="text-[9px] text-amber-700 font-semibold leading-relaxed">
+                  Jika terdapat data atau dokumen yang perlu diperbaiki,
+                  admin akan memberikan catatan perbaikan.
+                </p>
+
+                <p className="text-[9px] text-amber-700 font-semibold leading-relaxed">
+                  Jika pendaftaran diterima, sistem akan menerbitkan
+                  tagihan biaya pendaftaran.
                 </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-left text-[10px] space-y-2">
-                <div className="flex justify-between font-bold text-slate-500">
-                  <span>No. Registrasi:</span>
-                  <span className="text-slate-800 font-black uppercase">{regNumber}</span>
+                <div className="flex justify-between gap-3 font-bold text-slate-500">
+                  <span>Nomor Pendaftaran:</span>
+                  <span className="text-slate-800 font-black text-right break-all">
+                    {regNumber || '-'}
+                  </span>
                 </div>
-                <div className="flex justify-between font-bold text-slate-500">
-                  <span>Username Baru:</span>
-                  <span className="text-emerald-500 font-black">{generatedUsername}</span>
+
+                <div className="flex justify-between gap-3 font-bold text-slate-500">
+                  <span>Nama:</span>
+                  <span className="text-slate-800 font-black text-right">
+                    {formData.nama}
+                  </span>
                 </div>
-                <div className="flex justify-between font-bold text-slate-500">
-                  <span>Password Default:</span>
-                  <span className="text-slate-800 font-black">123456</span>
+
+                <div className="flex justify-between gap-3 font-bold text-slate-500">
+                  <span>Program:</span>
+                  <span className="text-slate-800 font-black">
+                    {formData.program}
+                  </span>
                 </div>
-                <div className="flex justify-between font-bold text-slate-500">
-                  <span>Status Siswa:</span>
-                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[8px] font-black rounded-md uppercase">Aktif</span>
+
+                <div className="flex justify-between gap-3 font-bold text-slate-500">
+                  <span>Tipe Kelas:</span>
+                  <span className="text-slate-800 font-black">
+                    {formData.tipe_kelas}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-3 font-bold text-slate-500">
+                  <span>Status:</span>
+                  <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[8px] font-black rounded-md uppercase">
+                    Menunggu Verifikasi
+                  </span>
                 </div>
               </div>
-              
-              <p className="text-[8px] text-slate-400 font-semibold">
-                Gunakan informasi kredensial di atas untuk masuk ke portal Siswa Mode. Selamat belajar!
+
+              <p className="text-[9px] text-slate-400 font-semibold leading-relaxed">
+                Mohon tidak melakukan pendaftaran ulang selama proses
+                verifikasi berlangsung.
               </p>
 
               <button
                 type="button"
-                onClick={() => onSuccess(generatedUsername, createdStudent || undefined)}
-                className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all"
+                onClick={() => window.location.reload()}
+                className="w-full py-3.5 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all"
               >
-                Login Sekarang
+                Kembali ke Halaman Utama
               </button>
             </div>
           </div>

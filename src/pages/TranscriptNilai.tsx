@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { transcriptService } from '../services/transcriptService';
+import { api } from '../lib/api';
 import { AcademicTranscript, TranscriptSubject } from '../interfaces/academicTranscript';
 import { Student, Subject } from '../types';
 import StudentPerformanceSummary from '../components/StudentPerformanceSummary';
@@ -42,6 +42,8 @@ export default function TranscriptNilai({
   const [transcripts, setTranscripts] = useState<AcademicTranscript[]>([]);
   const [selectedTranscript, setSelectedTranscript] = useState<AcademicTranscript | null>(null);
   const [showPdfView, setShowPdfView] = useState<boolean>(false);
+  const [loadingGrades, setLoadingGrades] = useState<boolean>(true);
+  const [gradesError, setGradesError] = useState<string>('');
 
   // Dynamic fallback for lembagaIdentitas
   const [lembagaIdentitas, setLembagaIdentitas] = useState<any>(() => {
@@ -56,9 +58,57 @@ export default function TranscriptNilai({
   });
 
   useEffect(() => {
-    if (propsLembagaIdentitas) {
-      setLembagaIdentitas(propsLembagaIdentitas);
-    }
+    let active = true;
+
+    const loadInstitutionSettings = async () => {
+      if (propsLembagaIdentitas) {
+        setLembagaIdentitas(propsLembagaIdentitas);
+        return;
+      }
+
+      try {
+        const saved = await api.getInstitutionSettings();
+
+        if (!active || !saved) return;
+
+        setLembagaIdentitas({
+          namaPkbm: saved.nama_pkbm || '',
+          namaYayasan: saved.nama_yayasan || '',
+          npsn: saved.npsn || '',
+          nomorIzinOperasional: saved.nomor_izin_operasional || '',
+          alamat: saved.alamat || '',
+          kecamatan: saved.kecamatan || '',
+          kabupaten: saved.kabupaten || '',
+          provinsi: saved.provinsi || '',
+          kodePos: saved.kode_pos || '',
+          nomorTelepon: saved.nomor_telepon || '',
+          emailLembaga: saved.email_lembaga || '',
+          website: saved.website || '',
+          logoPkbm: saved.logo_pkbm || '',
+          logoYayasan: saved.logo_yayasan || '',
+          atributPengesahanDigital:
+            saved.atribut_pengesahan_digital || '',
+          namaKepalaSekolah: saved.nama_kepala_sekolah || '',
+          nipKepalaSekolah: saved.nip_kepala_sekolah || '',
+          namaPejabatTtd:
+            saved.nama_penandatangan ||
+            saved.nama_kepala_sekolah ||
+            '',
+          jabatanPejabatTtd: 'Kepala PKBM',
+        });
+      } catch (error) {
+        console.error(
+          'Gagal memuat identitas lembaga untuk transkrip:',
+          error
+        );
+      }
+    };
+
+    loadInstitutionSettings();
+
+    return () => {
+      active = false;
+    };
   }, [propsLembagaIdentitas]);
 
   
@@ -71,21 +121,172 @@ export default function TranscriptNilai({
   const [showShareSuccess, setShowShareSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    // Fetch transcripts for this student from the service (loads from localStorage with mock fallbacks)
-    const data = transcriptService.getTranscriptByStudentId(loggedInUser.id, students, subjects);
-    setTranscripts(data);
-  }, [loggedInUser.id, students, subjects]);
+    let active = true;
+
+    const loadOfficialTranscripts = async () => {
+      setLoadingGrades(true);
+      setGradesError('');
+
+      try {
+        /*
+         * Endpoint ini otomatis membatasi siswa hanya pada transkrip
+         * miliknya sendiri yang sudah berstatus PUBLISHED.
+         */
+        const rows = await api.getAcademicTranscripts();
+        const transcriptRows = Array.isArray(rows) ? rows : [];
+
+        const currentStudent = students.find(
+          (student: any) =>
+            String(student.id) === String(loggedInUser.id) ||
+            String(student.user_id || student.userId || '') ===
+              String(loggedInUser.id) ||
+            String(student.username || '').toLowerCase() ===
+              String(loggedInUser.nama || '').toLowerCase() ||
+            String(student.nama || '').toLowerCase() ===
+              String(loggedInUser.nama || '').toLowerCase()
+        ) as any;
+
+        const program: 'Paket A' | 'Paket B' | 'Paket C' =
+          currentStudent?.program === 'Paket A' ||
+          currentStudent?.program === 'Paket B' ||
+          currentStudent?.program === 'Paket C'
+            ? currentStudent.program
+            : 'Paket C';
+
+        const mappedTranscripts: AcademicTranscript[] =
+          transcriptRows.map((row: any) => {
+            const mappedSubjects: TranscriptSubject[] =
+              Array.isArray(row.subjects)
+                ? row.subjects.map((subject: any, index: number) => {
+                    const score = Number(
+                      subject.score ??
+                      subject.final_grade ??
+                      subject.nilai ??
+                      0
+                    );
+
+                    const kkm = Number(subject.kkm ?? row.kkm ?? 75);
+
+                    return {
+                      id: String(
+                        subject.id ??
+                        subject.subject ??
+                        index + 1
+                      ),
+                      name:
+                        subject.name ??
+                        subject.subject_name ??
+                        subject.nama ??
+                        'Mata Pelajaran',
+                      category:
+                        subject.category ??
+                        'Mata Pelajaran',
+                      kkm,
+                      score,
+                      status:
+                        score >= kkm
+                          ? 'Lulus'
+                          : 'Perlu Perbaikan',
+                    };
+                  })
+                : [];
+
+            return {
+              id: String(row.id),
+              studentId: String(row.student || loggedInUser.id),
+              studentName:
+                row.student_name ||
+                currentStudent?.nama ||
+                loggedInUser.nama ||
+                'Siswa',
+              nisn:
+                currentStudent?.nisn ||
+                row.student_username ||
+                '',
+              nipd:
+                currentStudent?.nipd ||
+                currentStudent?.no_registrasi ||
+                currentStudent?.username ||
+                row.student_username ||
+                '',
+              program,
+              kelas:
+                currentStudent?.kelas ||
+                currentStudent?.rombel_nama ||
+                '',
+              tahunAjaran: row.academic_year || '',
+              semester: row.semester || '',
+              subjects: mappedSubjects,
+              kkm: Number(row.kkm || 75),
+              score: Number(row.total_score || 0),
+              status:
+                row.status === 'PUBLISHED'
+                  ? 'Publish'
+                  : row.status === 'REVOKED'
+                    ? 'Dicabut'
+                    : row.status === 'REPLACED'
+                      ? 'Diganti'
+                      : 'Draft',
+              averageScore: Number(row.average_score || 0),
+              predicate: row.predicate || '',
+              documentNumber: row.document_number || '',
+              issueDate: row.issue_date || '',
+              verificationCode: row.verification_code || '',
+              createdBy:
+                row.created_by_name ||
+                'Administrator Lulus.id',
+              createdAt: row.created_at || '',
+              updatedAt: row.updated_at || '',
+            };
+          });
+
+        if (active) {
+          setTranscripts(mappedTranscripts);
+          setSelectedTranscript(null);
+        }
+      } catch (error: any) {
+        console.error(
+          'Gagal memuat transkrip resmi siswa:',
+          error
+        );
+
+        if (active) {
+          setTranscripts([]);
+          setGradesError(
+            error?.message ||
+            'Transkrip resmi belum berhasil dimuat dari server.'
+          );
+        }
+      } finally {
+        if (active) {
+          setLoadingGrades(false);
+        }
+      }
+    };
+
+    loadOfficialTranscripts();
+
+    return () => {
+      active = false;
+    };
+  }, [loggedInUser.id, loggedInUser.nama, students]);
 
   // Retrieve student details
-  const studentDetail = students.find(s => s.id === loggedInUser.id) || {
-    id: loggedInUser.id,
-    nama: loggedInUser.nama,
-    nisn: '0098765432',
-    nik: '3201234567890123',
-    program: 'Paket C',
-    kelas: 'Kelas X - Paket C',
-    tahunAjaran: '2025/2026',
-  };
+  const studentDetail: any =
+    students.find(
+      (student: any) =>
+        String(student.id) === String(loggedInUser.id) ||
+        String(student.nama || '').toLowerCase() ===
+          String(loggedInUser.nama || '').toLowerCase()
+    ) || {
+      id: loggedInUser.id || '',
+      nama: loggedInUser.nama || 'Siswa',
+      nisn: '',
+      nipd: '',
+      program: '',
+      kelas: '',
+      tahunAjaran: '',
+    };
 
   // Find the published transcripts
   const publishedTranscripts = transcripts.filter(t => t.status === 'Publish');
@@ -101,12 +302,62 @@ export default function TranscriptNilai({
   // Active view transcript (take first matching or first overall)
   const activeTranscript = selectedTranscript || filteredTranscripts[0];
 
-  const handleShare = (transcript: AcademicTranscript) => {
-    const url = `https://lulus.id/verifikasi/${transcript.verificationCode}`;
-    navigator.clipboard.writeText(url).then(() => {
+  const semesterOptions = Array.from(
+    new Set(publishedTranscripts.map(item => item.semester).filter(Boolean))
+  );
+
+  const academicYearOptions = Array.from(
+    new Set(publishedTranscripts.map(item => item.tahunAjaran).filter(Boolean))
+  );
+
+  const programOptions = Array.from(
+    new Set(publishedTranscripts.map(item => item.program).filter(Boolean))
+  );
+
+  const handleShare = async (
+    transcript: AcademicTranscript
+  ) => {
+    if (!transcript.verificationCode) {
+      alert(
+        'Kode verifikasi belum tersedia. Transkrip harus diterbitkan oleh admin terlebih dahulu.'
+      );
+      return;
+    }
+
+    const origin =
+      typeof window !== 'undefined'
+        ? window.location.origin
+        : 'https://lulusdigital.click';
+
+    const url =
+      `${origin}/verifikasi/${transcript.verificationCode}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `Transkrip Nilai ${transcript.studentName}`,
+          text:
+            `Verifikasi transkrip nilai resmi ` +
+            `${transcript.studentName}`,
+          url,
+        });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
+
       setShowShareSuccess(transcript.id);
-      setTimeout(() => setShowShareSuccess(null), 3000);
-    });
+      setTimeout(
+        () => setShowShareSuccess(null),
+        3000
+      );
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') {
+        console.error(
+          'Gagal membagikan transkrip:',
+          error
+        );
+      }
+    }
   };
 
   // Extract failing subjects
@@ -129,242 +380,446 @@ export default function TranscriptNilai({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden text-[11px] h-full">
-      {/* Scrollable Work Area */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 no-scrollbar">
-        
-        {/* Academic Header Info Card */}
-        <div className="bg-white p-5 rounded-3xl border border-slate-150/80 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="space-y-1">
-            <h2 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
-              <FileText className="w-5 h-5 text-pink-600" /> Transkrip Nilai Mandiri
-            </h2>
-            <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-              Analisis capaian kompetensi belajar mandiri resmi Anda untuk program kesetaraan Lulus.id.
-            </p>
-          </div>
+    <div className="flex-1 h-full overflow-hidden bg-slate-100/80 text-[11px]">
+      <div className="h-full overflow-y-auto no-scrollbar">
+        {/* Hero akademik */}
+        <section className="relative overflow-hidden bg-gradient-to-br from-emerald-950 via-emerald-900 to-slate-900 px-5 py-7 md:px-8 md:py-9 text-white">
+          <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-emerald-400/10 blur-2xl" />
+          <div className="absolute -bottom-24 left-1/3 h-52 w-52 rounded-full bg-cyan-300/10 blur-3xl" />
 
-          {/* Quick Stats or Program badge */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-3 py-1 bg-pink-50 border border-pink-100 text-pink-700 font-black rounded-full uppercase tracking-wider text-[8.5px]">
-              {studentDetail.program || 'Kesetaraan'}
-            </span>
-            <span className="px-3 py-1 bg-slate-100 border border-slate-200 text-slate-600 font-bold rounded-full font-mono text-[8.5px]">
-              NISN: {studentDetail.nisn || '0098765432'}
-            </span>
-          </div>
-        </div>
-
-        {/* Filters Panel */}
-        <div className="bg-white p-4 rounded-3xl border border-slate-150/80 shadow-xs flex flex-wrap gap-4 items-center">
-          <div className="flex items-center gap-1.5 text-slate-500 font-bold shrink-0">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <span>Saring Dokumen :</span>
-          </div>
-
-          <div className="flex flex-wrap gap-2.5 flex-1">
-            {/* Semester Filter */}
-            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-2xl border border-slate-150">
-              <span className="text-slate-400 font-bold text-[8.5px] uppercase">Semester</span>
-              <select 
-                value={filterSemester} 
-                onChange={(e) => {
-                  setFilterSemester(e.target.value);
-                  setSelectedTranscript(null);
-                }}
-                className="bg-transparent border-none text-slate-700 font-extrabold focus:outline-none focus:ring-0 text-[10.5px] cursor-pointer"
-              >
-                <option value="all">Semua</option>
-                <option value="Semester 1 (Ganjil)">Semester 1 (Ganjil)</option>
-                <option value="Semester 2 (Genap)">Semester 2 (Genap)</option>
-              </select>
-            </div>
-
-            {/* Tahun Ajaran Filter */}
-            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-2xl border border-slate-150">
-              <span className="text-slate-400 font-bold text-[8.5px] uppercase">Tahun Ajaran</span>
-              <select 
-                value={filterTahunAjaran} 
-                onChange={(e) => {
-                  setFilterTahunAjaran(e.target.value);
-                  setSelectedTranscript(null);
-                }}
-                className="bg-transparent border-none text-slate-700 font-extrabold focus:outline-none focus:ring-0 text-[10.5px] cursor-pointer"
-              >
-                <option value="all">Semua</option>
-                <option value="2025/2026">2025/2026</option>
-                <option value="2026/2027">2026/2027</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Work Split Grid */}
-        {filteredTranscripts.length === 0 ? (
-          <div className="bg-white p-12 rounded-3xl border border-slate-150 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto">
-              <HelpCircle className="w-6 h-6" />
-            </div>
-            <h4 className="text-xs font-black text-slate-800">Tidak Ada Transkrip Terbit</h4>
-            <p className="text-[10px] text-slate-400 font-semibold max-w-sm mx-auto leading-relaxed">
-              Belum ada transkrip nilai resmi yang dipublikasikan untuk filter aktif Anda saat ini. Silakan hubungi tutor atau admin untuk verifikasi berkas.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            
-            {/* Left Side: Performance Summaries & Detail Tables */}
-            <div className="lg:col-span-8 space-y-6">
-              
-              {/* Stats Summary Bento Grid */}
-              <StudentPerformanceSummary 
-                totalSubjects={activeTranscript.subjects.length}
-                passedSubjects={passedCount}
-                failedSubjects={failingSubjects.length}
-                averageScore={activeTranscript.averageScore}
-                predicate={activeTranscript.predicate}
-              />
-
-              {/* Special Remedial Insight Panel (If failing mapels exist) */}
-              {failingSubjects.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 p-5 rounded-3xl space-y-4 shadow-2xs">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-amber-100 text-amber-600 rounded-2xl">
-                      <AlertTriangle className="w-5 h-5" />
-                    </div>
-                    <div className="space-y-1">
-                      <h4 className="text-xs font-black text-amber-900 uppercase tracking-wide">Mata Pelajaran yang Perlu Diperbaiki</h4>
-                      <p className="text-[9.5px] text-amber-700/95 font-semibold leading-relaxed">
-                        Berikut adalah daftar modul mata pelajaran yang berada di bawah kriteria KKM kelulusan. Silakan pelajari kembali materi dan lakukan perbaikan nilai sesuai arahan tutor.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-                    {failingSubjects.map((sub, idx) => (
-                      <div key={sub.id || idx} className="bg-white p-3.5 rounded-2xl border border-amber-100/80 shadow-3xs flex justify-between items-center">
-                        <div className="space-y-1">
-                          <span className="text-[10.5px] font-black text-slate-800 block line-clamp-1">{sub.name}</span>
-                          <div className="flex gap-3 text-[9px] font-bold text-slate-400">
-                            <span>Nilai: <b className="text-rose-500 font-mono">{sub.score}</b></span>
-                            <span>KKM: <b className="text-slate-600 font-mono">{sub.kkm}</b></span>
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className="text-[8px] font-black uppercase text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full block">
-                            Kekurangan: -{sub.kkm - sub.score} Poin
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+          <div className="relative max-w-7xl mx-auto">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white/10 border border-white/15 backdrop-blur flex items-center justify-center shrink-0 shadow-lg">
+                  <Award className="w-6 h-6 md:w-7 md:h-7 text-emerald-300" />
                 </div>
-              )}
 
-              {/* Grades Table */}
-              <TranscriptTable 
-                subjects={activeTranscript.subjects}
-                role="siswa"
-              />
-            </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/20 text-[8px] font-black uppercase tracking-[0.18em] text-emerald-200">
+                      Dokumen Akademik
+                    </span>
 
-            {/* Right Side: Identity Profiles & Document PDF Actions */}
-            <div className="lg:col-span-4 space-y-6">
-              
-              {/* Active Transcript Document Card */}
-              <div className="bg-white p-5 rounded-3xl border border-slate-150/80 shadow-xs space-y-4">
-                <div className="border-b border-slate-50 pb-3">
-                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Identitas Akademik Transkrip</span>
-                  <h4 className="text-xs font-black text-slate-900 mt-1 uppercase leading-snug">
-                    {activeTranscript.studentName}
-                  </h4>
-                  <p className="text-[9px] text-slate-400 font-semibold font-mono tracking-wider mt-0.5">
-                    {activeTranscript.documentNumber}
+                    {publishedTranscripts.length > 0 && (
+                      <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 border border-white/10 text-[8px] font-black uppercase tracking-wider text-white/80">
+                        <CheckCircle className="w-3 h-3 text-emerald-300" />
+                        Resmi diterbitkan
+                      </span>
+                    )}
+                  </div>
+
+                  <h1 className="text-xl md:text-2xl font-black tracking-tight">
+                    Transkrip Nilai Saya
+                  </h1>
+
+                  <p className="mt-2 max-w-2xl text-[10px] md:text-[11px] font-medium leading-relaxed text-emerald-100/70">
+                    Lihat ringkasan hasil belajar, mata pelajaran, dan dokumen
+                    transkrip resmi yang telah diterbitkan oleh PKBM.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 min-w-full sm:min-w-[310px] lg:min-w-[340px]">
+                <div className="rounded-2xl bg-white/10 border border-white/10 backdrop-blur p-3.5">
+                  <p className="text-[8px] uppercase tracking-widest font-black text-emerald-200/70">
+                    Program
+                  </p>
+                  <p className="mt-1 text-sm font-black">
+                    {studentDetail.program || 'Kesetaraan'}
                   </p>
                 </div>
 
-                 <div className="space-y-3 font-semibold text-[10px] text-slate-600">
-                  <div className="flex justify-between items-center">
-                    <span>Program Belajar</span>
-                    <span className="font-extrabold text-slate-800 uppercase tracking-wide bg-pink-50 text-pink-700 px-2.5 py-0.5 rounded-lg border border-pink-100/60 text-[9px]">
-                      {activeTranscript.program}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Kelas Akademik</span>
-                    <span className="font-extrabold text-slate-800">{activeTranscript.kelas}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Tahun Ajaran</span>
-                    <span className="font-mono text-slate-800 font-bold">{activeTranscript.tahunAjaran}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Semester Terbit</span>
-                    <span className="font-extrabold text-slate-800">{activeTranscript.semester}</span>
-                  </div>
-                  <div className="flex justify-between items-center border-t border-slate-50 pt-3">
-                    <span>Tanggal Terbit</span>
-                    <span className="font-mono text-slate-500">{new Date(activeTranscript.issueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                  </div>
-                </div>
-
-                {/* Main PDF and Printing Action Buttons */}
-                <div className="space-y-2 pt-2">
-                  <button
-                    onClick={() => setShowPdfView(true)}
-                    className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-2xl text-xs font-black shadow-xs hover:shadow transition-all duration-250 cursor-pointer flex items-center justify-center gap-1.5"
-                    type="button"
-                  >
-                    <Eye className="w-4 h-4" />
-                    Lihat Dokumen Resmi & Cetak
-                  </button>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => handleShare(activeTranscript)}
-                      className="py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl text-slate-700 text-[10.5px] font-black transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                      type="button"
-                    >
-                      {showShareSuccess === activeTranscript.id ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-500" />
-                          <span className="text-emerald-600">Disalin!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Share2 className="w-3.5 h-3.5 text-pink-500" />
-                          Bagikan TTE
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      onClick={() => setShowPdfView(true)}
-                      className="py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl border border-emerald-100 text-[10.5px] font-black transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                      type="button"
-                    >
-                      <Download className="w-3.5 h-3.5 text-emerald-600" />
-                      Unduh PDF
-                    </button>
-                  </div>
+                <div className="rounded-2xl bg-white/10 border border-white/10 backdrop-blur p-3.5">
+                  <p className="text-[8px] uppercase tracking-widest font-black text-emerald-200/70">
+                    NISN
+                  </p>
+                  <p className="mt-1 text-sm font-black font-mono truncate">
+                    {studentDetail.nisn || '-'}
+                  </p>
                 </div>
               </div>
-
-              {/* Info Security Tips */}
-              <div className="bg-slate-100/50 p-4 rounded-3xl border border-slate-200/60 text-[9px] text-slate-500 space-y-1.5 leading-relaxed">
-                <p className="font-black text-slate-800 uppercase tracking-wide flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" /> Sinkronisasi Otomatis
-                </p>
-                <p>
-                  Transkrip Nilai Anda dikalkulasi otomatis oleh sistem Lulus.id dari data nilai harian, modul CBT, dan tugas terunggah yang divalidasi oleh dewan tutor PKBM.
-                </p>
-              </div>
-
             </div>
-
           </div>
-        )}
+        </section>
 
+        <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
+          {/* Filter */}
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center">
+                  <Filter className="w-4 h-4 text-slate-500" />
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black text-slate-800">
+                    Pilih Transkrip
+                  </p>
+                  <p className="text-[8px] font-semibold text-slate-400">
+                    Saring berdasarkan periode akademik
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 flex-1">
+                <select
+                  value={filterSemester}
+                  onChange={(e) => {
+                    setFilterSemester(e.target.value);
+                    setSelectedTranscript(null);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-500"
+                >
+                  <option value="all">Semua semester</option>
+                  {semesterOptions.map(item => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={filterTahunAjaran}
+                  onChange={(e) => {
+                    setFilterTahunAjaran(e.target.value);
+                    setSelectedTranscript(null);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-500"
+                >
+                  <option value="all">Semua tahun ajaran</option>
+                  {academicYearOptions.map(item => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={filterProgram}
+                  onChange={(e) => {
+                    setFilterProgram(e.target.value);
+                    setSelectedTranscript(null);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-500"
+                >
+                  <option value="all">Semua program</option>
+                  {programOptions.map(item => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </section>
+
+          {loadingGrades ? (
+            <section className="bg-white min-h-[260px] rounded-3xl border border-slate-200 flex flex-col items-center justify-center text-center p-10 shadow-sm">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
+                <Clock className="w-6 h-6 text-emerald-600 animate-spin" />
+              </div>
+
+              <h3 className="text-sm font-black text-slate-800">
+                Memuat transkrip
+              </h3>
+
+              <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                Sedang mengambil dokumen resmi dari server.
+              </p>
+            </section>
+          ) : gradesError ? (
+            <section className="bg-white min-h-[250px] rounded-3xl border border-rose-200 flex flex-col items-center justify-center text-center p-10 shadow-sm">
+              <div className="w-14 h-14 rounded-2xl bg-rose-50 flex items-center justify-center mb-4">
+                <AlertTriangle className="w-6 h-6 text-rose-500" />
+              </div>
+
+              <h3 className="text-sm font-black text-rose-700">
+                Transkrip belum dapat dimuat
+              </h3>
+
+              <p className="mt-2 text-[10px] text-rose-500 font-semibold max-w-md">
+                {gradesError}
+              </p>
+            </section>
+          ) : filteredTranscripts.length === 0 ? (
+            <section className="bg-white min-h-[300px] rounded-3xl border border-slate-200 flex flex-col items-center justify-center text-center p-10 shadow-sm">
+              <div className="w-16 h-16 rounded-3xl bg-slate-100 flex items-center justify-center mb-4">
+                <HelpCircle className="w-7 h-7 text-slate-400" />
+              </div>
+
+              <h3 className="text-sm font-black text-slate-800">
+                Transkrip belum diterbitkan
+              </h3>
+
+              <p className="mt-2 text-[10px] text-slate-400 font-semibold max-w-md leading-relaxed">
+                Dokumen transkrip akan muncul di halaman ini setelah nilai
+                selesai diperiksa dan diterbitkan oleh administrator.
+              </p>
+            </section>
+          ) : (
+            <>
+              {/* Daftar dokumen jika lebih dari satu */}
+              {filteredTranscripts.length > 1 && (
+                <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {filteredTranscripts.map(item => {
+                    const active = activeTranscript?.id === item.id;
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedTranscript(item)}
+                        className={`text-left rounded-2xl border p-4 transition-all ${
+                          active
+                            ? 'bg-emerald-950 border-emerald-900 text-white shadow-lg'
+                            : 'bg-white border-slate-200 hover:border-emerald-300 hover:shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                            active ? 'bg-white/10' : 'bg-emerald-50'
+                          }`}>
+                            <FileText className={`w-4 h-4 ${
+                              active ? 'text-emerald-300' : 'text-emerald-600'
+                            }`} />
+                          </div>
+
+                          <CheckCircle className={`w-4 h-4 ${
+                            active ? 'text-emerald-300' : 'text-emerald-500'
+                          }`} />
+                        </div>
+
+                        <p className={`mt-3 text-[9px] font-black uppercase tracking-wider ${
+                          active ? 'text-emerald-200' : 'text-slate-400'
+                        }`}>
+                          {item.semester}
+                        </p>
+
+                        <p className="mt-1 text-xs font-black">
+                          Tahun Ajaran {item.tahunAjaran}
+                        </p>
+
+                        <p className={`mt-1 text-[8.5px] font-mono ${
+                          active ? 'text-white/60' : 'text-slate-400'
+                        }`}>
+                          {item.documentNumber}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </section>
+              )}
+
+              <section className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+                <div className="xl:col-span-8 space-y-5">
+                  <StudentPerformanceSummary
+                    totalSubjects={activeTranscript.subjects.length}
+                    passedSubjects={passedCount}
+                    failedSubjects={failingSubjects.length}
+                    averageScore={activeTranscript.averageScore}
+                    predicate={activeTranscript.predicate}
+                  />
+
+                  {failingSubjects.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 md:p-5">
+                      <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                          <AlertTriangle className="w-4 h-4 text-amber-600" />
+                        </div>
+
+                        <div>
+                          <h3 className="text-[11px] font-black text-amber-900">
+                            Nilai yang perlu diperbaiki
+                          </h3>
+
+                          <p className="text-[9px] font-semibold text-amber-700 mt-1 leading-relaxed">
+                            Pelajari kembali materi dan ikuti arahan tutor
+                            untuk meningkatkan nilai di bawah KKM.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-4">
+                        {failingSubjects.map((sub, idx) => (
+                          <div
+                            key={sub.id || idx}
+                            className="bg-white rounded-xl border border-amber-100 p-3 flex items-center justify-between gap-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-black text-slate-800 truncate">
+                                {sub.name}
+                              </p>
+
+                              <p className="mt-1 text-[8.5px] font-bold text-slate-400">
+                                KKM {sub.kkm}
+                              </p>
+                            </div>
+
+                            <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
+                              <span className="font-mono font-black text-rose-600">
+                                {sub.score}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xs font-black text-slate-900">
+                          Daftar Nilai Mata Pelajaran
+                        </h3>
+
+                        <p className="mt-1 text-[8.5px] font-semibold text-slate-400">
+                          Nilai yang tercantum telah masuk ke transkrip resmi.
+                        </p>
+                      </div>
+
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-[8px] font-black text-slate-500">
+                        {activeTranscript.subjects.length} MAPEL
+                      </span>
+                    </div>
+
+                    <TranscriptTable
+                      subjects={activeTranscript.subjects}
+                      role="siswa"
+                    />
+                  </div>
+                </div>
+
+                <aside className="xl:col-span-4 space-y-4 xl:sticky xl:top-5">
+                  {/* Kartu dokumen resmi */}
+                  <div className="overflow-hidden rounded-3xl bg-white border border-slate-200 shadow-sm">
+                    <div className="bg-gradient-to-br from-emerald-950 to-slate-900 p-5 text-white">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-emerald-300" />
+                        </div>
+
+                        <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-400/15 text-emerald-200 border border-emerald-300/15 text-[8px] font-black uppercase tracking-wider">
+                          <CheckCircle className="w-3 h-3" />
+                          Terbit
+                        </span>
+                      </div>
+
+                      <p className="mt-5 text-[8px] uppercase tracking-[0.18em] font-black text-emerald-200/70">
+                        Transkrip Nilai Akademik
+                      </p>
+
+                      <h3 className="mt-1 text-sm font-black uppercase leading-snug">
+                        {activeTranscript.studentName}
+                      </h3>
+
+                      <p className="mt-1 text-[9px] text-white/55 font-mono break-all">
+                        {activeTranscript.documentNumber}
+                      </p>
+                    </div>
+
+                    <div className="p-5 space-y-4">
+                      <div className="space-y-3 text-[10px]">
+                        <div className="flex justify-between gap-4">
+                          <span className="font-semibold text-slate-400">Program</span>
+                          <span className="font-black text-slate-800">
+                            {activeTranscript.program || '-'}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between gap-4">
+                          <span className="font-semibold text-slate-400">Kelas</span>
+                          <span className="font-black text-slate-800 text-right">
+                            {activeTranscript.kelas || '-'}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between gap-4">
+                          <span className="font-semibold text-slate-400">Tahun Ajaran</span>
+                          <span className="font-black font-mono text-slate-800">
+                            {activeTranscript.tahunAjaran || '-'}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between gap-4">
+                          <span className="font-semibold text-slate-400">Semester</span>
+                          <span className="font-black text-slate-800">
+                            {activeTranscript.semester || '-'}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between gap-4 border-t border-slate-100 pt-3">
+                          <span className="font-semibold text-slate-400">Diterbitkan</span>
+                          <span className="font-bold text-slate-600 text-right">
+                            {activeTranscript.issueDate
+                              ? new Date(activeTranscript.issueDate).toLocaleDateString(
+                                  'id-ID',
+                                  {
+                                    day: 'numeric',
+                                    month: 'long',
+                                    year: 'numeric'
+                                  }
+                                )
+                              : '-'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setShowPdfView(true)}
+                        type="button"
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-[10.5px] flex items-center justify-center gap-2 shadow-sm transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                        Buka Dokumen Resmi
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleShare(activeTranscript)}
+                          type="button"
+                          className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-[9.5px] flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          {showShareSuccess === activeTranscript.id ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              Tersalin
+                            </>
+                          ) : (
+                            <>
+                              <Share2 className="w-3.5 h-3.5" />
+                              Bagikan
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => setShowPdfView(true)}
+                          type="button"
+                          className="py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-xl font-black text-[9.5px] flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Unduh
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4">
+                    <div className="flex gap-3">
+                      <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+
+                      <div>
+                        <p className="text-[9.5px] font-black text-blue-900">
+                          Dokumen dapat diverifikasi
+                        </p>
+
+                        <p className="mt-1 text-[8.5px] font-semibold leading-relaxed text-blue-700/75">
+                          Gunakan QR Code atau tautan verifikasi untuk
+                          memeriksa keaslian transkrip.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </section>
+            </>
+          )}
+        </main>
       </div>
     </div>
   );

@@ -1,0 +1,946 @@
+import express, { Request, Response } from 'express';
+import path from 'path';
+import fs from 'fs';
+import multer from 'multer';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+const PORT = Number(process.env.PORT) || 3000;
+const app = express();
+
+app.use(express.json());
+
+const uploadRoot = path.join(process.cwd(), 'uploads');
+const docsFolder = path.join(uploadRoot, 'documents');
+
+if (!fs.existsSync(uploadRoot)) {
+  fs.mkdirSync(uploadRoot, { recursive: true });
+}
+if (!fs.existsSync(docsFolder)) {
+  fs.mkdirSync(docsFolder, { recursive: true });
+}
+
+// Ensure sample PDF files exist for seed documents
+const samplePdfFiles = [
+  'ijazah_paket_c_fajar.pdf',
+  'transkrip_nilai_c_fajar.pdf',
+  'skl_paket_c_fajar.pdf',
+  'sertifikat_komputer_fajar.pdf',
+  'piagam_penghargaan_fajar.pdf'
+];
+
+const MINIMAL_SAMPLE_PDF = `%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 612 792] /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Length 170 >>
+stream
+BT
+/F1 16 Tf
+50 720 Td
+(DOKUMEN AKADEMIK RESMI PKBM AGRABINTA) Tj
+0 -30 Td
+/F1 12 Tf
+(Lulus.id - Verifikasi Dokumen Digital Kesetaraan) Tj
+0 -40 Td
+(Dokumen ini adalah contoh berkas resmi terverifikasi.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000249 00000 n 
+0000000328 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+548
+%%EOF`;
+
+for (const sampleName of samplePdfFiles) {
+  const samplePath = path.join(docsFolder, sampleName);
+  if (!fs.existsSync(samplePath)) {
+    fs.writeFileSync(samplePath, MINIMAL_SAMPLE_PDF);
+  }
+}
+
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('X-Frame-Options', 'ALLOWALL');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  next();
+}, express.static(uploadRoot));
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = path.join(uploadRoot, 'documents');
+
+    if (!fs.existsSync(folder)) {
+      fs.mkdirSync(folder, { recursive: true });
+    }
+
+    cb(null, folder);
+  },
+
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const name = `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`;
+    cb(null, name);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Hanya file PDF yang diperbolehkan'));
+    }
+  }
+
+});
+
+// Upload Tugas Siswa (PDF, Foto, Video)
+const submissionStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = path.join(uploadRoot, 'submissions');
+    if (!fs.existsSync(folder)) {
+      fs.mkdirSync(folder, { recursive: true });
+    }
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const name = `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`;
+    cb(null, name);
+  }
+});
+
+const taskUpload = multer({
+  storage: submissionStorage,
+  limits: {
+    fileSize: 100 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'video/mp4',
+      'video/webm'
+    ];
+
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format file tidak didukung'));
+    }
+  }
+});
+
+
+// Lazy Gemini AI initialization to prevent crashing if environment is not set up yet
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+      throw new Error('GEMINI_API_KEY belum dikonfigurasi di secrets panel AI Studio.');
+    }
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return aiClient;
+}
+
+
+
+// Upload Document API
+app.post('/api/documents/upload', upload.single('file'), (req: Request, res: Response) => {
+  try {
+    const file = req.file;
+
+    if (!file) {
+      res.status(400).json({
+        error: "File PDF wajib diupload"
+      });
+      return;
+    }
+
+    const fileUrl = `/uploads/documents/${file.filename}`;
+
+    res.json({
+      success: true,
+      message: "Dokumen berhasil diupload",
+      file: {
+        originalName: file.originalname,
+        filename: file.filename,
+        size: file.size,
+        url: fileUrl
+      }
+    });
+
+  } catch (error: any) {
+    console.error("Upload error:", error);
+    res.status(500).json({
+      error: error.message || "Upload gagal"
+    });
+  }
+});
+
+
+// ===============================
+// DOCUMENT LIBRARY API
+// ===============================
+
+const documentDB = path.join(process.cwd(), 'data', 'documents.json');
+
+const SEED_DOCUMENTS = [
+  {
+    id: 'DOC-001',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Ijazah',
+    documentNumber: 'DN-01/C/0098765432/2026',
+    verificationCode: 'IJZ-2026-H8K2P9',
+    issueDate: '2026-06-20',
+    title: 'Ijazah Pendidikan Kesetaraan Paket C',
+    description: 'Ijazah Kelulusan Jenjang Menengah Atas Paket C Fajar Pratama.',
+    file: 'ijazah_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/ijazah_paket_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-06-25T08:00:00.000Z',
+    updatedAt: '2026-06-25T08:00:00.000Z',
+    downloads: 12,
+    views: 45
+  },
+  {
+    id: 'DOC-002',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Transkrip Nilai',
+    documentNumber: 'TR-01/C/0098765432/2026',
+    verificationCode: 'TRK-2026-Y4M7V3',
+    issueDate: '2026-06-20',
+    title: 'Transkrip Nilai Hasil Belajar Kumulatif',
+    description: 'Daftar nilai pencapaian hasil belajar seluruh mata pelajaran Paket C.',
+    file: 'transkrip_nilai_c_fajar.pdf',
+    fileUrl: '/uploads/documents/transkrip_nilai_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-06-25T08:15:00.000Z',
+    updatedAt: '2026-06-25T08:15:00.000Z',
+    downloads: 8,
+    views: 32
+  },
+  {
+    id: 'DOC-003',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'SKL',
+    documentNumber: 'SKL-01/PKBM-AGR/VI/2026',
+    verificationCode: 'SKL-2026-X9N5J1',
+    issueDate: '2026-05-15',
+    title: 'Surat Keterangan Lulus (SKL) Sementara',
+    description: 'Surat keterangan kelulusan sementara sebelum ijazah fisik terbit.',
+    file: 'skl_paket_c_fajar.pdf',
+    fileUrl: '/uploads/documents/skl_paket_c_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-05-16T10:00:00.000Z',
+    updatedAt: '2026-05-16T10:00:00.000Z',
+    downloads: 15,
+    views: 52
+  },
+  {
+    id: 'DOC-004',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Sertifikat',
+    documentNumber: 'CERT-041/COMP/2026',
+    verificationCode: 'CRT-2026-F2W6Q8',
+    issueDate: '2026-03-10',
+    title: 'Sertifikat Pelatihan Literasi Digital & Komputer',
+    description: 'Sertifikat keahlian pengoperasian aplikasi perkantoran.',
+    file: 'sertifikat_komputer_fajar.pdf',
+    fileUrl: '/uploads/documents/sertifikat_komputer_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-03-12T09:00:00.000Z',
+    updatedAt: '2026-03-12T09:00:00.000Z',
+    downloads: 5,
+    views: 28
+  },
+  {
+    id: 'DOC-005',
+    studentId: 'SIS-1001',
+    studentName: 'Fajar Pratama',
+    nisn: '0098765432',
+    program: 'Paket C',
+    kelas: 'Kelas XII - Paket C',
+    tahunLulus: '2026',
+    documentType: 'Piagam',
+    documentNumber: 'PGM-012/LKT/2026',
+    verificationCode: 'DOC-2026-P8X3R1',
+    issueDate: '2026-02-18',
+    title: 'Piagam Penghargaan Juara 1 Lomba Karya Tulis',
+    description: 'Piagam penghargaan karya tulis ilmiah kesetaraan tingkat kabupaten.',
+    file: 'piagam_penghargaan_fajar.pdf',
+    fileUrl: '/uploads/documents/piagam_penghargaan_fajar.pdf',
+    thumbnail: 'https://images.unsplash.com/photo-1567427017947-545c5f8d16ad?w=150&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    status: 'Publish',
+    uploadedBy: 'Administrator',
+    uploadedAt: '2026-02-20T11:00:00.000Z',
+    updatedAt: '2026-02-20T11:00:00.000Z',
+    downloads: 3,
+    views: 19
+  }
+];
+
+function readDocuments() {
+  const dir = path.dirname(documentDB);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  if (!fs.existsSync(documentDB)) {
+    fs.writeFileSync(documentDB, JSON.stringify(SEED_DOCUMENTS, null, 2));
+    return SEED_DOCUMENTS;
+  }
+
+  try {
+    const raw = fs.readFileSync(documentDB, 'utf-8');
+    const documents = JSON.parse(raw);
+    if (!Array.isArray(documents)) {
+      fs.writeFileSync(documentDB, JSON.stringify(SEED_DOCUMENTS, null, 2));
+      return SEED_DOCUMENTS;
+    }
+
+    // Ensure seed documents exist if missing
+    let updated = false;
+    const existingIds = new Set(documents.map((d: any) => d.id));
+    for (const seedDoc of SEED_DOCUMENTS) {
+      if (!existingIds.has(seedDoc.id)) {
+        documents.push(seedDoc);
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      fs.writeFileSync(documentDB, JSON.stringify(documents, null, 2));
+    }
+
+    return documents;
+  } catch (e) {
+    fs.writeFileSync(documentDB, JSON.stringify(SEED_DOCUMENTS, null, 2));
+    return SEED_DOCUMENTS;
+  }
+}
+
+function saveDocuments(data: any[]) {
+  fs.writeFileSync(
+    documentDB,
+    JSON.stringify(data, null, 2)
+  );
+}
+
+
+// Get all documents
+app.get('/api/documents', (req: Request, res: Response) => {
+  const documents = readDocuments();
+  res.json(documents);
+});
+
+
+// Get documents by student
+app.get('/api/documents/student/:studentId', (req: Request, res: Response) => {
+  const documents = readDocuments();
+
+  const studentDocuments = documents.filter(
+    (doc: any) => doc.studentId === req.params.studentId
+  );
+
+  res.json(studentDocuments);
+});
+
+
+// Save document metadata
+app.post('/api/documents', (req: Request, res: Response) => {
+  const documents = readDocuments();
+
+  const newDocument = {
+    id: `DOC-${Date.now()}`,
+    ...req.body,
+    createdAt: new Date().toISOString()
+  };
+
+  documents.unshift(newDocument);
+
+  saveDocuments(documents);
+
+  res.json({
+    success: true,
+    document: newDocument
+  });
+});
+
+
+// Update document
+app.put('/api/documents/:id', (req: Request, res: Response) => {
+  const documents = readDocuments();
+
+  const index = documents.findIndex(
+    (doc: any) => doc.id === req.params.id
+  );
+
+  if (index === -1) {
+    res.status(404).json({
+      error: "Dokumen tidak ditemukan"
+    });
+    return;
+  }
+
+  documents[index] = {
+    ...documents[index],
+    ...req.body,
+    updatedAt: new Date().toISOString()
+  };
+
+  saveDocuments(documents);
+
+  res.json(documents[index]);
+});
+
+
+// Delete document
+app.delete('/api/documents/:id', (req: Request, res: Response) => {
+  let documents = readDocuments();
+
+  documents = documents.filter(
+    (doc: any) => doc.id !== req.params.id
+  );
+
+  saveDocuments(documents);
+
+  res.json({
+    success: true
+  });
+});
+
+
+// API Routes
+app.post('/api/gemini', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { prompt, systemInstruction, history } = req.body;
+    
+    if (!prompt) {
+      res.status(400).json({ error: 'Prompt is required' });
+      return;
+    }
+
+    const ai = getAiClient();
+    
+    // Construct request contents based on optional conversation history
+    const contents: any[] = [];
+    if (history && Array.isArray(history)) {
+      history.forEach((msg: any) => {
+        contents.push({
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.text }]
+        });
+      });
+    }
+    contents.push({
+      role: 'user',
+      parts: [{ text: prompt }]
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents,
+      config: {
+        systemInstruction: systemInstruction || 'Kamu adalah Lulus AI, asisten dan guru pendamping Lulus.id yang sangat ramah, penyabar, dan suportif. Jawab pertanyaan siswa dengan bahasa Indonesia yang santun, sederhana, mudah dipahami anak sekolah non-formal, serta berikan contoh konkret bila perlu. Jangan terlalu panjang lebar, langsung ke inti penjelasan.',
+        temperature: 0.7,
+      }
+    });
+
+    res.json({ text: response.text });
+  } catch (error: any) {
+    console.error('Gemini API Error:', error);
+    res.status(500).json({ error: error.message || 'Gagal memproses dengan Gemini AI.' });
+  }
+});
+
+// Mock In-Memory Database for Registration V2
+interface StudentRegistration {
+  id: string;
+  username: string;
+  email: string;
+  program_paket: string;
+  tipe_kelas: string;
+  registration_status: 'DRAFT' | 'MENUNGGU_VERIFIKASI' | 'PERBAIKAN_DOKUMEN' | 'KLARIFIKASI_DATA' | 'DITERIMA' | 'DITOLAK_PERMANEN' | 'AKTIF';
+  biodata: any;
+  dokumen: any;
+  catatan_admin: string;
+  rejection_reason?: string;
+  rejection_category?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface PaymentInvoice {
+  id: string;
+  registration_id: string;
+  invoice_number: string;
+  amount: number;
+  payment_status: 'NONE' | 'UNPAID' | 'WAITING_CONFIRMATION' | 'PAID' | 'EXPIRED';
+  metode_pembayaran?: string;
+  bukti_transfer?: string;
+  expired_at: string;
+  paid_at?: string;
+  created_at: string;
+}
+
+let mockRegistrations: StudentRegistration[] = [];
+
+let mockInvoices: PaymentInvoice[] = [];
+
+const getUsernameFromAuth = (req: Request): string => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Token ')) {
+    const val = authHeader.substring(6);
+    if (val.startsWith('mock-token-')) {
+      return val.substring(11);
+    }
+    return val;
+  }
+  return '';
+};
+
+// GET /api/registration/me/
+app.get('/api/registration/me/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  let reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    // If it's a legacy student (e.g. fajar_pratama or general users other than aditya_perkasa/siti_rahma), we seed them as AKTIF
+    const isNewRegistrationUser = username === 'aditya_perkasa' || username === 'siti_rahma' || username.startsWith('reg-') || username.startsWith('new_');
+    
+    reg = {
+      id: `reg-${Math.floor(Math.random() * 10000)}`,
+      username: username,
+      email: `${username}@gmail.com`,
+      program_paket: "Paket C",
+      tipe_kelas: "Reguler",
+      registration_status: isNewRegistrationUser ? "DRAFT" : "AKTIF",
+      biodata: {
+        nama: username.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        kelas_plotted: !isNewRegistrationUser
+      },
+      dokumen: {},
+      catatan_admin: "",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    mockRegistrations.push(reg);
+
+    if (!isNewRegistrationUser) {
+      // Seed a PAID invoice for legacy students to ensure they instantly bypass all onboarding checks
+      mockInvoices.push({
+        id: `inv-${Math.floor(Math.random() * 10000)}`,
+        registration_id: reg.id,
+        invoice_number: `INV/2026/07/${reg.id.toUpperCase()}`,
+        amount: 300000,
+        payment_status: "PAID",
+        created_at: new Date().toISOString(),
+        expired_at: new Date().toISOString()
+      });
+    }
+  }
+
+  const invoice = mockInvoices.find(i => i.registration_id === reg?.id);
+  res.json({ ...reg, invoice });
+});
+
+// POST /api/registration/me/
+app.post('/api/registration/me/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const { program_paket, tipe_kelas, biodata, dokumen } = req.body;
+  let reg = mockRegistrations.find(r => r.username === username);
+
+  if (reg) {
+    reg.program_paket = program_paket || reg.program_paket;
+    reg.tipe_kelas = tipe_kelas || reg.tipe_kelas;
+    reg.biodata = { ...reg.biodata, ...biodata };
+    reg.dokumen = { ...reg.dokumen, ...dokumen };
+    reg.updated_at = new Date().toISOString();
+  } else {
+    reg = {
+      id: `reg-${Math.floor(Math.random() * 10000)}`,
+      username,
+      email: `${username}@gmail.com`,
+      program_paket: program_paket || "Paket C",
+      tipe_kelas: tipe_kelas || "Reguler",
+      registration_status: "DRAFT",
+      biodata: biodata || {},
+      dokumen: dokumen || {},
+      catatan_admin: "",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    mockRegistrations.push(reg);
+  }
+
+  res.json(reg);
+});
+
+// POST /api/registration/me/submit/
+app.post('/api/registration/me/submit/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  reg.registration_status = "MENUNGGU_VERIFIKASI";
+  reg.updated_at = new Date().toISOString();
+  res.json(reg);
+});
+
+// POST /api/registration/public/register/ (Public API to save newly registered student from wizard)
+app.post('/api/registration/public/register/', (req: Request, res: Response) => {
+  const { username, email, program_paket, tipe_kelas, biodata, dokumen } = req.body;
+  if (!username) {
+    res.status(400).json({ detail: "Username wajib diisi." });
+    return;
+  }
+
+  // Check if already exists to avoid duplicates
+  let reg = mockRegistrations.find(r => r.username === username);
+  if (reg) {
+    res.status(400).json({ detail: "Username sudah terdaftar." });
+    return;
+  }
+
+  // Create Registration
+  const regId = `reg-${Math.floor(1000 + Math.random() * 9000)}`;
+  reg = {
+    id: regId,
+    username: username,
+    email: email || `${username}@gmail.com`,
+    program_paket: program_paket || "Paket C",
+    tipe_kelas: tipe_kelas || "Reguler",
+    registration_status: "MENUNGGU_VERIFIKASI", // Set to MENUNGGU_VERIFIKASI as they submitted from wizard
+    biodata: biodata || {},
+    dokumen: dokumen || {},
+    catatan_admin: "",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  mockRegistrations.push(reg);
+
+  // Create Invoice
+  const invoiceAmount = tipe_kelas === 'Karyawan' ? 500000 : 300000;
+  const invoiceId = `inv-${Math.floor(1000 + Math.random() * 9000)}`;
+  const invoiceNumber = `INV/2026/07/${Math.floor(1000 + Math.random() * 9000)}`;
+  const invoice: PaymentInvoice = {
+    id: invoiceId,
+    registration_id: regId,
+    invoice_number: invoiceNumber,
+    amount: invoiceAmount,
+    payment_status: "UNPAID",
+    expired_at: new Date(Date.now() + 3600000 * 24).toISOString(),
+    created_at: new Date().toISOString()
+  };
+
+  mockInvoices.push(invoice);
+
+  res.json({ registration: reg, invoice });
+});
+
+// GET /api/payment/invoice/
+app.get('/api/payment/invoice/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  const invoice = mockInvoices.find(i => i.registration_id === reg.id);
+  if (!invoice) {
+    res.status(404).json({ detail: "Tagihan belum diterbitkan oleh Admin." });
+    return;
+  }
+
+  res.json(invoice);
+});
+
+// POST /api/payment/invoice/upload-proof/
+app.post('/api/payment/invoice/upload-proof/', (req: Request, res: Response) => {
+  const username = getUsernameFromAuth(req);
+  if (!username) {
+    res.status(401).json({ detail: "Sesi tidak valid." });
+    return;
+  }
+
+  const reg = mockRegistrations.find(r => r.username === username);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  const invoice = mockInvoices.find(i => i.registration_id === reg.id);
+  if (!invoice) {
+    res.status(404).json({ detail: "Tagihan belum diterbitkan." });
+    return;
+  }
+
+  const { bukti_transfer, metode_pembayaran } = req.body;
+  if (!bukti_transfer) {
+    res.status(400).json({ detail: "Bukti transfer wajib diunggah." });
+    return;
+  }
+
+  invoice.bukti_transfer = bukti_transfer;
+  invoice.metode_pembayaran = metode_pembayaran || "Transfer Virtual Account Mandiri";
+  invoice.payment_status = "WAITING_CONFIRMATION";
+  res.json(invoice);
+});
+
+// GET /api/admin/registrations/
+app.get('/api/admin/registrations/', (req: Request, res: Response) => {
+  const list = mockRegistrations.map(r => {
+    const invoice = mockInvoices.find(i => i.registration_id === r.id);
+    return { ...r, invoice };
+  });
+  res.json(list);
+});
+
+// POST /api/admin/registrations/:id/plot/
+app.post('/api/admin/registrations/:id/plot/', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { kelas_plotted, rombel_nama } = req.body;
+
+  const reg = mockRegistrations.find(r => r.id === id);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  reg.biodata = {
+    ...reg.biodata,
+    kelas_plotted: kelas_plotted !== undefined ? kelas_plotted : true,
+    rombel_nama: rombel_nama || reg.biodata.rombel_nama
+  };
+  reg.registration_status = "AKTIF";
+  reg.updated_at = new Date().toISOString();
+
+  res.json(reg);
+});
+
+// PATCH /api/admin/registrations/:id/verify/
+app.patch('/api/admin/registrations/:id/verify/', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { action, category, reason } = req.body; // action: 'ACCEPT' | 'REJECT'
+
+  const reg = mockRegistrations.find(r => r.id === id);
+  if (!reg) {
+    res.status(404).json({ detail: "Pendaftaran tidak ditemukan." });
+    return;
+  }
+
+  if (action === 'ACCEPT') {
+    reg.registration_status = "DITERIMA";
+    reg.catatan_admin = "Berkas lengkap dan lolos seleksi.";
+    reg.updated_at = new Date().toISOString();
+
+    // Auto generate invoice
+    const isKaryawan = reg.tipe_kelas === 'Karyawan';
+    const amount = isKaryawan ? 500000 : 300000;
+    const invNum = `INV/2026/07/00${Math.floor(10 + Math.random() * 89)}`;
+
+    // Delete existing unpaid if any, and create new
+    mockInvoices = mockInvoices.filter(i => i.registration_id !== id);
+    const newInv: PaymentInvoice = {
+      id: `inv-${Math.floor(Math.random() * 10000)}`,
+      registration_id: id,
+      invoice_number: invNum,
+      amount,
+      payment_status: "UNPAID",
+      expired_at: new Date(Date.now() + 3600000 * 72).toISOString(),
+      created_at: new Date().toISOString()
+    };
+    mockInvoices.push(newInv);
+
+  } else if (action === 'REJECT') {
+    reg.registration_status = category || "PERBAIKAN_DOKUMEN";
+    reg.catatan_admin = reason || "Terdapat dokumen yang kurang lengkap/jelas.";
+    reg.updated_at = new Date().toISOString();
+  }
+
+  res.json(reg);
+});
+
+// PATCH /api/admin/payment/:id/verify/
+app.patch('/api/admin/payment/:id/verify/', (req: Request, res: Response) => {
+  const { id } = req.params; // Invoice ID
+  const { action } = req.body; // 'APPROVE' | 'DECLINE'
+
+  const invoice = mockInvoices.find(i => i.id === id);
+  if (!invoice) {
+    res.status(404).json({ detail: "Tagihan tidak ditemukan." });
+    return;
+  }
+
+  if (action === 'APPROVE') {
+    invoice.payment_status = "PAID";
+    invoice.paid_at = new Date().toISOString();
+  } else {
+    invoice.payment_status = "UNPAID";
+    invoice.bukti_transfer = undefined;
+  }
+
+  res.json(invoice);
+});
+
+
+// Submit Tugas Siswa dengan File
+app.post('/api/siswa/tasks/:taskId/submit/', taskUpload.array('file_submission'), (req: Request, res: Response) => {
+  try {
+    const taskId = req.params.taskId;
+    const text = req.body.text || '';
+
+    const files = (req.files as Express.Multer.File[] || []).map(file => ({
+      originalName: file.originalname,
+      filename: file.filename,
+      size: file.size,
+      url: `/uploads/submissions/${file.filename}`
+    }));
+
+    console.log('Submit tugas:', {
+      taskId,
+      text,
+      files
+    });
+
+    res.json({
+      success: true,
+      message: 'Tugas berhasil dikirim',
+      submission: {
+        taskId,
+        text,
+        files,
+        status: 'Menunggu Penilaian',
+        submittedAt: new Date().toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Submit tugas error:', error);
+    res.status(500).json({
+      error: error.message || 'Upload tugas gagal'
+    });
+  }
+});
+
+
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({ status: 'healthy', time: new Date().toISOString() });
+});
+
+// Configure Vite integration or static file serving
+const startServer = async () => {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req: Request, res: Response) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`lulus.id server running at http://0.0.0.0:${PORT}`);
+  });
+};
+
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+});

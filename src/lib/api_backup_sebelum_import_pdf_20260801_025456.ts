@@ -1,0 +1,1255 @@
+/**
+ * api.ts
+ * Client API untuk integrasi dengan Django Backend (Lulus.id)
+ */
+
+import { DigitalLibraryBook, AcademicDocument } from '../types';
+
+// URL API Backend Django. Default ke localhost jika tidak ditentukan di .env
+export const API_URL = (import.meta as any).env?.VITE_API_URL || 'https://lulusdigital.click';
+
+// Interface untuk data respon login
+export interface LoginResponse {
+  token: string;
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    nama_lengkap: string;
+    role: 'siswa' | 'guru' | 'admin';
+  };
+}
+
+/**
+ * Helper to perform fetch requests with a specific timeout
+ */
+async function fetchWithTimeout(resource: string, options: RequestInit & { timeout?: number }): Promise<Response> {
+  const { timeout = 1000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(resource, {
+      ...fetchOptions,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
+
+/**
+ * Helper untuk melakukan HTTP request dengan token autentikasi
+ */
+async function fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<any> {
+  const token = localStorage.getItem('token');
+  const isFormData = options.body instanceof FormData;
+
+  const headers: Record<string, string> = {
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(token ? { 'Authorization': `Token ${token}` } : {}),
+    ...((options.headers || {}) as Record<string, string>),
+  };
+
+  const response = await fetchWithTimeout(`${API_URL}${endpoint}`, {
+    ...options,
+    headers,
+    timeout: isFormData ? 30000 : 3000
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    let errorObj;
+    try {
+      errorObj = JSON.parse(errText);
+    } catch {
+      errorObj = { message: errText || 'Terjadi kesalahan sistem' };
+    }
+    console.error("API ERROR DETAIL:", errorObj);
+    throw new Error(JSON.stringify(errorObj) || `HTTP Error ${response.status}`);
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  const responseText = await response.text();
+
+  if (!responseText) {
+    return null;
+  }
+
+  return JSON.parse(responseText);
+}
+
+/**
+ * API Client Object
+ */
+export const api = {
+
+  async getPublicRegistrationStatus(registrationId: string) {
+    const response = await fetchWithTimeout(
+      `${API_URL}/api/registration/public/status/${registrationId}/`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        errorText || `Gagal mengambil status pendaftaran: ${response.status}`
+      );
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Autentikasi Login (Token Auth Django / DRF)
+   */
+  async login(username: string, password: string): Promise<LoginResponse> {
+    const response = await fetchWithTimeout(`${API_URL}/api/token/login/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
+      timeout: 10000
+    });
+
+    if (!response.ok) {
+      // Jika token auth standar tidak ketemu, coba endpoint login alternatif (/api/login/)
+      const fallbackResponse = await fetchWithTimeout(`${API_URL}/api/login/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+        timeout: 10000
+      });
+
+      if (!fallbackResponse.ok) {
+        throw new Error('Username atau password salah.');
+      }
+      return fallbackResponse.json();
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Log Out / Hapus Token
+   */
+  async logout(): Promise<void> {
+    try {
+      await fetchWithAuth('/api/token/logout/', { method: 'POST' });
+    } catch (e) {
+      console.warn('Gagal memanggil API logout di server, menghapus token lokal...', e);
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
+  },
+
+  /**
+   * Mendapatkan Profile Pengguna yang sedang Login
+   */
+  async getCurrentUser(): Promise<LoginResponse['user']> {
+    return fetchWithAuth('/api/me/');
+  },
+
+  // === ENDPOINT SISWA ===
+
+  /**
+   * Mendapatkan data mata pelajaran (dashboard siswa)
+   */
+  async getSiswaSubjects(): Promise<any[]> {
+    return fetchWithAuth('/api/siswa/subjects/');
+  },
+
+  /**
+   * Mendapatkan daftar tugas siswa
+   */
+  async getSiswaTasks(): Promise<any[]> {
+    return fetchWithAuth('/api/siswa/tasks/');
+  },
+
+  /**
+   * Mendapatkan data capaian SKK siswa
+   */
+  async getStudentCompetencies(): Promise<any[]> {
+    return fetchWithAuth('/api/skk/student-competencies/');
+  },
+
+  /**
+   * Kirim tugas siswa (Submit assignment)
+   */
+  async submitTask(taskId: string, submissionText: string): Promise<any> {
+    return fetchWithAuth(`/api/siswa/tasks/${taskId}/submit/`, {
+      method: 'POST',
+      body: JSON.stringify({ text: submissionText }),
+    });
+  },
+
+  /**
+   * Mendapatkan nilai / rapor siswa
+   */
+  async getSiswaRapor(): Promise<any> {
+    return fetchWithAuth('/api/siswa/rapor/');
+  },
+
+
+  // === REGISTRATION V2 ===
+
+  /**
+   * Mendapatkan status pendaftaran siswa V2
+   */
+  async getMyRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/');
+  },
+
+
+  /**
+   * Update/save draft pendaftaran
+   */
+  async updateMyRegistration(data: any): Promise<any> {
+    return fetchWithAuth('/api/registration/me/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Submit pendaftaran
+   */
+  async submitRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/submit/', {
+      method: 'POST',
+    });
+  },
+
+  async submitMyRegistration(): Promise<any> {
+    return fetchWithAuth('/api/registration/me/submit/', {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Mendapatkan invoice pembayaran
+   */
+  async getMyInvoice(): Promise<any> {
+    return fetchWithAuth('/api/registration/invoice/me/');
+  },
+
+  /**
+   * Upload bukti pembayaran
+   */
+  async uploadPaymentProof(bukti_transfer: string | any, metode_pembayaran?: string): Promise<any> {
+    const payload = typeof bukti_transfer === 'object' 
+      ? bukti_transfer 
+      : { bukti_transfer, metode_pembayaran };
+    return fetchWithAuth('/api/registration/invoice/upload-proof/', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // === ENDPOINT GURU ===
+
+  /**
+   * Mendapatkan statistik dashboard guru
+   */
+  async getGuruDashboardStats(): Promise<any> {
+    return fetchWithAuth('/api/guru/stats/');
+  },
+
+  /**
+   * Mendapatkan daftar materi ajar (guru)
+   */
+  async getGuruMateri(): Promise<any[]> {
+    return fetchWithAuth('/api/guru/materi/');
+  },
+
+
+  /**
+   * Mendapatkan pilihan mapel, rombel, dan kompetensi sesuai penugasan guru
+   */
+  async getGuruMateriOptions(): Promise<any> {
+    return fetchWithAuth('/api/guru/materi/options/');
+  },
+
+
+  /**
+   * Membuat materi baru milik guru yang login
+   */
+  async createGuruMateri(data: any | FormData): Promise<any> {
+    return fetchWithAuth('/api/guru/materi/', {
+      method: 'POST',
+      body: data instanceof FormData
+        ? data
+        : JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Memperbarui materi milik guru yang login
+   */
+  async updateGuruMateri(
+    id: string,
+    data: any | FormData
+  ): Promise<any> {
+    return fetchWithAuth(`/api/guru/materi/${id}/`, {
+      method: 'PATCH',
+      body: data instanceof FormData
+        ? data
+        : JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Menghapus materi milik guru yang login
+   */
+  async deleteGuruMateri(id: string): Promise<void> {
+    return fetchWithAuth(`/api/guru/materi/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Mendapatkan daftar tugas milik guru yang login
+   */
+  async getGuruTugas(): Promise<any[]> {
+    return fetchWithAuth('/api/guru/tugas/');
+  },
+
+  /**
+   * Membuat tugas baru
+   */
+  async createGuruTugas(data: any | FormData): Promise<any> {
+    return fetchWithAuth('/api/guru/tugas/', {
+      method: 'POST',
+      body: data instanceof FormData
+        ? data
+        : JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Memperbarui tugas milik guru
+   */
+  async updateGuruTugas(
+    id: string,
+    data: any | FormData
+  ): Promise<any> {
+    return fetchWithAuth(`/api/guru/tugas/${id}/`, {
+      method: 'PATCH',
+      body: data instanceof FormData
+        ? data
+        : JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Menghapus tugas milik guru
+   */
+  async deleteGuruTugas(id: string): Promise<void> {
+    return fetchWithAuth(`/api/guru/tugas/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+
+  /**
+   * Mendapatkan daftar Bank Soal milik guru yang login
+   */
+  async getGuruBankSoal(): Promise<any[]> {
+    return fetchWithAuth('/api/guru/bank-soal/');
+  },
+
+  /**
+   * Membuat soal baru di Bank Soal guru
+   */
+  async createGuruBankSoal(data: any): Promise<any> {
+    return fetchWithAuth('/api/guru/bank-soal/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Memperbarui soal milik guru
+   */
+  async updateGuruBankSoal(
+    id: string,
+    data: any
+  ): Promise<any> {
+    return fetchWithAuth(`/api/guru/bank-soal/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Menghapus soal milik guru
+   */
+  async deleteGuruBankSoal(id: string): Promise<void> {
+    return fetchWithAuth(`/api/guru/bank-soal/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Mendapatkan daftar tugas yang dibuat guru beserta submissions
+   */
+  async getGuruTugasSubmissions(): Promise<any[]> {
+    return fetchWithAuth('/api/guru/submissions/');
+  },
+
+  /**
+   * Memberikan nilai ke submission siswa
+   */
+  async submitGrading(submissionId: string, grade: number, feedback: string): Promise<any> {
+    return fetchWithAuth(`/api/guru/submissions/${submissionId}/grade/`, {
+      method: 'POST',
+      body: JSON.stringify({ nilai: grade, feedback }),
+    });
+  },
+
+  // === ENDPOINT ADMIN ===
+
+  /**
+   * Mendapatkan statistik dashboard admin
+   */
+  async getAdminStats(): Promise<any> {
+    return fetchWithAuth('/api/admin/stats/');
+  },
+
+  /**
+   * Mendapatkan daftar siswa terdaftar (admin)
+   */
+  async getAdminSiswaList(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/siswa/');
+  },
+
+  /**
+   * Mengubah username dan password akun siswa
+   */
+  async updateStudentAccount(
+    registrationId: string,
+    username: string,
+    password?: string
+  ): Promise<any> {
+    return fetchWithAuth(`/api/admin/registrations/${registrationId}/`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        action: 'UPDATE_ACCOUNT',
+        username: username.trim(),
+        password: password?.trim() || ''
+      }),
+    });
+  },
+
+  /**
+   * Menyetujui/verifikasi pendaftaran siswa baru
+   */
+  async verifySiswa(siswaId: string, status: 'Aktif' | 'Nonaktif'): Promise<any> {
+    return fetchWithAuth(`/api/admin/siswa/${siswaId}/verify/`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  // === ENDPOINT PERPUSTAKAAN DIGITAL ===
+
+  async getLibraryBooks(): Promise<any[]> {
+    return fetchWithAuth('/api/library/books/');
+  },
+
+  async createLibraryBook(bookData: any): Promise<any> {
+    return fetchWithAuth('/api/library/books/', {
+      method: 'POST',
+      body: JSON.stringify(bookData),
+    });
+  },
+
+  async updateLibraryBook(bookId: string, bookData: any): Promise<any> {
+    return fetchWithAuth(`/api/library/books/${bookId}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(bookData),
+    });
+  },
+
+  async deleteLibraryBook(bookId: string): Promise<void> {
+    return fetchWithAuth(`/api/library/books/${bookId}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  async moderateLibraryBook(
+    bookId: string,
+    action: 'approve' | 'reject' | 'archive' | 'draft',
+    reason = ''
+  ): Promise<any> {
+    return fetchWithAuth(`/api/library/books/${bookId}/moderate/`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    });
+  },
+
+  async viewLibraryBook(bookId: string): Promise<any> {
+    return fetchWithAuth(`/api/library/books/${bookId}/`);
+  },
+
+  async downloadLibraryBook(bookId: string): Promise<any> {
+    return fetchWithAuth(`/api/library/books/${bookId}/download/`, {
+      method: 'POST',
+    });
+  },
+
+  async getAdminMapel(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/mapel/');
+  },
+
+  // === ENDPOINT NILAI SISWA ===
+
+  async getStudentGrades(params: {
+    student?: string;
+    academic_year?: string;
+    semester?: string;
+  } = {}): Promise<any[]> {
+    const query = new URLSearchParams();
+
+    if (params.student) query.set('student', params.student);
+    if (params.academic_year) query.set('academic_year', params.academic_year);
+    if (params.semester) query.set('semester', params.semester);
+
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return fetchWithAuth(`/api/student-grades/${suffix}`);
+  },
+
+  async createStudentGrade(data: any): Promise<any> {
+    return fetchWithAuth('/api/student-grades/', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async updateStudentGrade(id: number, data: any): Promise<any> {
+    return fetchWithAuth(`/api/student-grades/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async deleteStudentGrade(id: number): Promise<void> {
+    return fetchWithAuth(`/api/student-grades/${id}/`, {
+      method: 'DELETE'
+    });
+  },
+
+  // === ENDPOINT TRANSKRIP NILAI ===
+
+  async getAcademicTranscripts(): Promise<any[]> {
+    return fetchWithAuth('/api/academic-transcripts/');
+  },
+
+  async createAcademicTranscript(data: any): Promise<any> {
+    return fetchWithAuth('/api/academic-transcripts/', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async updateAcademicTranscript(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/academic-transcripts/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async deleteAcademicTranscript(id: string): Promise<void> {
+    return fetchWithAuth(`/api/academic-transcripts/${id}/`, {
+      method: 'DELETE'
+    });
+  },
+
+  // === ENDPOINT DOKUMEN AKADEMIK ===
+
+  /**
+   * Mendapatkan daftar dokumen akademik siswa
+   */
+  async getAcademicDocuments(): Promise<AcademicDocument[]> {
+    return fetchWithAuth('/api/academic-documents/');
+  },
+
+  /**
+   * Tambah dokumen akademik baru (Admin)
+   */
+  async createAcademicDocument(docData: Partial<AcademicDocument>): Promise<AcademicDocument> {
+    return fetchWithAuth('/api/academic-documents/', {
+      method: 'POST',
+      body: JSON.stringify(docData)
+    });
+  },
+
+  /**
+   * Update dokumen akademik (Admin)
+   */
+  async updateAcademicDocument(docId: string, docData: Partial<AcademicDocument>): Promise<AcademicDocument> {
+    return fetchWithAuth(`/api/academic-documents/${docId}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(docData)
+    });
+  },
+
+  /**
+   * Hapus dokumen akademik (Admin)
+   */
+  async deleteAcademicDocument(docId: string): Promise<void> {
+    return fetchWithAuth(`/api/academic-documents/${docId}/`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Catat download dokumen (Siswa)
+   */
+  async downloadAcademicDocument(docId: string): Promise<any> {
+    return fetchWithAuth(`/api/academic-documents/${docId}/download/`, {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Catat lihat / view dokumen (Siswa)
+   */
+  async viewAcademicDocument(docId: string): Promise<any> {
+    return fetchWithAuth(`/api/academic-documents/${docId}/`);
+  },
+
+  /**
+   * Admin: Mengubah password akun Django
+   */
+  async adminChangePassword(data: {
+    password_lama: string;
+    password_baru: string;
+    konfirmasi_password: string;
+  }): Promise<any> {
+    return fetchWithAuth('/api/admin/change-password/', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Mendapatkan profil akun admin
+   */
+  async adminGetProfile(): Promise<any> {
+    return fetchWithAuth('/api/admin/profile/');
+  },
+
+  /**
+   * Admin: Memperbarui profil akun admin
+   */
+  async adminUpdateProfile(data: {
+    username?: string;
+    email?: string;
+    nama_lengkap?: string;
+  }): Promise<any> {
+    return fetchWithAuth('/api/admin/profile/', {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Mendapatkan seluruh daftar pendaftar
+   */
+  async adminGetRegistrations(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/registrations/');
+  },
+
+  /**
+   * Admin: Verifikasi pendaftaran siswa (ACCEPT atau REJECT)
+   */
+  async adminVerifyRegistration(registrationId: string, data: { action: 'ACCEPT' | 'REJECT'; category?: string; reason?: string }): Promise<any> {
+    return fetchWithAuth(`/api/admin/registrations/${registrationId}/verify/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Mendapatkan daftar siswa
+   */
+  async adminGetStudents(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/siswa/');
+  },
+
+  /**
+   * Admin: Mendapatkan daftar Guru
+   */
+  async adminGetTeachers(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/guru/');
+  },
+
+  /**
+   * Admin: Menambahkan Guru
+   */
+  async createTeacher(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/guru/', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Update Guru
+   */
+  async updateTeacher(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/guru/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Hapus Guru
+   */
+  async deleteTeacher(id: string): Promise<any> {
+    return fetchWithAuth(`/api/admin/guru/${id}/`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Admin: Mendapatkan Tahun Ajaran
+   */
+
+  /**
+   * Mendapatkan Tahun Ajaran aktif sistem
+   */
+  async getAcademicContext(): Promise<any> {
+    return fetchWithAuth('/api/academic-context/');
+  },
+
+  async getAcademicYears(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/tahun-ajaran/');
+  },
+
+  /**
+   * Admin: Menambahkan Tahun Ajaran
+   */
+  async createAcademicYear(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/tahun-ajaran/', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Verifikasi bukti transfer pembayaran pendaftaran
+   */
+
+  // ==========================
+  // ROMBEL ADMIN
+  // ==========================
+
+
+  async uploadPublicPaymentProof(
+    registrationId: string,
+    data: {
+      bukti_transfer: string;
+      metode_pembayaran: string;
+    }
+  ): Promise<any> {
+    const response = await fetch(
+      `/api/registration/public/status/${registrationId}/upload-proof/`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.detail || 'Gagal mengirim bukti pembayaran.'
+      );
+    }
+
+    return result;
+  },
+
+  async adminGetFase(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/fase/');
+  },
+
+  async adminGetRombel(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/rombel/');
+  },
+
+  // ==========================
+  // PROGRAM BELAJAR ADMIN
+  // ==========================
+
+  async adminGetProgramBelajar(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/program-belajar/');
+  },
+
+  async adminCreateProgramBelajar(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/program-belajar/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminUpdateProgramBelajar(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/program-belajar/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDeleteProgramBelajar(id: string): Promise<any> {
+    return fetchWithAuth(`/api/admin/program-belajar/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+
+  // ==========================
+  // SKK COMPETENCY ADMIN
+  // ==========================
+
+  async adminGetCompetencies(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/skk/competencies/');
+  },
+
+  async adminCreateCompetency(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/skk/competencies/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminUpdateCompetency(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/skk/competencies/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDeleteCompetency(id: string): Promise<any> {
+    return fetchWithAuth(`/api/admin/skk/competencies/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+
+  // ==========================
+  // SKK BEBAN BELAJAR ADMIN
+  // ==========================
+
+  async adminGetBebanBelajar(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/skk/beban-belajar/');
+  },
+
+  async adminCreateBebanBelajar(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/skk/beban-belajar/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminUpdateBebanBelajar(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/skk/beban-belajar/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDeleteBebanBelajar(id: string): Promise<any> {
+    return fetchWithAuth(`/api/admin/skk/beban-belajar/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+
+  // ==========================
+  // SKK CAPAIAN PEMBELAJARAN ADMIN
+  // ==========================
+
+  async adminGetCP(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/skk/cp/');
+  },
+
+  async adminCreateCP(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/skk/cp/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminUpdateCP(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/skk/cp/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDeleteCP(id: string): Promise<any> {
+    return fetchWithAuth(`/api/admin/skk/cp/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+
+  // ==========================
+  // MATA PELAJARAN ADMIN
+  // ==========================
+
+  async adminGetMapel(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/mapel/');
+  },
+
+  async adminCreateMapel(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/mapel/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminUpdateMapel(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/mapel/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDeleteMapel(id: string): Promise<any> {
+    return fetchWithAuth(`/api/admin/mapel/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  async adminCreateRombel(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/rombel/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminUpdateRombel(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/rombel/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDeleteRombel(id: string): Promise<any> {
+    return fetchWithAuth(`/api/admin/rombel/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getPaymentMethods(): Promise<any[]> {
+    return fetchWithAuth('/api/payment-methods/');
+  },
+
+  async createPaymentMethod(data: any): Promise<any> {
+    return fetchWithAuth('/api/payment-methods/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updatePaymentMethod(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/payment-methods/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deletePaymentMethod(id: string): Promise<void> {
+    return fetchWithAuth(`/api/payment-methods/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getManualPaymentSettings(): Promise<any> {
+    return fetchWithAuth('/api/manual-payment-settings/');
+  },
+
+  async updateManualPaymentSettings(data: any): Promise<any> {
+    return fetchWithAuth('/api/manual-payment-settings/', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getPaymentSettings(): Promise<any> {
+    return fetchWithAuth('/api/payment-settings/');
+  },
+
+  async updatePaymentSettings(data: any): Promise<any> {
+    return fetchWithAuth('/api/payment-settings/', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminStudentBills(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/student-bills/');
+  },
+
+  async createAdminStudentBill(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/student-bills/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async verifyAdminStudentBill(
+    billId: string,
+    data: { action: 'APPROVE' | 'DECLINE'; reason?: string }
+  ): Promise<any> {
+    return fetchWithAuth(`/api/admin/student-bills/${billId}/verify/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminVerifyPayment(invoiceId: string, data: { action: 'APPROVE' | 'DECLINE' }): Promise<any> {
+    return fetchWithAuth(`/api/admin/payment/${invoiceId}/verify/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Admin: Plotting rombel kelas untuk siswa baru
+   */
+  async adminPlotRegistration(
+    registrationId: string,
+    data: { rombel_id: string }
+  ): Promise<any> {
+    return fetchWithAuth(
+      `/api/admin/registrations/${registrationId}/plot-rombel/`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data)
+      }
+    );
+  },
+
+
+  // ==========================
+  // MADING
+  // ==========================
+
+  async getPublicAnnouncements(target: 'Semua' | 'Siswa' | 'Guru' = 'Semua'): Promise<any[]> {
+    const response = await fetchWithTimeout(
+      `${API_URL}/api/mading/public/?target=${encodeURIComponent(target)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Gagal mengambil data Mading.');
+    }
+
+    return response.json();
+  },
+
+  async adminGetAnnouncements(): Promise<any[]> {
+    return fetchWithAuth('/api/admin/mading/');
+  },
+
+  async adminCreateAnnouncement(data: any): Promise<any> {
+    return fetchWithAuth('/api/admin/mading/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminUpdateAnnouncement(id: string, data: any): Promise<any> {
+    return fetchWithAuth(`/api/admin/mading/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async adminDeleteAnnouncement(id: string): Promise<void> {
+    return fetchWithAuth(`/api/admin/mading/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  // =====================================================
+  // CHAT ADMIN, GURU, DAN SISWA
+  // =====================================================
+
+  async getChatContacts() {
+    return fetchWithAuth('/api/chat/contacts/', {
+      method: 'GET',
+      timeout: 10000,
+    } as RequestInit & { timeout?: number });
+  },
+
+  async getChatConversations() {
+    return fetchWithAuth('/api/chat/conversations/', {
+      method: 'GET',
+      timeout: 10000,
+    } as RequestInit & { timeout?: number });
+  },
+
+  async createChatConversation(
+    participantUserId: string | number,
+    title: string = ''
+  ) {
+    return fetchWithAuth('/api/chat/conversations/', {
+      method: 'POST',
+      body: JSON.stringify({
+        participant_user_id: participantUserId,
+        title,
+      }),
+      timeout: 10000,
+    } as RequestInit & { timeout?: number });
+  },
+
+  async getChatMessages(
+    conversationId: string,
+    limit: number = 50
+  ) {
+    const safeLimit = Math.max(1, Math.min(limit, 50));
+
+    return fetchWithAuth(
+      `/api/chat/conversations/${conversationId}/messages/?limit=${safeLimit}`,
+      {
+        method: 'GET',
+        timeout: 10000,
+      } as RequestInit & { timeout?: number }
+    );
+  },
+
+  async sendChatMessage(
+    conversationId: string,
+    text: string,
+    replyTo?: string
+  ) {
+    const payload: Record<string, string> = {
+      text,
+    };
+
+    if (replyTo) {
+      payload.reply_to = replyTo;
+    }
+
+    return fetchWithAuth(
+      `/api/chat/conversations/${conversationId}/messages/`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        timeout: 10000,
+      } as RequestInit & { timeout?: number }
+    );
+  },
+
+  async sendChatBroadcast(
+    target: 'all' | 'siswa' | 'guru',
+    text: string
+  ) {
+    return fetchWithAuth('/api/chat/broadcast/', {
+      method: 'POST',
+      body: JSON.stringify({ target, text }),
+      timeout: 10000,
+    } as RequestInit & { timeout?: number });
+  },
+
+  async markChatRead(conversationId: string) {
+    return fetchWithAuth(
+      `/api/chat/conversations/${conversationId}/read/`,
+      {
+        method: 'POST',
+        body: JSON.stringify({}),
+        timeout: 10000,
+      } as RequestInit & { timeout?: number }
+    );
+  },
+
+
+  async getInstitutionSettings(): Promise<any> {
+    return fetchWithAuth('/api/institution-settings/', {
+      method: 'GET',
+      timeout: 10000,
+    } as RequestInit & { timeout?: number });
+  },
+
+  async updateInstitutionSettings(data: any): Promise<any> {
+    return fetchWithAuth('/api/institution-settings/', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+      timeout: 15000,
+    } as RequestInit & { timeout?: number });
+  },
+
+
+  async getGuruProfile(): Promise<any> {
+    return fetchWithAuth('/api/guru/me/');
+  },
+
+  async updateGuruProfile(data: any): Promise<any> {
+    return fetchWithAuth('/api/guru/me/', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getGuruStudents(): Promise<any> {
+    return fetchWithAuth('/api/guru/students/');
+  },
+
+  async getGuruUjianCBT(): Promise<any> {
+    return fetchWithAuth('/api/guru/ujian-cbt/');
+  },
+
+  async createGuruUjianCBT(data: any): Promise<any> {
+    return fetchWithAuth('/api/guru/ujian-cbt/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateGuruUjianCBT(
+    id: string,
+    data: any
+  ): Promise<any> {
+    return fetchWithAuth(`/api/guru/ujian-cbt/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteGuruUjianCBT(id: string): Promise<any> {
+    return fetchWithAuth(`/api/guru/ujian-cbt/${id}/`, {
+      method: 'DELETE',
+    });
+  },
+
+
+};

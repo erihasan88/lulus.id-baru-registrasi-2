@@ -16,7 +16,7 @@ interface FormulirPendaftaranModalProps {
 // Automatic form number helper (FRM-PPDB-YYYY-XXXXXX)
 export function generateFormNumber(student: Student): string {
   const idDigits = student.id.replace(/\D/g, '') || '0';
-  const paddedId = idDigits.padStart(6, '0');
+  const paddedId = idDigits.slice(-6).padStart(6, '0');
   let year = '2026';
   if (student.tahunAjaran) {
     const match = student.tahunAjaran.match(/\d{4}/g);
@@ -162,11 +162,11 @@ export function getStudentPendaftaranData(student: Student): RegistrationData {
     nama_wali: student.namaWali || '',
     hubungan_wali: student.hubunganWali || '',
     hp_wali: student.namaWali ? '081234567899' : '',
-    doc_foto: student.dokumen?.foto || 'pas_foto_default.jpg',
-    doc_ktp: student.dokumen?.ktp || 'ktp_default.png',
-    doc_kk: student.dokumen?.kk || 'kk_default.pdf',
-    doc_ijazah: student.dokumen?.ijazah || 'ijazah_default.pdf',
-    doc_akta: 'akta_kelahiran_default.pdf',
+    doc_foto: student.dokumen?.foto || '',
+    doc_ktp: student.dokumen?.ktp || '',
+    doc_kk: student.dokumen?.kk || '',
+    doc_ijazah: student.dokumen?.ijazah || '',
+    doc_akta: '',
     sig_siswa_saved: !!student.tandaTanganSiswa,
     sig_siswa_data: student.tandaTanganSiswa,
     sig_ortu_saved: !!student.tandaTanganOrangTua,
@@ -263,14 +263,16 @@ export default function FormulirPendaftaranModal({ student, onClose, showModal }
             left: 0 !important;
             top: 0 !important;
             width: 210mm !important;
-            height: 297mm !important;
+            min-height: 297mm !important;
+            height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
           }
           #printable-registration-form {
             width: 210mm !important;
-            height: 297mm !important;
+            min-height: 297mm !important;
+            height: auto !important;
             box-shadow: none !important;
             border: none !important;
             margin: 0 !important;
@@ -487,11 +489,10 @@ export default function FormulirPendaftaranModal({ student, onClose, showModal }
                       <div className="flex flex-col items-center">
                         <div className="w-16 h-22 border border-dashed border-slate-350 rounded bg-slate-100 flex flex-col items-center justify-center relative overflow-hidden">
                           {isFotoOk ? (
-                            <img 
-                              src={`https://placehold.co/120x160/5cb095/ffffff?text=${encodeURIComponent(student.nama.split(' ')[0] || 'Foto')}`} 
-                              alt="Pas Foto" 
-                              className="w-full h-full object-cover" 
-                              referrerPolicy="no-referrer"
+                            <img
+                              src={data.doc_foto}
+                              alt={`Pas Foto ${student.nama}`}
+                              className="w-full h-full object-cover"
                             />
                           ) : (
                             <div className="text-center p-1">
@@ -630,24 +631,95 @@ export default function FormulirPendaftaranModal({ student, onClose, showModal }
                     <FileText className="w-3 h-3 text-emerald-600" /> D. KELENGKAPAN DOKUMEN PERSYARATAN ADMINISTRASI (DIGITAL)
                   </h4>
                   
-                  <div className="grid grid-cols-4 gap-2 pl-2 text-[7.5px] font-bold text-slate-600">
+                  <div className="pl-2 space-y-2 text-[7.5px] font-bold text-slate-600">
+                    <div className="grid grid-cols-2 gap-3 items-start">
+                      {[
+                        {
+                          name: 'Foto KTP / KIA',
+                          val: data.doc_ktp,
+                          imageClass: 'w-full max-h-[170px] object-contain'
+                        },
+                        {
+                          name: 'Pas Foto 3x4 Resmi',
+                          val: data.doc_foto,
+                          imageClass: 'mx-auto w-[90px] h-[120px] object-cover'
+                        }
+                      ].map((doc, idx) => {
+                        const docStatus = getDocumentStatus(doc.val);
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`rounded border p-2 ${
+                              docStatus.isOk
+                                ? 'border-emerald-200 bg-emerald-50/10'
+                                : 'border-rose-200 bg-rose-50/10'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-black text-slate-700">{doc.name}</span>
+                              <span className={`px-1 py-0.5 rounded border text-[6px] uppercase ${docStatus.badgeClass}`}>
+                                {docStatus.text}
+                              </span>
+                            </div>
+
+                            {docStatus.isOk ? (
+                              <img
+                                src={doc.val}
+                                alt={doc.name}
+                                className={`${doc.imageClass} border border-slate-200 rounded bg-white`}
+                              />
+                            ) : (
+                              <div className="h-20 flex items-center justify-center border border-dashed border-slate-300 rounded text-slate-400">
+                                Dokumen belum tersedia
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
                     {[
-                      { name: 'Pas Foto 3x4 Resmi', val: data.doc_foto },
-                      { name: 'Foto KTP / KIA', val: data.doc_ktp },
-                      { name: 'Scan Kartu Keluarga (KK)', val: data.doc_kk },
-                      { name: 'Scan Ijazah Terakhir', val: data.doc_ijazah },
+                      {
+                        name: 'Scan Kartu Keluarga (KK)',
+                        val: data.doc_kk,
+                        imageClass: 'mx-auto w-full max-w-[560px] max-h-[300px] object-contain'
+                      },
+                      {
+                        name: 'Scan Ijazah Terakhir',
+                        val: data.doc_ijazah,
+                        imageClass: 'mx-auto w-full max-w-[560px] max-h-[320px] object-contain'
+                      }
                     ].map((doc, idx) => {
                       const docStatus = getDocumentStatus(doc.val);
+
                       return (
-                        <div key={idx} className={`p-1.5 rounded border ${docStatus.isOk ? 'border-emerald-200 bg-emerald-50/20' : 'border-rose-200 bg-rose-50/20'} flex flex-col justify-between h-9`}>
-                          <span className="text-slate-700 leading-tight block truncate font-black">{doc.name}</span>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className={`px-1 py-0.2 rounded-[3px] font-extrabold text-[6px] tracking-wide uppercase border flex items-center gap-0.5 ${docStatus.badgeClass}`}>
-                              {docStatus.isOk ? <Check className="w-2 h-2 text-emerald-600 stroke-4" /> : <AlertTriangle className="w-2 h-2 text-rose-600 stroke-4" />}
+                        <div
+                          key={idx}
+                          className={`rounded border p-2 ${
+                            docStatus.isOk
+                              ? 'border-emerald-200 bg-emerald-50/10'
+                              : 'border-rose-200 bg-rose-50/10'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-black text-slate-700">{doc.name}</span>
+                            <span className={`px-1 py-0.5 rounded border text-[6px] uppercase ${docStatus.badgeClass}`}>
                               {docStatus.text}
                             </span>
-                            <span className="text-slate-400 text-[5.5px] font-mono truncate max-w-[65px]">{docStatus.isOk ? doc.val : '-'}</span>
                           </div>
+
+                          {docStatus.isOk ? (
+                            <img
+                              src={doc.val}
+                              alt={doc.name}
+                              className={`${doc.imageClass} border border-slate-200 rounded bg-white`}
+                            />
+                          ) : (
+                            <div className="h-24 flex items-center justify-center border border-dashed border-slate-300 rounded text-slate-400">
+                              Dokumen belum tersedia
+                            </div>
+                          )}
                         </div>
                       );
                     })}

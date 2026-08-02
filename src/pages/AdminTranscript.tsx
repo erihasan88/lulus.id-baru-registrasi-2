@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { transcriptService } from '../services/transcriptService';
+import { api } from '../lib/api';
 import { AcademicTranscript, TranscriptSubject } from '../interfaces/academicTranscript';
 import { Student, Subject } from '../types';
 import TranscriptCard from '../components/TranscriptCard';
@@ -75,22 +76,56 @@ export default function AdminTranscript({
   // Generation Tool states
   const [showGenModal, setShowGenModal] = useState<boolean>(false);
   const [genStudentId, setGenStudentId] = useState<string>('');
-  const [genSemester, setGenSemester] = useState<string>('Semester 2 (Genap)');
-  const [genTahunAjaran, setGenTahunAjaran] = useState<string>('2025/2026');
+  const [genSemester, setGenSemester] = useState<string>('Ganjil');
+  const [genTahunAjaran, setGenTahunAjaran] = useState<string>('2027/2028');
 
   // Edit Doc Number states
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [tempDocNumber, setTempDocNumber] = useState<string>('');
 
+  const mapTranscript = (t: any): AcademicTranscript => ({
+    id: t.id,
+    studentId: t.student,
+    studentName: t.student_name || '',
+    nisn: t.student_username || '',
+    nipd: t.student_username || '',
+    program: 'Paket C',
+    kelas: '',
+    tahunAjaran: t.academic_year,
+    semester: t.semester,
+    subjects: t.subjects || [],
+    kkm: Number(t.kkm || 75),
+    score: Number(t.total_score || 0),
+    averageScore: Number(t.average_score || 0),
+    predicate: t.predicate || '',
+    documentNumber: t.document_number,
+    issueDate: t.issue_date,
+    verificationCode: t.verification_code,
+    status:
+      t.status === 'PUBLISHED' ? 'Publish' :
+      t.status === 'REVOKED' ? 'Dicabut' :
+      t.status === 'REPLACED' ? 'Diganti' : 'Draft',
+    createdBy: t.created_by_name || 'Administrator',
+    createdAt: t.created_at,
+    updatedAt: t.updated_at
+  });
+
+  const loadTranscripts = async () => {
+    try {
+      const data = await api.getAcademicTranscripts();
+      setTranscripts(Array.isArray(data) ? data.map(mapTranscript) : []);
+    } catch (err) {
+      console.error('Gagal mengambil transkrip:', err);
+      setTranscripts([]);
+    }
+  };
+
   useEffect(() => {
-    // Fetch all transcripts from local storage / mock
-    const data = transcriptService.getTranscripts(students, subjects);
-    setTranscripts(data);
-  }, [students, subjects]);
+    loadTranscripts();
+  }, []);
 
   const saveToStorage = (updatedList: AcademicTranscript[]) => {
     setTranscripts(updatedList);
-    transcriptService.saveTranscripts(updatedList);
   };
 
   const isAdmin = loggedInUser.role === 'admin';
@@ -131,85 +166,164 @@ export default function AdminTranscript({
   };
 
   // Generate a new draft transcript
-  const handleGenerateTranscript = (e: React.FormEvent) => {
+  const handleGenerateTranscript = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!genStudentId) return;
 
-    const student = students.find(s => s.id === genStudentId);
+    const student: any = students.find(s => s.id === genStudentId);
     if (!student) return;
 
-    // Use available subjects that correspond to the student (excluding materials)
-    const studentSubjects = subjects.filter(sub => !sub.isMateri);
+    const studentRef =
+      student.user_id ||
+      student.userId ||
+      student.id;
 
-    const newTranscript = transcriptService.generateTranscriptForStudent(
-      student,
-      studentSubjects,
-      genTahunAjaran,
-      genSemester,
-      loggedInUser.nama
-    );
+    try {
+      const grades = await api.getStudentGrades({
+        student: String(studentRef),
+        academic_year: genTahunAjaran,
+        semester: genSemester
+      });
 
-    const updated = [...transcripts, newTranscript];
-    saveToStorage(updated);
-    setShowGenModal(false);
-    setGenStudentId('');
-    setSelectedTranscript(newTranscript);
+      if (!Array.isArray(grades) || grades.length === 0) {
+        alert(
+          `Belum ada nilai ${student.nama} untuk ${genTahunAjaran} semester ${genSemester}.`
+        );
+        return;
+      }
+
+      const transcriptSubjects = grades.map((grade: any) => ({
+        id: String(grade.subject),
+        name: grade.subject_name || 'Mata Pelajaran',
+        category: 'Mata Pelajaran',
+        kkm: Number(grade.kkm || 75),
+        score: Number(grade.final_grade || 0),
+        status:
+          Number(grade.final_grade || 0) >= Number(grade.kkm || 75)
+            ? 'Lulus'
+            : 'Perlu Perbaikan'
+      }));
+
+      const totalScore = transcriptSubjects.reduce(
+        (sum: number, subject: any) => sum + subject.score,
+        0
+      );
+
+      const averageScore = transcriptSubjects.length
+        ? Number((totalScore / transcriptSubjects.length).toFixed(2))
+        : 0;
+
+      const predicate =
+        averageScore >= 90
+          ? 'Sangat Baik'
+          : averageScore >= 80
+            ? 'Baik'
+            : averageScore >= 75
+              ? 'Cukup'
+              : 'Kurang';
+
+      const draft = transcriptService.generateTranscriptForStudent(
+        student,
+        [],
+        genTahunAjaran,
+        genSemester,
+        loggedInUser.nama
+      );
+
+      const created = await api.createAcademicTranscript({
+        student: studentRef,
+        academic_year: genTahunAjaran,
+        semester: genSemester,
+        document_number: draft.documentNumber,
+        subjects: transcriptSubjects,
+        kkm: 75,
+        total_score: totalScore,
+        average_score: averageScore,
+        predicate,
+        issue_date: draft.issueDate,
+        status: 'DRAFT'
+      });
+
+      const mapped = mapTranscript(created);
+      setTranscripts(prev => [...prev, mapped]);
+      setSelectedTranscript(mapped);
+      setShowGenModal(false);
+      setGenStudentId('');
+    } catch (err) {
+      console.error('Gagal membuat transkrip:', err);
+      alert('Gagal membuat transkrip.');
+    }
   };
 
   // Change Transcript Status (Publish / Draft / Dicabut / Diganti)
-  const handleStatusChange = (id: string, newStatus: 'Draft' | 'Publish' | 'Dicabut' | 'Diganti') => {
+  const handleStatusChange = async (
+    id: string,
+    newStatus: 'Draft' | 'Publish' | 'Dicabut' | 'Diganti'
+  ) => {
     if (!isAdmin) return;
-    const updated = transcripts.map(t => {
-      if (t.id === id) {
-        return {
-          ...t,
-          status: newStatus,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return t;
-    });
-    saveToStorage(updated);
-    if (selectedTranscript && selectedTranscript.id === id) {
-      setSelectedTranscript({
-        ...selectedTranscript,
-        status: newStatus,
-        updatedAt: new Date().toISOString()
+
+    const statusMap = {
+      Draft: 'DRAFT',
+      Publish: 'PUBLISHED',
+      Dicabut: 'REVOKED',
+      Diganti: 'REPLACED'
+    };
+
+    try {
+      const updated = await api.updateAcademicTranscript(id, {
+        status: statusMap[newStatus]
       });
+
+      const mapped = mapTranscript(updated);
+      setTranscripts(prev => prev.map(t => t.id === id ? mapped : t));
+
+      if (selectedTranscript?.id === id) {
+        setSelectedTranscript(mapped);
+      }
+    } catch (err) {
+      console.error('Gagal mengubah status:', err);
+      alert('Gagal mengubah status transkrip.');
     }
   };
 
   // Update Document Number
-  const handleSaveDocNumber = (id: string) => {
+  const handleSaveDocNumber = async (id: string) => {
     if (!isAdmin || !tempDocNumber.trim()) return;
-    const updated = transcripts.map(t => {
-      if (t.id === id) {
-        return {
-          ...t,
-          documentNumber: tempDocNumber,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return t;
-    });
-    saveToStorage(updated);
-    if (selectedTranscript && selectedTranscript.id === id) {
-      setSelectedTranscript({
-        ...selectedTranscript,
-        documentNumber: tempDocNumber,
-        updatedAt: new Date().toISOString()
+
+    try {
+      const updated = await api.updateAcademicTranscript(id, {
+        document_number: tempDocNumber.trim()
       });
+
+      const mapped = mapTranscript(updated);
+      setTranscripts(prev => prev.map(t => t.id === id ? mapped : t));
+
+      if (selectedTranscript?.id === id) {
+        setSelectedTranscript(mapped);
+      }
+
+      setEditingDocId(null);
+    } catch (err) {
+      console.error('Gagal mengubah nomor dokumen:', err);
+      alert('Nomor dokumen gagal diperbarui.');
     }
-    setEditingDocId(null);
   };
 
   // Delete Transcript
-  const handleDeleteTranscript = (id: string) => {
+  const handleDeleteTranscript = async (id: string) => {
     if (!isAdmin) return;
-    const filtered = transcripts.filter(t => t.id !== id);
-    saveToStorage(filtered);
-    if (selectedTranscript && selectedTranscript.id === id) {
-      setSelectedTranscript(null);
+    if (!confirm('Hapus transkrip ini secara permanen?')) return;
+
+    try {
+      await api.deleteAcademicTranscript(id);
+      setTranscripts(prev => prev.filter(t => t.id !== id));
+
+      if (selectedTranscript?.id === id) {
+        setSelectedTranscript(null);
+      }
+    } catch (err) {
+      console.error('Gagal menghapus transkrip:', err);
+      alert('Transkrip gagal dihapus.');
     }
   };
 
@@ -599,7 +713,7 @@ export default function AdminTranscript({
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-[11px] text-slate-800"
                 >
                   <option value="">-- Pilih Siswa --</option>
-                  {students.map(s => (
+                  {students.filter((s: any) => !String(s.id).startsWith('SIS-')).map(s => (
                     <option key={s.id} value={s.id}>
                       {s.nama} ({s.program} • {s.kelas})
                     </option>
@@ -616,8 +730,8 @@ export default function AdminTranscript({
                   required
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-[11px] text-slate-800"
                 >
-                  <option value="Semester 1 (Ganjil)">Semester 1 (Ganjil)</option>
-                  <option value="Semester 2 (Genap)">Semester 2 (Genap)</option>
+                  <option value="Ganjil">Semester 1 (Ganjil)</option>
+                  <option value="Genap">Semester 2 (Genap)</option>
                 </select>
               </div>
 
@@ -632,6 +746,7 @@ export default function AdminTranscript({
                 >
                   <option value="2025/2026">2025/2026</option>
                   <option value="2026/2027">2026/2027</option>
+                  <option value="2027/2028">2027/2028</option>
                 </select>
               </div>
 

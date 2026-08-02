@@ -1,0 +1,272 @@
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from .models import StudentRegistration, PaymentInvoice, RejectionLog, AcademicYear, Teacher, Fase, MataPelajaran, Rombel, ProgramBelajar, Announcement
+
+User = get_user_model()
+
+class RejectionLogSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.ReadOnlyField(source='created_by.username')
+
+    class Meta:
+        model = RejectionLog
+        fields = ['id', 'registration', 'category', 'reason', 'rejected_fields', 'created_by_name', 'created_at']
+
+
+class PaymentInvoiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentInvoice
+        fields = [
+            'id', 'registration', 'invoice_number', 'amount', 'payment_status',
+            'metode_pembayaran', 'bukti_transfer', 'expired_at', 'paid_at', 'created_at'
+        ]
+
+
+class StudentRegistrationSerializer(serializers.ModelSerializer):
+    invoice = PaymentInvoiceSerializer(read_only=True)
+    rejection_logs = RejectionLogSerializer(many=True, read_only=True)
+    username = serializers.ReadOnlyField(source='user.username')
+    email = serializers.ReadOnlyField(source='user.email')
+
+    class Meta:
+        model = StudentRegistration
+        fields = [
+            'id', 'username', 'email', 'program_paket', 'tipe_kelas',
+            'registration_status', 'biodata', 'dokumen', 'catatan_admin',
+            'invoice', 'rejection_logs', 'created_at', 'updated_at'
+        ]
+
+
+class AcademicYearSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicYear
+        fields = [
+            'id',
+            'nama',
+            'semester',
+            'tanggal_mulai',
+            'tanggal_selesai',
+            'aktif',
+            'created_at',
+            'updated_at'
+        ]
+
+
+class TeacherSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Teacher
+        fields = [
+            'id',
+            'nama',
+            'nip',
+            'mapels',
+            'kelas_list',
+            'status',
+            'rekening_type',
+            'rekening_nomor',
+            'rekening_nama',
+            'is_wali_kelas',
+            'tanda_tangan',
+            'qr_tanda_tangan',
+            'photo',
+            'created_at',
+            'updated_at'
+        ]
+
+
+
+
+class MataPelajaranSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MataPelajaran
+        fields = '__all__'
+
+
+class FaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Fase
+        fields = '__all__'
+
+
+class RombelSerializer(serializers.ModelSerializer):
+    fase_detail = FaseSerializer(source='fase', read_only=True)
+
+    class Meta:
+        model = Rombel
+        fields = [
+            'id',
+            'nama_rombel',
+            'fase',
+            'fase_detail',
+            'sistem_belajar',
+            'tahun_ajaran',
+            'wali_tutor',
+            'beban_belajar',
+            'status',
+            'created_at',
+            'updated_at',
+        ]
+
+class ProgramBelajarSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProgramBelajar
+        fields = '__all__'
+
+
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    lampiranPdf = serializers.CharField(
+        source='lampiran_pdf',
+        required=False,
+        allow_blank=True
+    )
+
+    tanggalPublikasi = serializers.DateField(
+        source='tanggal_publikasi'
+    )
+
+    tanggalBerakhir = serializers.DateField(
+        source='tanggal_berakhir',
+        required=False,
+        allow_null=True
+    )
+
+    createdBy = serializers.SerializerMethodField()
+    createdRole = serializers.CharField(
+        source='created_role',
+        read_only=True
+    )
+
+    createdAt = serializers.DateTimeField(
+        source='created_at',
+        read_only=True
+    )
+
+    updatedAt = serializers.DateTimeField(
+        source='updated_at',
+        read_only=True
+    )
+
+    class Meta:
+        model = Announcement
+        fields = [
+            'id',
+            'judul',
+            'isi',
+            'gambar',
+            'lampiranPdf',
+            'kategori',
+            'prioritas',
+            'target',
+            'tanggalPublikasi',
+            'tanggalBerakhir',
+            'status',
+            'createdBy',
+            'createdRole',
+            'createdAt',
+            'updatedAt',
+        ]
+
+    def get_createdBy(self, obj):
+        if not obj.created_by:
+            return 'Admin'
+
+        profile = getattr(obj.created_by, 'profile', None)
+
+        if profile and getattr(profile, 'nama_lengkap', None):
+            return profile.nama_lengkap
+
+        return (
+            obj.created_by.get_full_name()
+            or obj.created_by.username
+        )
+
+
+# ==========================================
+# PERPUSTAKAAN
+# ==========================================
+from .models import LibraryBook
+
+
+class LibraryBookSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.SerializerMethodField()
+    approved_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LibraryBook
+        fields = [
+            'id',
+            'judul',
+            'penulis',
+            'kategori',
+            'mata_pelajaran',
+            'program',
+            'kelas',
+            'deskripsi',
+            'cover_url',
+            'source_type',
+            'file_url',
+            'ebook_url',
+            'status',
+            'uploaded_by',
+            'uploaded_by_name',
+            'uploaded_role',
+            'approved_by',
+            'approved_by_name',
+            'rejection_reason',
+            'views_count',
+            'downloads_count',
+            'published_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'uploaded_by',
+            'uploaded_by_name',
+            'uploaded_role',
+            'approved_by',
+            'approved_by_name',
+            'views_count',
+            'downloads_count',
+            'published_at',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_uploaded_by_name(self, obj):
+        if not obj.uploaded_by:
+            return ''
+        return obj.uploaded_by.get_full_name() or obj.uploaded_by.username
+
+    def get_approved_by_name(self, obj):
+        if not obj.approved_by:
+            return ''
+        return obj.approved_by.get_full_name() or obj.approved_by.username
+
+    def validate(self, attrs):
+        source_type = attrs.get(
+            'source_type',
+            getattr(self.instance, 'source_type', 'PDF')
+        )
+
+        file_url = attrs.get(
+            'file_url',
+            getattr(self.instance, 'file_url', '')
+        )
+
+        ebook_url = attrs.get(
+            'ebook_url',
+            getattr(self.instance, 'ebook_url', '')
+        )
+
+        if source_type == 'PDF' and not file_url:
+            raise serializers.ValidationError({
+                'file_url': 'Alamat file PDF wajib diisi.'
+            })
+
+        if source_type == 'LINK' and not ebook_url:
+            raise serializers.ValidationError({
+                'ebook_url': 'Link ebook wajib diisi.'
+            })
+
+        return attrs

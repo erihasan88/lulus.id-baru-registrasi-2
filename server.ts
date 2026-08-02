@@ -114,10 +114,55 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    const allowed = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/jpg'
+    ];
+
+    if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Hanya file PDF yang diperbolehkan'));
+      cb(new Error('Format file harus PDF, JPG, JPEG, atau PNG'));
+    }
+  }
+
+});
+
+// Upload Tugas Siswa (PDF, Foto, Video)
+const submissionStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = path.join(uploadRoot, 'submissions');
+    if (!fs.existsSync(folder)) {
+      fs.mkdirSync(folder, { recursive: true });
+    }
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const name = `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`;
+    cb(null, name);
+  }
+});
+
+const taskUpload = multer({
+  storage: submissionStorage,
+  limits: {
+    fileSize: 100 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'video/mp4',
+      'video/webm'
+    ];
+
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format file tidak didukung'));
     }
   }
 });
@@ -468,7 +513,7 @@ app.post('/api/gemini', async (req: Request, res: Response): Promise<void> => {
     });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-2.5-flash-lite',
       contents,
       config: {
         systemInstruction: systemInstruction || 'Kamu adalah Lulus AI, asisten dan guru pendamping Lulus.id yang sangat ramah, penyabar, dan suportif. Jawab pertanyaan siswa dengan bahasa Indonesia yang santun, sederhana, mudah dipahami anak sekolah non-formal, serta berikan contoh konkret bila perlu. Jangan terlalu panjang lebar, langsung ke inti penjelasan.',
@@ -487,9 +532,12 @@ app.post('/api/gemini', async (req: Request, res: Response): Promise<void> => {
 interface StudentRegistration {
   id: string;
   username: string;
+  password: string;
   email: string;
   program_paket: string;
   tipe_kelas: string;
+  registration_fee?: number;
+  monthly_fee?: number;
   registration_status: 'DRAFT' | 'MENUNGGU_VERIFIKASI' | 'PERBAIKAN_DOKUMEN' | 'KLARIFIKASI_DATA' | 'DITERIMA' | 'DITOLAK_PERMANEN' | 'AKTIF';
   biodata: any;
   dokumen: any;
@@ -513,9 +561,28 @@ interface PaymentInvoice {
   created_at: string;
 }
 
-let mockRegistrations: StudentRegistration[] = [];
+interface BackendStudent {
+  id: string;
+  nama: string;
+  nik: string;
+  nisn: string;
+  username: string;
+  password: string;
+  program: string;
+  tipeKelas: string;
+  status: 'Aktif' | 'Nonaktif';
+  biodata: any;
+  dokumen: any;
+  created_at: string;
+}
 
+let mockRegistrations: StudentRegistration[] = [];
+let mockStudents: BackendStudent[] = [];
 let mockInvoices: PaymentInvoice[] = [];
+
+app.get('/api/admin/students/', (_req: Request, res: Response) => {
+  res.json(mockStudents);
+});
 
 const getUsernameFromAuth = (req: Request): string => {
   const authHeader = req.headers.authorization;
@@ -545,6 +612,7 @@ app.get('/api/registration/me/', (req: Request, res: Response) => {
     reg = {
       id: `reg-${Math.floor(Math.random() * 10000)}`,
       username: username,
+    password: password || "",
       email: `${username}@gmail.com`,
       program_paket: "Paket C",
       tipe_kelas: "Reguler",
@@ -636,7 +704,17 @@ app.post('/api/registration/me/submit/', (req: Request, res: Response) => {
 
 // POST /api/registration/public/register/ (Public API to save newly registered student from wizard)
 app.post('/api/registration/public/register/', (req: Request, res: Response) => {
-  const { username, email, program_paket, tipe_kelas, biodata, dokumen } = req.body;
+  const { 
+    username, 
+    password, 
+    email, 
+    program_paket, 
+    tipe_kelas, 
+    biodata, 
+    dokumen,
+    registration_fee,
+    monthly_fee
+  } = req.body;
   if (!username) {
     res.status(400).json({ detail: "Username wajib diisi." });
     return;
@@ -654,9 +732,12 @@ app.post('/api/registration/public/register/', (req: Request, res: Response) => 
   reg = {
     id: regId,
     username: username,
+    password: password || "",
     email: email || `${username}@gmail.com`,
     program_paket: program_paket || "Paket C",
     tipe_kelas: tipe_kelas || "Reguler",
+    registration_fee: Number(registration_fee) || 0,
+    monthly_fee: Number(monthly_fee) || 0,
     registration_status: "MENUNGGU_VERIFIKASI", // Set to MENUNGGU_VERIFIKASI as they submitted from wizard
     biodata: biodata || {},
     dokumen: dokumen || {},
@@ -668,7 +749,7 @@ app.post('/api/registration/public/register/', (req: Request, res: Response) => 
   mockRegistrations.push(reg);
 
   // Create Invoice
-  const invoiceAmount = tipe_kelas === 'Karyawan' ? 500000 : 300000;
+  const invoiceAmount = Number(registration_fee) || (tipe_kelas === 'Karyawan' ? 500000 : 300000);
   const invoiceId = `inv-${Math.floor(1000 + Math.random() * 9000)}`;
   const invoiceNumber = `INV/2026/07/${Math.floor(1000 + Math.random() * 9000)}`;
   const invoice: PaymentInvoice = {
@@ -788,9 +869,31 @@ app.patch('/api/admin/registrations/:id/verify/', (req: Request, res: Response) 
     reg.catatan_admin = "Berkas lengkap dan lolos seleksi.";
     reg.updated_at = new Date().toISOString();
 
+    const studentExists = mockStudents.some(student =>
+      student.username === reg.username ||
+      (reg.biodata?.nisn && student.nisn === reg.biodata.nisn)
+    );
+
+    if (!studentExists) {
+      mockStudents.push({
+        id: `STD-${Date.now()}`,
+        nama: reg.biodata?.nama || "",
+        nik: reg.biodata?.nik || "",
+        nisn: reg.biodata?.nisn || "",
+        username: reg.username,
+        password: reg.password,
+        program: reg.program_paket,
+        tipeKelas: reg.tipe_kelas,
+        status: "Aktif",
+        biodata: reg.biodata || {},
+        dokumen: reg.dokumen || {},
+        created_at: new Date().toISOString()
+      });
+    }
+
     // Auto generate invoice
     const isKaryawan = reg.tipe_kelas === 'Karyawan';
-    const amount = isKaryawan ? 500000 : 300000;
+    const amount = reg.registration_fee || (isKaryawan ? 500000 : 300000);
     const invNum = `INV/2026/07/00${Math.floor(10 + Math.random() * 89)}`;
 
     // Delete existing unpaid if any, and create new
@@ -836,6 +939,158 @@ app.patch('/api/admin/payment/:id/verify/', (req: Request, res: Response) => {
 
   res.json(invoice);
 });
+
+
+// ===============================
+// DJANGO MATA PELAJARAN PROXY
+// ===============================
+
+app.all(
+  ['/api/admin/mapel/', '/api/admin/mapel/:id/'],
+  async (req: Request, res: Response) => {
+    try {
+      const djangoUrl = `http://127.0.0.1:8000${req.originalUrl}`;
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+
+      if (req.headers.authorization) {
+        headers.Authorization = req.headers.authorization;
+      }
+
+      const options: RequestInit = {
+        method: req.method,
+        headers
+      };
+
+      if (!['GET', 'HEAD', 'DELETE'].includes(req.method)) {
+        options.body = JSON.stringify(req.body ?? {});
+      }
+
+      const djangoResponse = await fetch(djangoUrl, options);
+
+      if (djangoResponse.status === 204) {
+        res.status(204).send();
+        return;
+      }
+
+      const responseText = await djangoResponse.text();
+      const contentType =
+        djangoResponse.headers.get('content-type') || '';
+
+      res.status(djangoResponse.status);
+
+      if (contentType.includes('application/json')) {
+        res.type('application/json').send(responseText);
+      } else {
+        res.send(responseText);
+      }
+    } catch (error: any) {
+      console.error('Mata Pelajaran proxy error:', error);
+
+      res.status(502).json({
+        detail: 'Backend Mata Pelajaran tidak dapat dihubungi.'
+      });
+    }
+  }
+);
+
+// ===============================
+// DJANGO PROGRAM BELAJAR PROXY
+// ===============================
+
+app.all(
+  ['/api/admin/program-belajar/', '/api/admin/program-belajar/:id/'],
+  async (req: Request, res: Response) => {
+    try {
+      const djangoUrl = `http://127.0.0.1:8000${req.originalUrl}`;
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+
+      const authorization = req.headers.authorization;
+      if (authorization) {
+        headers.Authorization = authorization;
+      }
+
+      const options: RequestInit = {
+        method: req.method,
+        headers
+      };
+
+      if (!['GET', 'HEAD', 'DELETE'].includes(req.method)) {
+        options.body = JSON.stringify(req.body ?? {});
+      }
+
+      const djangoResponse = await fetch(djangoUrl, options);
+
+      if (djangoResponse.status === 204) {
+        res.status(204).send();
+        return;
+      }
+
+      const contentType = djangoResponse.headers.get('content-type') || '';
+      const responseText = await djangoResponse.text();
+
+      res.status(djangoResponse.status);
+
+      if (contentType.includes('application/json')) {
+        res.type('application/json').send(responseText);
+      } else {
+        res.send(responseText);
+      }
+    } catch (error: any) {
+      console.error('Program Belajar proxy error:', error);
+
+      res.status(502).json({
+        detail: 'Backend Program Belajar tidak dapat dihubungi.'
+      });
+    }
+  }
+);
+
+
+// Submit Tugas Siswa dengan File
+app.post('/api/siswa/tasks/:taskId/submit/', taskUpload.array('file_submission'), (req: Request, res: Response) => {
+  try {
+    const taskId = req.params.taskId;
+    const text = req.body.text || '';
+
+    const files = (req.files as Express.Multer.File[] || []).map(file => ({
+      originalName: file.originalname,
+      filename: file.filename,
+      size: file.size,
+      url: `/uploads/submissions/${file.filename}`
+    }));
+
+    console.log('Submit tugas:', {
+      taskId,
+      text,
+      files
+    });
+
+    res.json({
+      success: true,
+      message: 'Tugas berhasil dikirim',
+      submission: {
+        taskId,
+        text,
+        files,
+        status: 'Menunggu Penilaian',
+        submittedAt: new Date().toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Submit tugas error:', error);
+    res.status(500).json({
+      error: error.message || 'Upload tugas gagal'
+    });
+  }
+});
+
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'healthy', time: new Date().toISOString() });

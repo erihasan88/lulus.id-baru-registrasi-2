@@ -12,206 +12,68 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
   const [matchedDoc, setMatchedDoc] = useState<any | null>(null);
   const [searched, setSearched] = useState(false);
 
-  // Load institutional identity
-  const [lembagaIdentitas] = useState(() => {
-    const saved = localStorage.getItem('lulus_lembaga_identitas');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { }
-    }
-    return {
-      namaPkbm: 'PKBM Agrabinta Lulus.id',
-      namaYayasan: 'Yayasan Pendidikan Agrabinta Sukabumi',
-      npsn: 'P9961234',
-      namaKepalaSekolah: 'Drs. H. Mulyadi, M.Pd.',
-      tandaTanganKepalaSekolah: 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan',
-      namaPejabatTtd: 'Drs. H. Mulyadi, M.Pd.',
-      jabatanPejabatTtd: 'Kepala PKBM'
-    };
+  const [lembagaIdentitas, setLembagaIdentitas] = useState({
+    namaPkbm: '',
+    namaYayasan: '',
+    npsn: '',
+    nomorIzinOperasional: '',
+    namaKepalaSekolah: '',
+    namaPejabatTtd: '',
+    jabatanPejabatTtd: 'Kepala PKBM',
+    tandaTanganKepalaSekolah: ''
   });
 
-  // Load documents
-  const getDocuments = () => {
-    const saved = localStorage.getItem('documentLibrary');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) { }
-    }
-    return [
-      {
-        id: 'DOC-001',
-        studentId: 'SIS-1001',
-        studentName: 'Fajar Pratama',
-        nisn: '0098765432',
-        program: 'Paket C',
-        kelas: 'Kelas XII - Paket C',
-        tahunLulus: '2026',
-        documentType: 'Ijazah',
-        documentNumber: 'DN-01/C/0098765432/2026',
-        issueDate: '2026-06-20',
-        title: 'Ijazah Pendidikan Kesetaraan Paket C',
-        status: 'Publish'
-      },
-      {
-        id: 'DOC-002',
-        studentId: 'SIS-1001',
-        studentName: 'Fajar Pratama',
-        nisn: '0098765432',
-        program: 'Paket C',
-        kelas: 'Kelas XII - Paket C',
-        tahunLulus: '2026',
-        documentType: 'Transkrip Nilai',
-        documentNumber: 'TR-01/C/0098765432/2026',
-        issueDate: '2026-06-20',
-        title: 'Transkrip Nilai Hasil Belajar Kumulatif',
-        status: 'Publish'
-      },
-      {
-        id: 'DOC-003',
-        studentId: 'SIS-1001',
-        studentName: 'Fajar Pratama',
-        nisn: '0098765432',
-        program: 'Paket C',
-        kelas: 'Kelas XII - Paket C',
-        tahunLulus: '2026',
-        documentType: 'SKL',
-        documentNumber: 'SKL-01/PKBM-AGR/VI/2026',
-        issueDate: '2026-05-15',
-        title: 'Surat Keterangan Lulus (SKL) Sementara',
-        status: 'Publish'
-      }
-    ];
-  };
+const performVerification = async (code: string) => {
+    const cleanCode = code.trim();
 
-  const sanitizeForPublic = (doc: any) => {
-    if (!doc) return null;
-    const sanitized = { ...doc };
-    
-    // Deep clone snapshotData if it exists and sanitize
-    if (sanitized.snapshotData) {
-      sanitized.snapshotData = { ...sanitized.snapshotData };
-      const sensitiveKeys = [
-        'nik', 'kk', 'alamat', 'ayah', 'ibu', 'tempatLahir', 'tglLahir', 
-        'jk', 'telepon', 'hp', 'email', 'namaWali', 'pekerjaanWali',
-        'noHandphone', 'noKk', 'namaIbu', 'namaAyah', 'alamatRumah'
-      ];
-      sensitiveKeys.forEach(key => {
-        delete sanitized.snapshotData[key];
-      });
-    }
-    
-    // Also strip top-level fields
-    const topLevelSensitiveKeys = [
-      'nik', 'kk', 'alamat', 'ayah', 'ibu', 'tempatLahir', 'tglLahir', 
-      'jk', 'telepon', 'hp', 'email', 'namaWali', 'pekerjaanWali',
-      'noHandphone', 'noKk', 'namaIbu', 'namaAyah', 'alamatRumah'
-    ];
-    topLevelSensitiveKeys.forEach(key => {
-      delete sanitized[key];
-    });
-    
-    return sanitized;
-  };
-
-  const performVerification = (code: string) => {
-    const cleanCode = code.trim().toUpperCase();
     if (!cleanCode) {
-      setMatchedDoc(null);
-      setSearched(false);
-      return;
+        setMatchedDoc(null);
+        setSearched(false);
+        return;
     }
 
-    const allDocs = getDocuments();
-    // Match exact verificationCode, documentNumber, ID, or documentNumber containing the code
-    let found = allDocs.find((d: any) => 
-      (d.verificationCode || '').toUpperCase() === cleanCode ||
-      (d.documentNumber || '').toUpperCase() === cleanCode || 
-      (d.id || '').toUpperCase() === cleanCode ||
-      (d.documentNumber || '').toUpperCase().includes(cleanCode) ||
-      // Support matching custom code requested by user "TRK-2026-00001" to match Transkrip Nilai
-      (cleanCode === 'TRK-2026-00001' && d.documentType === 'Transkrip Nilai')
-    );
+    try {
+        const response = await fetch(
+            `/api/public/verify-document/?code=${encodeURIComponent(cleanCode)}`
+        );
 
-    if (!found) {
-      // Dynamic lookup in students database!
-      const savedStudentsStr = localStorage.getItem('lulus_students');
-      if (savedStudentsStr) {
-        try {
-          const studentsList = JSON.parse(savedStudentsStr);
-          const matchedStudent = studentsList.find((s: any) => {
-            const idDigits = s.id.replace(/\D/g, '') || '0';
-            const paddedId = idDigits.padStart(6, '0');
-            let year = '2026';
-            if (s.tahunAjaran) {
-              const match = s.tahunAjaran.match(/\d{4}/g);
-              if (match && match.length > 1) {
-                year = match[1];
-              } else if (match && match.length > 0) {
-                year = match[0];
-              }
+        const result = await response.json();
+
+        if (result.found) {
+            setMatchedDoc(result);
+
+            if (result.institution) {
+                setLembagaIdentitas({
+                    namaPkbm: result.institution.namaPkbm || '',
+                    namaYayasan: result.institution.namaYayasan || '',
+                    npsn: result.institution.npsn || '',
+                    nomorIzinOperasional:
+                        result.institution.nomorIzinOperasional || '',
+                    namaKepalaSekolah:
+                        result.institution.namaKepalaSekolah || '',
+                    namaPejabatTtd:
+                        result.institution.namaPenandatangan
+                        || result.institution.namaKepalaSekolah
+                        || '',
+                    jabatanPejabatTtd: 'Kepala PKBM',
+                    tandaTanganKepalaSekolah:
+                        result.institution.atributPengesahanDigital || ''
+                });
             }
-            const studentFormNum = `FRM-PPDB-${year}-${paddedId}`;
-            return studentFormNum === cleanCode || s.id.toUpperCase() === cleanCode || s.nama.toUpperCase() === cleanCode;
-          });
-
-          if (matchedStudent) {
-            const idDigits = matchedStudent.id.replace(/\D/g, '') || '0';
-            const paddedId = idDigits.padStart(6, '0');
-            let year = '2026';
-            if (matchedStudent.tahunAjaran) {
-              const match = matchedStudent.tahunAjaran.match(/\d{4}/g);
-              if (match && match.length > 1) {
-                year = match[1];
-              } else if (match && match.length > 0) {
-                year = match[0];
-              }
-            }
-            const studentFormNum = `FRM-PPDB-${year}-${paddedId}`;
-
-            found = {
-              id: matchedStudent.id,
-              studentId: matchedStudent.id,
-              studentName: matchedStudent.nama,
-              nisn: matchedStudent.nisn || '-',
-              program: matchedStudent.program,
-              kelas: matchedStudent.kelas || 'Calon Siswa',
-              tahunLulus: '-',
-              documentType: 'Formulir Pendaftaran Siswa (PPDB)',
-              documentNumber: studentFormNum,
-              issueDate: '2026-07-16',
-              title: 'Formulir Pendaftaran Siswa (PPDB)',
-              status: matchedStudent.status === 'Aktif' ? 'Publish' : 'Draft',
-              isRegistrationForm: true,
-              studentStatus: matchedStudent.status,
-              catatanVerifikasi: matchedStudent.catatanVerifikasi,
-              riwayatVerifikasi: matchedStudent.riwayatVerifikasi
-            };
-          }
-        } catch (e) {
-          console.warn('Gagal membaca database siswa lokal', e);
+        } else {
+            setMatchedDoc(null);
         }
-      }
-    }
 
-    if (found) {
-      const sanitized = sanitizeForPublic(found);
-      // If it matched the custom demo code, format nicely
-      if (cleanCode === 'TRK-2026-00001' && sanitized && sanitized.documentType === 'Transkrip Nilai') {
-        setMatchedDoc({
-          ...sanitized,
-          documentNumber: 'TRK-2026-00001',
-          title: 'Transkrip Nilai Hasil Belajar Kumulatif'
-        });
-      } else {
-        setMatchedDoc(sanitized);
-      }
-    } else {
-      setMatchedDoc(null);
-    }
-    setSearched(true);
-  };
+        setSearched(true);
 
-  useEffect(() => {
+    } catch (err) {
+        console.error(err);
+        setMatchedDoc(null);
+        setSearched(true);
+    }
+};
+
+useEffect(() => {
     if (initialCode) {
       performVerification(initialCode);
     }
@@ -342,7 +204,17 @@ export default function VerificationPage({ initialCode, onBack }: VerificationPa
                   <span className="text-[10px] font-bold text-slate-400 self-center">Diterbitkan Oleh</span>
                   <span className="col-span-2 font-bold text-slate-700 flex items-center gap-1">
                     <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                    {lembagaIdentitas.namaPkbm}
+                    {lembagaIdentitas.namaPkbm || '-'}
+                  </span>
+
+                  <span className="text-[10px] font-bold text-slate-400 self-center">NPSN</span>
+                  <span className="col-span-2 font-mono font-bold text-slate-700">
+                    {lembagaIdentitas.npsn || '-'}
+                  </span>
+
+                  <span className="text-[10px] font-bold text-slate-400 self-center">Nomor Izin Operasional</span>
+                  <span className="col-span-2 font-mono font-bold text-slate-700 break-words">
+                    {lembagaIdentitas.nomorIzinOperasional || '-'}
                   </span>
 
                   <span className="text-[10px] font-bold text-slate-400 self-center">Disahkan Oleh</span>

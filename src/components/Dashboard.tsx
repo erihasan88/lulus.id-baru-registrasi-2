@@ -74,7 +74,17 @@ export default function Dashboard({
   lembagaIdentitas,
   activeAcademicYear
 }: DashboardProps) {
-  const studentObj = students?.find(s => s.username?.toLowerCase() === username?.toLowerCase() || s.nama?.toLowerCase()?.includes(username?.toLowerCase() || '')) || { id: 'SIS-1001', nama: 'Fajar Pratama', program: 'Paket C', kelas: 'Kelas X - Paket C' };
+  const studentObj = students?.find(
+    s =>
+      s.username?.toLowerCase() === username?.toLowerCase() ||
+      s.nama?.toLowerCase() === username?.toLowerCase()
+  ) || {
+    id: '',
+    username: '',
+    nama: username || 'Siswa',
+    program: '',
+    kelas: ''
+  };
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [taskSearchQuery, setTaskSearchQuery] = useState<string>('');
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
@@ -82,7 +92,11 @@ export default function Dashboard({
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isEditingSubmission, setIsEditingSubmission] = useState<boolean>(false);
   const [submissionText, setSubmissionText] = useState<string>('');
-  const [submissionFiles, setSubmissionFiles] = useState<{ name: string; type: string; size: string }[]>([]);
+  const [submissionFiles, setSubmissionFiles] = useState<
+    { name: string; type: string; size: string; url?: string }[]
+  >([]);
+  const [submissionFile, setSubmissionFile] = useState<File | null>(null);
+  const [submissionVideoLink, setSubmissionVideoLink] = useState('');
   const [dragActive, setDragActive] = useState<boolean>(false);
 
   // Student SKK States
@@ -107,29 +121,109 @@ export default function Dashboard({
   const [leaveTeacher, setLeaveTeacher] = useState<string>('rina');
 
   // Student E-Library (Pustaka) States
-  const [pustakaSubView, setPustakaSubView] = useState<'list' | 'detail' | 'read'>('list');
-  const [selectedLibraryBook, setSelectedLibraryBook] = useState<any | null>(null);
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    const saved = localStorage.getItem('lulus_favorit');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [pustakaCategoryFilter, setPustakaCategoryFilter] = useState<string>('Semua');
-  const [pustakaSearchQuery, setPustakaSearchQuery] = useState<string>('');
-  
+  const [pustakaSubView, setPustakaSubView] =
+    useState<'list' | 'detail' | 'read'>('list');
+
+  const [selectedLibraryBook, setSelectedLibraryBook] =
+    useState<any | null>(null);
+
+  const [libraryBooks, setLibraryBooks] = useState<any[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+
+  const [pustakaCategoryFilter, setPustakaCategoryFilter] =
+    useState<string>('Semua');
+
+  const [pustakaSearchQuery, setPustakaSearchQuery] =
+    useState<string>('');
+
   // Library Reader Customization
-  const [libraryViewerZoom, setLibraryViewerZoom] = useState<number>(100);
-  const [libraryViewerDarkMode, setLibraryViewerDarkMode] = useState<boolean>(false);
-  const [libraryViewerFontSize, setLibraryViewerFontSize] = useState<number>(14);
-  const [libraryReaderBg, setLibraryReaderBg] = useState<'white' | 'sepia' | 'gray'>('white');
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  
-  // Library Book Rating / Review
-  const [selectedRating, setSelectedRating] = useState<number>(5);
-  const [reviewText, setReviewText] = useState<string>('');
+  const [libraryViewerZoom, setLibraryViewerZoom] =
+    useState<number>(100);
+
+  const [libraryViewerDarkMode, setLibraryViewerDarkMode] =
+    useState<boolean>(false);
+
+  const [libraryViewerFontSize, setLibraryViewerFontSize] =
+    useState<number>(14);
+
+  const [libraryReaderBg, setLibraryReaderBg] =
+    useState<'white' | 'sepia' | 'gray'>('white');
+
+  const [currentPage, setCurrentPage] =
+    useState<number>(1);
+
+  const mapStudentLibraryBook = (book: any) => ({
+    ...book,
+    id: book.id,
+    title: book.judul || '',
+    judul: book.judul || '',
+    description: book.deskripsi || '',
+    deskripsi: book.deskripsi || '',
+    author: book.penulis || '',
+    penulis: book.penulis || '',
+    category: book.kategori || 'Modul Pembelajaran',
+    subject: book.mata_pelajaran || 'Umum',
+    mataPelajaran: book.mata_pelajaran || 'Umum',
+    program:
+      book.program === 'PAKET_A' ? 'Paket A' :
+      book.program === 'PAKET_B' ? 'Paket B' :
+      book.program === 'PAKET_C' ? 'Paket C' : 'Semua',
+    kelas: book.kelas || 'Semua Kelas',
+    cover:
+      book.cover_url ||
+      'https://placehold.co/200x300/5EAF95/ffffff?text=Buku',
+    file: book.file_url || book.ebook_url || '',
+    filePdf: book.file_url || '',
+    ebookUrl: book.ebook_url || '',
+    fileType: book.source_type === 'LINK' ? 'link' : 'pdf',
+    sourceType: book.source_type,
+    status: 'Publish',
+    statusPublikasi: 'Publik',
+    views: book.views_count || 0,
+    downloads: book.downloads_count || 0,
+    downloadCount: book.downloads_count || 0,
+    publisher: 'Lulus.id',
+    year: book.published_at
+      ? new Date(book.published_at).getFullYear()
+      : new Date().getFullYear()
+  });
+
+  const loadStudentLibraryBooks = async () => {
+    setLibraryLoading(true);
+
+    try {
+      const books = await api.getLibraryBooks();
+
+      const publishedBooks = Array.isArray(books)
+        ? books
+            .filter((book: any) =>
+              !book.status || book.status === 'PUBLISHED'
+            )
+            .map(mapStudentLibraryBook)
+        : [];
+
+      setLibraryBooks(publishedBooks);
+    } catch (error) {
+      console.error(
+        'Gagal memuat perpustakaan siswa:',
+        error
+      );
+
+      showModal(
+        'Gagal Memuat',
+        'Data perpustakaan tidak dapat diambil dari server.',
+        'warning'
+      );
+    } finally {
+      setLibraryLoading(false);
+    }
+  };
 
   React.useEffect(() => {
-    localStorage.setItem('lulus_favorit', JSON.stringify(favorites));
-  }, [favorites]);
+    localStorage.removeItem('lulus_perpustakaan');
+    localStorage.removeItem('lulus_favorit');
+    loadStudentLibraryBooks();
+  }, []);
 
   // Load and seed attendance data
   React.useEffect(() => {
@@ -233,6 +327,9 @@ export default function Dashboard({
   } | null>(null);
   const [showCbtCancelConfirm, setShowCbtCancelConfirm] = useState(false);
   const [showCbtSubmitConfirm, setShowCbtSubmitConfirm] = useState(false);
+  const [cbtSecondsLeft, setCbtSecondsLeft] = useState(0);
+  const cbtAnswersRef = React.useRef<Record<string, string>>({});
+  const cbtAutoSubmittedRef = React.useRef(false);
   const [completedExams, setCompletedExams] = useState<Record<string | number, { score: number; timestamp: string }>>(() => {
     const saved = localStorage.getItem('completedExams');
     return saved ? JSON.parse(saved) : {};
@@ -243,82 +340,206 @@ export default function Dashboard({
     localStorage.setItem('completedExams', JSON.stringify(completedExams));
   }, [completedExams]);
 
-  const handleCbtSubmit = () => {
+  React.useEffect(() => {
+    cbtAnswersRef.current = cbtAnswers;
+  }, [cbtAnswers]);
+
+  const handleMulaiCbt = async (exam: Exam) => {
+    try {
+      const pengerjaan = await api.mulaiSiswaUjianCBT(exam.id);
+
+      const updatedExam: Exam = {
+        ...exam,
+        pengerjaan,
+      };
+
+      if (setExams) {
+        setExams((prev) =>
+          prev.map((item) =>
+            String(item.id) === String(exam.id)
+              ? updatedExam
+              : item
+          )
+        );
+      }
+
+      setActiveCbtExam(updatedExam);
+      setCbtAnswers({});
+      setCbtResult(null);
+    } catch (error: any) {
+      console.error('Gagal memulai CBT:', error);
+
+      showModal(
+        'Ujian Tidak Bisa Dimulai',
+        error?.message ||
+          'Pastikan ujian sedang aktif dan masih dalam jadwal.',
+        'warning'
+      );
+    }
+  };
+
+  const handleCbtSubmit = async () => {
     if (!activeCbtExam) return;
 
-    // Calculate results
-    let score = 0;
-    let mcCorrect = 0;
-    let mcTotal = 0;
-    let essayCount = 0;
+    try {
+      const jawaban = activeCbtExam.questions.map((q) => {
+        const value =
+          cbtAnswersRef.current[String(q.id)] || '';
 
-    activeCbtExam.questions.forEach(q => {
-      if (q.type === 'pilihan_ganda') {
-        mcTotal++;
-        if (cbtAnswers[q.id] === q.correctAnswer) {
-          mcCorrect++;
+        if (q.type === 'pilihan_ganda') {
+          return {
+            soal_id: String(q.id),
+            jawaban_pilihan: value,
+            jawaban_esai: '',
+          };
         }
-      } else {
-        essayCount++;
-      }
-    });
 
-    // Calculate MC contribution
-    let mcContribution = mcTotal > 0 ? (mcCorrect / mcTotal) * 100 : 100;
-    
-    // Calculate Essay contribution (simulate smart Lulus AI evaluation)
-    let essayScore = 0;
-    if (essayCount > 0) {
-      let filledCount = 0;
-      activeCbtExam.questions.filter(q => q.type === 'essay').forEach(q => {
-        const ans = cbtAnswers[q.id] || '';
-        if (ans.trim().length > 15) {
-          filledCount += 1.35; // good answer weight
-        } else if (ans.trim().length > 4) {
-          filledCount += 0.9;  // brief answer weight
-        }
+        return {
+          soal_id: String(q.id),
+          jawaban_pilihan: '',
+          jawaban_esai: value,
+        };
       });
-      essayScore = Math.min(100, Math.round((filledCount / essayCount) * 75));
-    }
 
-    // Total score calculation
-    if (mcTotal > 0 && essayCount > 0) {
-      score = Math.round((mcContribution * 0.6) + (essayScore * 0.4));
-    } else if (mcTotal > 0) {
-      score = Math.round(mcContribution);
-    } else {
-      score = essayScore;
-    }
+      const result = await api.submitSiswaUjianCBT(
+        activeCbtExam.id,
+        jawaban
+      );
 
-    // Generate smart AI feedback based on score
-    let feedback = '';
-    if (score >= 85) {
-      feedback = `Luar biasa, Fajar! Pemahaman kamu terhadap topik ${activeCbtExam.subject} sangat matang. Jawaban pilihan ganda hampir sempurna, dan penjelasan esaimu terstruktur rapi. Pertahankan kecemerlangan belajarmu di Lulus.id!`;
-    } else if (score >= 70) {
-      feedback = `Kerja bagus! Kamu berhasil melampaui KKM dengan baik pada materi ${activeCbtExam.subject}. Sedikit koreksi pada beberapa butir soal teori. Pelajari kembali ringkasan modul agar nilaimu bisa maksimal di ujian berikutnya!`;
-    } else {
-      feedback = `Tetap semangat ya, Fajar! Nilai kamu ${score} sedikit di bawah KKM. Jangan berkecil hati, hubungi Bu Rina di ruang diskusi atau gunakan asisten pintar Lulus AI di tab 'Tanya AI' untuk membimbingmu memahami konsep yang keliru secara santai.`;
-    }
+      const essayCount = activeCbtExam.questions.filter(
+        (q) => q.type === 'essay'
+      ).length;
 
-    setCbtResult({
-      score,
-      mcCorrect,
-      mcTotal,
-      essayCount,
-      feedback
-    });
+      const nilaiAkhir =
+        result.nilai_akhir !== null &&
+        result.nilai_akhir !== undefined
+          ? Number(result.nilai_akhir)
+          : Number(result.nilai_otomatis || 0);
 
-    // Save to completed exams
-    setCompletedExams(prev => ({
-      ...prev,
-      [activeCbtExam.id]: {
-        score,
-        timestamp: new Date().toISOString()
+      const menungguPenilaian =
+        result.status === 'MENUNGGU_PENILAIAN';
+
+      setCbtResult({
+        score: nilaiAkhir,
+        mcCorrect: Number(result.jumlah_benar || 0),
+        mcTotal: activeCbtExam.questions.filter(
+          (q) => q.type === 'pilihan_ganda'
+        ).length,
+        essayCount,
+        feedback: menungguPenilaian
+          ? 'Jawaban berhasil dikumpulkan. Jawaban esai sedang menunggu penilaian guru.'
+          : nilaiAkhir >= Number(activeCbtExam.nilaiMinimum || 0)
+            ? 'Ujian selesai. Nilai Anda telah mencapai nilai minimum.'
+            : 'Ujian selesai. Silakan pelajari kembali materi yang belum dikuasai.',
+      });
+
+      if (setExams) {
+        setExams((prev) =>
+          prev.map((exam) =>
+            String(exam.id) === String(activeCbtExam.id)
+              ? {
+                  ...exam,
+                  pengerjaan: result,
+                }
+              : exam
+          )
+        );
       }
-    }));
-    
-    setShowCbtSubmitConfirm(false);
+
+      setActiveCbtExam((prev) =>
+        prev
+          ? {
+              ...prev,
+              pengerjaan: result,
+            }
+          : prev
+      );
+
+      setShowCbtSubmitConfirm(false);
+
+      showModal(
+        'Ujian Berhasil Dikumpulkan',
+        menungguPenilaian
+          ? 'Pilihan ganda sudah diperiksa otomatis. Jawaban esai menunggu penilaian guru.'
+          : 'Jawaban dan nilai ujian sudah tersimpan di server.',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal mengumpulkan CBT:', error);
+
+      showModal(
+        'Gagal Mengumpulkan Ujian',
+        error?.message ||
+          'Jawaban belum berhasil disimpan. Silakan coba kembali.',
+        'warning'
+      );
+    }
   };
+
+  React.useEffect(() => {
+    if (!activeCbtExam || cbtResult) {
+      return;
+    }
+
+    const durationMinutes = Number(
+      activeCbtExam.durasi ||
+      activeCbtExam.duration ||
+      0
+    );
+
+    if (durationMinutes <= 0) {
+      return;
+    }
+
+    const serverStart =
+      activeCbtExam.pengerjaan?.mulai_pada;
+
+    const fallbackStart = Date.now();
+
+    const startTime =
+      serverStart &&
+      !Number.isNaN(new Date(serverStart).getTime())
+        ? new Date(serverStart).getTime()
+        : fallbackStart;
+
+    cbtAutoSubmittedRef.current = false;
+
+    const updateTimer = () => {
+      const elapsedSeconds = Math.floor(
+        (Date.now() - startTime) / 1000
+      );
+
+      const remaining = Math.max(
+        0,
+        durationMinutes * 60 - elapsedSeconds
+      );
+
+      setCbtSecondsLeft(remaining);
+
+      if (
+        remaining === 0 &&
+        !cbtAutoSubmittedRef.current
+      ) {
+        cbtAutoSubmittedRef.current = true;
+        handleCbtSubmit();
+      }
+    };
+
+    updateTimer();
+
+    const interval = window.setInterval(
+      updateTimer,
+      1000
+    );
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [
+    activeCbtExam?.id,
+    activeCbtExam?.pengerjaan?.mulai_pada,
+    cbtResult
+  ]);
 
   const handleFileUploadSimulated = (fileType: 'document' | 'video' | 'photo') => {
     let name = '';
@@ -343,22 +564,71 @@ export default function Dashboard({
     showModal('Berkas Ditambahkan', `${name} berhasil dilampirkan ke draf tugas Anda.`, 'success');
   };
 
-  const removeSubmissionFile = (index: number) => {
-    setSubmissionFiles(prev => prev.filter((_, i) => i !== index));
+  const removeSubmissionFile = () => {
+    setSubmissionFile(null);
+    setSubmissionFiles([]);
+
+    const input = document.getElementById(
+      'task-file-input'
+    ) as HTMLInputElement | null;
+
+    if (input) {
+      input.value = '';
+    }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const name = file.name;
-      const size = `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
-      let type = 'document';
-      if (file.type.includes('image')) type = 'photo';
-      if (file.type.includes('video')) type = 'video';
-      
-      setSubmissionFiles(prev => [...prev, { name, type, size }]);
-      showModal('Berkas Ditambahkan', `${name} berhasil dilampirkan ke draf tugas Anda.`, 'success');
+  const handleFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    const allowedTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      showModal(
+        'Format Tidak Didukung',
+        'Gunakan file PDF, JPG, PNG, atau WEBP.',
+        'warning'
+      );
+      e.target.value = '';
+      return;
     }
+
+    const maxSize = 50 * 1024 * 1024;
+
+    if (file.size > maxSize) {
+      showModal(
+        'File Terlalu Besar',
+        'Ukuran file maksimal 50 MB.',
+        'warning'
+      );
+      e.target.value = '';
+      return;
+    }
+
+    let type = 'document';
+    if (file.type.startsWith('image/')) type = 'photo';
+    
+
+    setSubmissionFile(file);
+    setSubmissionFiles([{
+      name: file.name,
+      type,
+      size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+    }]);
+
+    showModal(
+      'Berkas Ditambahkan',
+      `${file.name} siap dikirim bersama jawaban tugas.`,
+      'success'
+    );
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -375,41 +645,105 @@ export default function Dashboard({
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      const name = file.name;
-      const size = `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
-      let type = 'document';
-      if (file.type.includes('image')) type = 'photo';
-      if (file.type.includes('video')) type = 'video';
-      
-      setSubmissionFiles(prev => [...prev, { name, type, size }]);
-      showModal('Berkas Ditambahkan', `${name} berhasil didrop dan dilampirkan ke draf tugas Anda.`, 'success');
+
+    const file = e.dataTransfer.files?.[0];
+
+    if (!file) return;
+
+    const allowedTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      showModal(
+        'Format Tidak Didukung',
+        'Gunakan file PDF, JPG, PNG, atau WEBP.',
+        'warning'
+      );
+      return;
     }
+
+    const maxSize = 50 * 1024 * 1024;
+
+    if (file.size > maxSize) {
+      showModal(
+        'File Terlalu Besar',
+        'Ukuran file maksimal 50 MB.',
+        'warning'
+      );
+      return;
+    }
+
+    let type = 'document';
+    if (file.type.startsWith('image/')) type = 'photo';
+    
+
+    setSubmissionFile(file);
+    setSubmissionFiles([{
+      name: file.name,
+      type,
+      size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+    }]);
+
+    showModal(
+      'Berkas Ditambahkan',
+      `${file.name} siap dikirim bersama jawaban tugas.`,
+      'success'
+    );
   };
 
-  const [madingItems] = useState(() => {
-    const saved = localStorage.getItem('lulus_mading');
-    if (saved) {
+  const [madingItems, setMadingItems] = useState<any[]>([]);
+  const [madingLoading, setMadingLoading] = useState(false);
+  const [madingError, setMadingError] = useState('');
+
+  React.useEffect(() => {
+    let active = true;
+
+    const loadMadingSiswa = async () => {
+      setMadingLoading(true);
+      setMadingError('');
+
       try {
-        const parsed = JSON.parse(saved);
-        const activeItems = parsed.filter((item: any) => item.status === 'Aktif' && (item.target === 'Semua' || item.target === 'Siswa'));
-        if (activeItems.length > 0) {
-          return activeItems.map((item: any) => ({
-            id: item.id,
-            title: item.judul,
-            category: item.kategori,
-            desc: item.isi.replace(/<[^>]*>/g, '') // strip HTML tags
-          }));
+        const data = await api.getPublicAnnouncements('Siswa');
+
+        if (!active) return;
+
+        const items = (Array.isArray(data) ? data : []).map((item: any) => ({
+          id: item.id,
+          title: item.judul,
+          category: item.kategori,
+          desc: String(item.isi || '').replace(/<[^>]*>/g, ''),
+          image: item.gambar || '',
+          attachment: item.lampiranPdf || '',
+          priority: item.prioritas,
+          publishDate: item.tanggalPublikasi
+        }));
+
+        setMadingItems(items);
+      } catch (error: any) {
+        console.error('Gagal mengambil Mading siswa:', error);
+
+        if (active) {
+          setMadingError(
+            error?.message || 'Mading gagal dimuat dari server.'
+          );
         }
-      } catch (e) {}
-    }
-    return [
-      { id: '1', title: 'Jadwal Libur Semester Genap', category: 'PENTING', desc: 'Libur resmi kelulusan sekolah dan semester genap dimulai pada 26 Juni hingga 10 Juli 2026.' },
-      { id: '2', title: 'Sosialisasi Asesmen Nasional', category: 'INFO', desc: 'Simulasi wajib AKM Kesetaraan Paket C akan dilaksanakan pada 5 Juni 2026.' }
-    ];
-  });
+      } finally {
+        if (active) {
+          setMadingLoading(false);
+        }
+      }
+    };
+
+    loadMadingSiswa();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const overallProgress = subjects && subjects.length > 0
     ? Math.round(subjects.reduce((sum, sub) => sum + (sub.progress || 0), 0) / subjects.length)
@@ -437,20 +771,43 @@ export default function Dashboard({
     const isNotDraft = !sub.isDraft;
     
     // Program check: Must match student's program (e.g., 'Paket C')
-    const matchProgram = sub.program?.toLowerCase() === studentObj.program?.toLowerCase();
+    // Materi siswa dari endpoint /api/siswa/subjects/ sudah difilter
+    // berdasarkan rombel siswa di backend, sehingga tidak perlu difilter ulang
+    // menggunakan profil frontend yang mungkin belum lengkap.
+    const isStudentMaterial = sub.isMateri === true;
+
+    const matchProgram =
+      isStudentMaterial ||
+      !sub.program ||
+      sub.program.toLowerCase() === studentObj.program?.toLowerCase();
     
-    // Class check: Must match student's class (e.g., 'Kelas X - Paket C')
+    // Class check
     const studentClassLower = studentObj.kelas?.toLowerCase() || '';
     const subClassLower = sub.kelas?.toLowerCase() || '';
-    const matchClass = subClassLower === studentClassLower || 
-      (subClassLower && studentClassLower && (subClassLower.includes(studentClassLower) || studentClassLower.includes(subClassLower)));
+
+    const matchClass =
+      isStudentMaterial ||
+      !sub.kelas ||
+      subClassLower === studentClassLower ||
+      (
+        subClassLower &&
+        studentClassLower &&
+        (
+          subClassLower.includes(studentClassLower) ||
+          studentClassLower.includes(subClassLower)
+        )
+      );
       
-    // Optional Semester check: if set on the material, must match active academic semester
-    const matchSemester = !sub.semester || !activeAcademicYear?.semester || 
+    const matchSemester =
+      isStudentMaterial ||
+      !sub.semester ||
+      !activeAcademicYear?.semester ||
       sub.semester.toLowerCase() === activeAcademicYear.semester.toLowerCase();
       
-    // Optional Academic Year check: if set on the material, must match active academic year name
-    const matchAcademicYear = !sub.tahunAjaran || !activeAcademicYear?.nama || 
+    const matchAcademicYear =
+      isStudentMaterial ||
+      !sub.tahunAjaran ||
+      !activeAcademicYear?.nama ||
       sub.tahunAjaran.toLowerCase() === activeAcademicYear.nama.toLowerCase();
       
     return matchSearch && isNotDraft && matchProgram && matchClass && matchSemester && matchAcademicYear;
@@ -507,11 +864,15 @@ export default function Dashboard({
 
   // Helper to get status of a task for the current student
   const getTaskStudentStatus = (task: Task) => {
-    const submission = (taskSubmissions || []).find(sub => sub.taskId === task.id && sub.studentId === studentObj.id);
+    const submission = (taskSubmissions || []).find(
+      sub => String(sub.taskId) === String(task.id)
+    );
+
     if (!submission) return 'Belum Selesai';
     if (submission.status === 'Menunggu Penilaian') return 'Menunggu Penilaian';
     if (submission.status === 'Sudah Dinilai') return 'Sudah Dinilai';
     if (submission.status === 'Revisi') return 'Revisi';
+
     return 'Belum Selesai';
   };
 
@@ -522,40 +883,70 @@ export default function Dashboard({
     try {
       // Prioritas Utama: Integrasi Django REST API
       // Menyiapkan FormData jika ada file, atau mengirim sebagai payload JSON standar
-      if (finalFiles.length > 0) {
+      if (submissionFile) {
         const formData = new FormData();
         formData.append('text', finalTxt);
-        // Lampirkan data file jika ada (diinput via HTML5 File API)
-        const fileInput = document.getElementById('task-file-input') as HTMLInputElement;
-        if (fileInput && fileInput.files && fileInput.files.length > 0) {
-          for (let i = 0; i < fileInput.files.length; i++) {
-            formData.append('file_submission', fileInput.files[i]);
-          }
-        } else {
-          // Fallback kirim nama file lampiran jika ini file simulasi/mock
-          formData.append('simulated_files', JSON.stringify(finalFiles));
-        }
+        formData.append('link_video', submissionVideoLink.trim());
+        formData.append('file_jawaban', submissionFile);
         
         const token = localStorage.getItem('token');
-        await fetch(`${API_URL}/api/siswa/tasks/${taskId}/submit/`, {
-          method: 'POST',
-          headers: {
-            ...(token ? { 'Authorization': `Token ${token}` } : {})
-          },
-          body: formData
-        });
+        const response = await fetch(
+          `${API_URL}/api/siswa/tasks/${taskId}/submit/`,
+          {
+            method: 'POST',
+            headers: {
+              ...(token
+                ? { 'Authorization': `Token ${token}` }
+                : {})
+            },
+            body: formData
+          }
+        );
+
+        if (!response.ok) {
+          let message = 'Berkas tugas gagal dikirim ke server.';
+
+          try {
+            const errorData = await response.json();
+            message =
+              errorData?.detail ||
+              errorData?.jawaban_teks?.[0] ||
+              errorData?.file_jawaban?.[0] ||
+              message;
+          } catch (e) {}
+
+          throw new Error(message);
+        }
       } else {
-        await api.submitTask(taskId, finalTxt);
+        await api.submitTask(
+          taskId,
+          finalTxt,
+          submissionVideoLink.trim()
+        );
       }
-    } catch (apiError) {
-      console.warn('Gagal submit tugas melalui Django REST API, menyimpannya secara lokal (Mock Fallback)...', apiError);
+    } catch (apiError: any) {
+      console.error(
+        'Gagal mengirim tugas ke Django REST API:',
+        apiError
+      );
+
+      showModal(
+        'Tugas Gagal Dikirim',
+        apiError?.message ||
+          'Jawaban belum tersimpan di server. Periksa koneksi lalu coba kembali.',
+        'warning'
+      );
+
+      return;
     }
 
-    // Selalu perbarui state frontend (Local/Fallback) agar UI tetap update seketika
+    // Perbarui UI hanya setelah server berhasil menerima tugas.
     if (setTaskSubmissions) {
       setTaskSubmissions(prev => {
         // Find if this student already had a submission for this task
-        const existingIndex = prev.findIndex(sub => sub.taskId === taskId && sub.studentId === studentObj.id);
+        const existingIndex = prev.findIndex(
+          sub => String(sub.taskId) === String(taskId)
+        );
         const matchingTask = tasks.find(t => t.id === taskId);
         
         const newSubmission: TaskSubmission = {
@@ -605,7 +996,17 @@ export default function Dashboard({
     const comp = competencies.find(c => c.id === selectedSkkCompId);
     if (!comp) return;
 
-    const studentObj = students?.find(s => s.username?.toLowerCase() === username?.toLowerCase() || s.nama?.toLowerCase()?.includes(username?.toLowerCase() || '')) || { id: 'SIS-1001', nama: 'Fajar Pratama', program: 'Paket C' };
+    const studentObj = students?.find(
+      s =>
+        s.username?.toLowerCase() === username?.toLowerCase() ||
+        s.nama?.toLowerCase() === username?.toLowerCase()
+    ) || {
+      id: '',
+      username: '',
+      nama: username || 'Siswa',
+      program: '',
+      kelas: ''
+    };
 
     const existingIndex = studentCompetencies.findIndex(sc => sc.siswa === studentObj.id && sc.kompetensi === selectedSkkCompId);
     let updatedList = [...studentCompetencies];
@@ -724,100 +1125,92 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
     }
   };
 
-  const handleViewLibraryBook = (bookId: string) => {
-    const saved = localStorage.getItem('lulus_perpustakaan');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const updated = parsed.map((b: any) => {
-          if (b.id === bookId) {
-            const nextViews = (b.views || 0) + 1;
-            return { ...b, views: nextViews, downloadCount: b.downloadCount || b.downloads };
-          }
-          return b;
-        });
-        localStorage.setItem('lulus_perpustakaan', JSON.stringify(updated));
-        
-        const updatedBook = updated.find((b: any) => b.id === bookId);
-        setSelectedLibraryBook(updatedBook);
-      } catch (e) {}
+  const handleViewLibraryBook = async (
+    bookId: string
+  ) => {
+    const currentBook = libraryBooks.find(
+      book => book.id === bookId
+    );
+
+    if (!currentBook) return;
+
+    try {
+      const response = await api.viewLibraryBook(bookId);
+      const updatedBook = mapStudentLibraryBook(response);
+
+      setLibraryBooks(prev =>
+        prev.map(book =>
+          book.id === bookId ? updatedBook : book
+        )
+      );
+
+      setSelectedLibraryBook(updatedBook);
+    } catch (error) {
+      console.error('Gagal mencatat pembacaan:', error);
+      setSelectedLibraryBook(currentBook);
     }
+
     setPustakaSubView('read');
     setCurrentPage(1);
   };
 
-  const handleDownloadLibraryBook = (bookId: string, fileName: string) => {
-    const saved = localStorage.getItem('lulus_perpustakaan');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const updated = parsed.map((b: any) => {
-          if (b.id === bookId) {
-            const nextDownloads = (b.downloads || 0) + 1;
-            return { ...b, downloads: nextDownloads, downloadCount: nextDownloads };
-          }
-          return b;
-        });
-        localStorage.setItem('lulus_perpustakaan', JSON.stringify(updated));
-        
-        const updatedBook = updated.find((b: any) => b.id === bookId);
-        setSelectedLibraryBook(updatedBook);
-      } catch (e) {}
-    }
-    
-    showModal('Mengunduh Modul', `${fileName} sedang diunduh ke penyimpanan lokal Anda...`, 'success');
-  };
+  const handleDownloadLibraryBook = async (
+    bookId: string,
+    fileName: string
+  ) => {
+    try {
+      const result = await api.downloadLibraryBook(bookId);
 
-  const handleToggleFavorite = (bookId: string) => {
-    if (favorites.includes(bookId)) {
-      setFavorites(prev => prev.filter(id => id !== bookId));
-    } else {
-      setFavorites(prev => [...prev, bookId]);
-    }
-  };
+      setLibraryBooks(prev =>
+        prev.map(book =>
+          book.id === bookId
+            ? {
+                ...book,
+                downloads:
+                  result.downloads_count ??
+                  book.downloads,
+                downloadCount:
+                  result.downloads_count ??
+                  book.downloadCount
+              }
+            : book
+        )
+      );
 
-  const handleSubmitRating = (bookId: string) => {
-    if (!reviewText.trim()) {
-      showModal('Ulasan Kosong', 'Harap tuliskan sedikit ulasan Anda sebelum mengirim rating.', 'warning');
-      return;
-    }
-    
-    const saved = localStorage.getItem('lulus_perpustakaan');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const updated = parsed.map((b: any) => {
-          if (b.id === bookId) {
-            const currentRatings = b.totalRatings || 0;
-            const currentAvg = b.averageRating || 0;
-            const nextRatingsCount = currentRatings + 1;
-            const nextAvg = parseFloat(((currentAvg * currentRatings + selectedRating) / nextRatingsCount).toFixed(1));
-            
-            const reviews = b.reviews || [];
-            const newReview = {
-              id: `REV-${Date.now()}`,
-              user: studentObj.nama,
-              rating: selectedRating,
-              text: reviewText.trim(),
-              date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
-            };
-            
-            return {
-              ...b,
-              totalRatings: nextRatingsCount,
-              averageRating: nextAvg,
-              reviews: [newReview, ...reviews]
-            };
-          }
-          return b;
-        });
-        localStorage.setItem('lulus_perpustakaan', JSON.stringify(updated));
-        
-        const updatedBook = updated.find((b: any) => b.id === bookId);
-        setSelectedLibraryBook(updatedBook);
-        setReviewText('');
-        showModal('Ulasan Terkirim', 'Terima kasih! Ulasan dan rating Anda berhasil disimpan.', 'success');
-      } catch (e) {}
+      setSelectedLibraryBook((prev: any) =>
+        prev?.id === bookId
+          ? {
+              ...prev,
+              downloads:
+                result.downloads_count ??
+                prev.downloads,
+              downloadCount:
+                result.downloads_count ??
+                prev.downloadCount
+            }
+          : prev
+      );
+
+      if (result.url) {
+        window.open(
+          result.url,
+          '_blank',
+          'noopener,noreferrer'
+        );
+      }
+
+      showModal(
+        'Membuka Buku',
+        `${fileName} sedang dibuka dari perpustakaan.`,
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Membuka Buku',
+        error?.message ||
+          'Buku tidak dapat dibuka dari server.',
+        'warning'
+      );
     }
   };
 
@@ -844,11 +1237,26 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                         cachedUser = JSON.parse(cached);
                       } catch (e) {}
                     }
-                    const hasUploadedPhoto = studentObj?.photo || cachedUser?.photo;
-                    const isBase64 = hasUploadedPhoto && (hasUploadedPhoto.startsWith('data:image/') || hasUploadedPhoto.startsWith('blob:'));
-                    const profilePhotoUrl = isBase64 
-                      ? hasUploadedPhoto 
-                      : `https://placehold.co/100x100/15803d/ffffff?text=${encodeURIComponent((username || 'Fajar')[0])}`;
+                    const hasUploadedPhoto =
+                      studentObj?.photo ||
+                      studentObj?.dokumen?.foto ||
+                      cachedUser?.photo ||
+                      cachedUser?.siswa_detail?.dokumen?.foto ||
+                      cachedUser?.dokumen?.foto ||
+                      '';
+
+                    const isValidPhoto =
+                      typeof hasUploadedPhoto === 'string' &&
+                      (
+                        hasUploadedPhoto.startsWith('https://') ||
+                        hasUploadedPhoto.startsWith('http://') ||
+                        hasUploadedPhoto.startsWith('data:image/') ||
+                        hasUploadedPhoto.startsWith('blob:')
+                      );
+
+                    const profilePhotoUrl = isValidPhoto
+                      ? hasUploadedPhoto
+                      : `https://placehold.co/100x100/15803d/ffffff?text=${encodeURIComponent((studentObj.nama || 'Siswa')[0])}`;
                     return (
                       <img 
                         src={profilePhotoUrl} 
@@ -857,22 +1265,28 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                       />
                     );
                   })()}
-                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+
                 </div>
                 <div>
                   <h4 className="text-xs font-extrabold text-slate-800 flex items-center gap-1">
-                    Halo, {username}! <span className="text-sm">👋</span>
+                    Halo, {studentObj.nama || 'Siswa'}! <span className="text-sm">👋</span>
                   </h4>
                   <p className="text-[9px] font-bold text-slate-400 mt-0.5">Semangat menyelesaikan kurikulum kesetaraan!</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => showModal('Pemberitahuan', 'Ada 3 tugas baru yang siap Anda pelajari minggu ini.', 'info')} 
+                <button
+                  onClick={() =>
+                    showModal(
+                      'Pemberitahuan',
+                      'Belum ada pemberitahuan baru.',
+                      'info'
+                    )
+                  }
                   className="relative w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                  title="Pemberitahuan"
                 >
                   <Bell className="w-4 h-4" />
-                  <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 border border-white text-white text-[9px] font-bold rounded-full flex items-center justify-center">3</span>
                 </button>
                 {onBackToLogin && (
                   <button 
@@ -888,7 +1302,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
 
             <div className="flex gap-1.5 mt-3 text-[9px] font-bold select-none">
               <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-500/20 flex items-center gap-1">
-                <GraduationCap className="w-3.5 h-3.5" /> {lembagaIdentitas?.namaPkbm || 'PKBM Agrabinta'}
+                <GraduationCap className="w-3.5 h-3.5" /> {lembagaIdentitas?.namaPkbm || 'Nama lembaga belum diatur'}
               </span>
               <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-500/10 flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5" /> {activeAcademicYear ? `TA ${activeAcademicYear.nama} (${activeAcademicYear.semester})` : 'Semester Ganjil'}
@@ -910,35 +1324,176 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                 </h3>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-l-2 border-emerald-500 pl-3">
-                  <div>
-                    <span className="text-[9px] font-extrabold text-slate-400">09.00 - Selesai</span>
-                    <h4 className="text-xs font-bold text-slate-800">CBT Matematika Kesetaraan</h4>
-                    <p className="text-[9px] text-slate-500 font-semibold">Persamaan Linear Satu Variabel</p>
-                  </div>
-                  <button 
-                    onClick={() => setActiveTab('cbt')} 
-                    className="px-2.5 py-1.5 bg-emerald-500 text-white rounded-lg text-[9px] font-bold hover:bg-emerald-600 flex items-center gap-1 shadow-sm"
-                  >
-                    <Play className="w-2.5 h-2.5 fill-current" /> Ikut Ujian
-                  </button>
-                </div>
+              {(() => {
+                const toLocalDateKey = (value: unknown): string => {
+                  if (!value) return '';
 
-                <div className="flex items-center justify-between border-l-2 border-orange-400 pl-3">
-                  <div>
-                    <span className="text-[9px] font-extrabold text-slate-400">Tenggat Hari Ini</span>
-                    <h4 className="text-xs font-bold text-slate-800">Tugas Bahasa Indonesia</h4>
-                    <p className="text-[9px] text-slate-500 font-semibold">Menulis Ringkasan Teks Eksplanasi</p>
+                  const rawValue = String(value);
+                  const isoMatch = rawValue.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);
+
+                  if (isoMatch) {
+                    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+                  }
+
+                  const parsedDate = new Date(rawValue);
+
+                  if (Number.isNaN(parsedDate.getTime())) {
+                    return '';
+                  }
+
+                  const year = parsedDate.getFullYear();
+                  const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+                  const day = String(parsedDate.getDate()).padStart(2, '0');
+
+                  return `${year}-${month}-${day}`;
+                };
+
+                const now = new Date();
+                const todayKey = toLocalDateKey(now);
+
+                const todayTasks = studentTasks.filter(task => {
+                  const taskDate = toLocalDateKey(task.dueDate);
+
+                  return (
+                    taskDate === todayKey &&
+                    getTaskStudentStatus(task) === 'Belum Selesai'
+                  );
+                });
+
+                const todayExams = (exams || []).filter(exam => {
+                  if (completedExams[exam.id]) return false;
+
+                  const examAny = exam as any;
+                  const startDate = examAny.tanggalMulai
+                    ? new Date(examAny.tanggalMulai)
+                    : null;
+                  const endDate = examAny.tanggalSelesai
+                    ? new Date(examAny.tanggalSelesai)
+                    : startDate;
+
+                  if (
+                    !startDate ||
+                    Number.isNaN(startDate.getTime()) ||
+                    !endDate ||
+                    Number.isNaN(endDate.getTime())
+                  ) {
+                    return false;
+                  }
+
+                  const status = String(examAny.status || '').toLowerCase();
+                  const allowedStatus =
+                    status === 'aktif' ||
+                    status === 'berlangsung' ||
+                    status === 'terjadwal';
+
+                  const startsToday = toLocalDateKey(startDate) === todayKey;
+                  const activeToday = now >= startDate && now <= endDate;
+
+                  return allowedStatus && (startsToday || activeToday);
+                });
+
+                if (todayTasks.length === 0 && todayExams.length === 0) {
+                  return (
+                    <div className="text-center py-5">
+                      <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-500">
+                        Belum ada agenda pembelajaran hari ini.
+                      </p>
+                      <p className="text-[9px] text-slate-400 mt-1">
+                        Tugas dan CBT yang dijadwalkan hari ini akan tampil di sini.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {todayExams.map(exam => {
+                      const examAny = exam as any;
+                      const startDate = examAny.tanggalMulai
+                        ? new Date(examAny.tanggalMulai)
+                        : null;
+
+                      const timeLabel =
+                        startDate && !Number.isNaN(startDate.getTime())
+                          ? startDate.toLocaleTimeString('id-ID', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : 'Hari Ini';
+
+                      const examTitle =
+                        examAny.namaUjian ||
+                        examAny.title ||
+                        'Ujian CBT';
+
+                      const examSubject =
+                        examAny.mataPelajaran ||
+                        examAny.subject ||
+                        'Mata Pelajaran';
+
+                      return (
+                        <div
+                          key={`exam-${exam.id}`}
+                          className="flex items-center justify-between border-l-2 border-emerald-500 pl-3"
+                        >
+                          <div className="min-w-0 pr-2">
+                            <span className="text-[9px] font-extrabold text-slate-400">
+                              {timeLabel}
+                            </span>
+                            <h4 className="text-xs font-bold text-slate-800 truncate">
+                              {examTitle}
+                            </h4>
+                            <p className="text-[9px] text-slate-500 font-semibold truncate">
+                              {examSubject}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('cbt')}
+                            className="px-2.5 py-1.5 bg-emerald-500 text-white rounded-lg text-[9px] font-bold hover:bg-emerald-600 flex items-center gap-1 shadow-sm shrink-0"
+                          >
+                            <Play className="w-2.5 h-2.5 fill-current" />
+                            Buka CBT
+                          </button>
+                        </div>
+                      );
+                    })}
+
+                    {todayTasks.map(task => (
+                      <div
+                        key={`task-${task.id}`}
+                        className="flex items-center justify-between border-l-2 border-orange-400 pl-3"
+                      >
+                        <div className="min-w-0 pr-2">
+                          <span className="text-[9px] font-extrabold text-slate-400">
+                            Tenggat Hari Ini
+                          </span>
+                          <h4 className="text-xs font-bold text-slate-800 truncate">
+                            {task.subject || 'Tugas Pembelajaran'}
+                          </h4>
+                          <p className="text-[9px] text-slate-500 font-semibold truncate">
+                            {task.title}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTask(task);
+                            setActiveTab('tugas');
+                          }}
+                          className="px-2.5 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-[9px] font-bold border border-amber-200 hover:bg-amber-100 flex items-center gap-1 shrink-0"
+                        >
+                          <Clock className="w-2.5 h-2.5" />
+                          Buka Tugas
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <button 
-                    onClick={() => setActiveTab('tugas')} 
-                    className="px-2.5 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-[9px] font-bold border border-amber-200 hover:bg-amber-100 flex items-center gap-1"
-                  >
-                    <Clock className="w-2.5 h-2.5" /> Kumpulkan
-                  </button>
-                </div>
-              </div>
+                );
+              })()}
             </div>
 
             {/* Learning progress card */}
@@ -960,7 +1515,9 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                 <h4 className="text-[10px] font-bold text-slate-400 mb-2">Ringkasan Aktivitas</h4>
                 <div className="grid grid-cols-2 gap-1.5 text-center">
                   <div className="bg-emerald-50/50 p-1.5 rounded-lg border border-emerald-100/50 cursor-pointer" onClick={() => setActiveTab('materi')}>
-                    <h5 className="text-[11px] font-black text-slate-850">6</h5>
+                    <h5 className="text-[11px] font-black text-slate-850">
+                      {subjects.filter(sub => !sub.isDraft && !sub.isMateri).length}
+                    </h5>
                     <p className="text-[7px] font-extrabold text-slate-400 uppercase">Mapel</p>
                   </div>
                   <div className="bg-blue-50/50 p-1.5 rounded-lg border border-blue-100/50 cursor-pointer" onClick={() => setActiveTab('tugas')}>
@@ -1144,6 +1701,13 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                     <GraduationCap className="w-5 h-5 text-amber-600" />
                   </div>
                   <span className="text-[9px] text-slate-800">E-Rapor</span>
+                </div>
+
+                <div onClick={() => setActiveTab('skk')} className="bg-white p-2 rounded-2xl border border-slate-100 shadow-sm hover:border-emerald-400 cursor-pointer transition-all flex flex-col items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-pink-50 flex items-center justify-center mb-1">
+                    <Award className="w-5 h-5 text-pink-600" />
+                  </div>
+                  <span className="text-[9px] text-slate-800">SKK</span>
                 </div>
 
                 <div onClick={() => setActiveTab('diskusi')} className="bg-white p-2 rounded-2xl border border-slate-100 shadow-sm hover:border-emerald-400 cursor-pointer transition-all flex flex-col items-center justify-between">
@@ -1780,7 +2344,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                   </div>
                 ) : (
                   filteredStudentTasks.map((task) => {
-                    const submission = (taskSubmissions || []).find(sub => sub.taskId === task.id && sub.studentId === studentObj.id);
+                    const submission = (taskSubmissions || []).find(sub => String(sub.taskId) === String(task.id));
                     const isSubmitted = submission && submission.status !== 'Draft';
                     const statusText = getTaskStudentStatus(task);
                     const teacher = initialTeachers.find(t => t.id === task.teacherId) || 
@@ -1794,6 +2358,9 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                           setIsEditingSubmission(false);
                           setSubmissionText(submission?.submissionText || '');
                           setSubmissionFiles(submission?.submissionFiles || []);
+                           setSubmissionVideoLink(
+                             (submission as any)?.videoLink || ''
+                           );
                         }}
                         className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm hover:border-emerald-400 transition-all cursor-pointer flex flex-col gap-3 group"
                       >
@@ -1830,6 +2397,9 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                               setIsEditingSubmission(false);
                               setSubmissionText(submission?.submissionText || '');
                               setSubmissionFiles(submission?.submissionFiles || []);
+                           setSubmissionVideoLink(
+                             (submission as any)?.videoLink || ''
+                           );
                             }}
                             className={`px-3.5 py-1.5 text-[10px] font-black rounded-lg transition-all ${
                               isSubmitted 
@@ -1868,7 +2438,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                 
                 {/* Task Status Info Block */}
                 {(() => {
-                  const submission = (taskSubmissions || []).find(sub => sub.taskId === selectedTask.id && sub.studentId === studentObj.id);
+                  const submission = (taskSubmissions || []).find(sub => String(sub.taskId) === String(selectedTask.id));
                   const isSubmitted = submission && submission.status !== 'Draft';
                   const statusText = getTaskStudentStatus(selectedTask);
                   const showSubmittedDisplay = isSubmitted && !isEditingSubmission;
@@ -1953,7 +2523,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                                   onClick={() => setIsEditingSubmission(true)}
                                   className="w-full mt-2 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[9px] font-black transition-all shadow-sm"
                                 >
-                                  Lakukan Perbaikan Sekarang
+                                  Perbaiki Tugas
                                 </button>
                               </div>
                             )}
@@ -1985,6 +2555,22 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                                 </div>
                               </div>
                             )}
+                            {(submission as any)?.videoLink && (
+                              <div className="space-y-1.5">
+                                <span className="text-[8px] uppercase tracking-wider text-slate-400 font-black">
+                                  Link Video Jawaban:
+                                </span>
+                                <a
+                                  href={(submission as any).videoLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block p-3 bg-blue-50 border border-blue-200 rounded-xl text-[10px] font-bold text-blue-700 break-all hover:bg-blue-100"
+                                >
+                                  Buka Video Jawaban
+                                </a>
+                              </div>
+                            )}
+
 
                             {submission?.status !== 'Sudah Dinilai' && submission?.status !== 'Revisi' && (
                               <button 
@@ -2029,45 +2615,15 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                           }`}
                         >
                           <input 
-                            type="file" 
-                            id="task-file-input" 
-                            className="hidden" 
+                            type="file"
+                            id="task-file-input"
+                            accept=".pdf,.jpg,.jpeg,.png,.webp"
+                            className="hidden"
                             onChange={handleFileChange} 
                           />
                           <Upload className="w-6 h-6 text-slate-400 animate-bounce" />
                           <span className="text-[10px] font-black text-slate-700">Tarik & Drop Berkas di Sini</span>
                           <span className="text-[8.5px] text-slate-400 font-semibold">atau klik untuk menelusuri folder lokal Anda</span>
-                        </div>
-
-                        {/* Quick Simulated Attachments */}
-                        <div className="space-y-1.5">
-                          <span className="text-[8px] text-slate-400 font-black uppercase tracking-wider block">Simulasi Pengumpulan Cepat:</span>
-                          <div className="grid grid-cols-3 gap-1.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleFileUploadSimulated('document')}
-                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-[8px] font-black flex flex-col items-center justify-center gap-0.5 cursor-pointer"
-                            >
-                              <Paperclip className="w-3.5 h-3.5 text-amber-500" />
-                              <span>📄 Dokumen PDF</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleFileUploadSimulated('photo')}
-                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-[8px] font-black flex flex-col items-center justify-center gap-0.5 cursor-pointer"
-                            >
-                              <Image className="w-3.5 h-3.5 text-blue-500" />
-                              <span>📸 Foto Kertas</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleFileUploadSimulated('video')}
-                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-[8px] font-black flex flex-col items-center justify-center gap-0.5 cursor-pointer"
-                            >
-                              <Video className="w-3.5 h-3.5 text-rose-500" />
-                              <span>🎥 Video Penjelasan</span>
-                            </button>
-                          </div>
                         </div>
 
                         {/* Attached/Staged files listing */}
@@ -2086,7 +2642,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => removeSubmissionFile(idx)}
+                                    onClick={removeSubmissionFile}
                                     className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -2098,6 +2654,22 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                         )}
                       </div>
 
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] uppercase tracking-wider text-slate-400 font-black block">
+                          Link Video Jawaban (Opsional):
+                        </label>
+                        <input
+                          type="url"
+                          value={submissionVideoLink}
+                          onChange={(e) => setSubmissionVideoLink(e.target.value)}
+                          placeholder="https://youtube.com/... atau https://drive.google.com/..."
+                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition-all"
+                        />
+                        <p className="text-[8.5px] text-slate-400 font-medium">
+                          Gunakan YouTube Unlisted atau Google Drive yang dapat dibuka guru.
+                        </p>
+                      </div>
+
                       {/* SUBMIT ACTION BUTTONS */}
                       <div className="pt-3 border-t border-slate-100 flex gap-2.5">
                         <button
@@ -2106,6 +2678,8 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                             setSelectedTask(null);
                             setSubmissionText('');
                             setSubmissionFiles([]);
+                            setSubmissionFile(null);
+                            setSubmissionVideoLink('');
                           }}
                           className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-black transition-all cursor-pointer"
                         >
@@ -2150,7 +2724,15 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                 </div>
                 <div className="px-3 py-1.5 bg-indigo-950/80 rounded-xl text-right font-mono flex items-center gap-1.5 border border-indigo-700/50">
                   <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-                  <span className="text-[10px] font-bold text-slate-300">Durasi: {activeCbtExam.duration} Mins</span>
+                  <span className={`text-[10px] font-black ${
+                    cbtSecondsLeft <= 300
+                      ? 'text-rose-300'
+                      : 'text-slate-300'
+                  }`}>
+                    Sisa Waktu:{' '}
+                    {String(Math.floor(cbtSecondsLeft / 60)).padStart(2, '0')}:
+                    {String(cbtSecondsLeft % 60).padStart(2, '0')}
+                  </span>
                 </div>
               </div>
 
@@ -2172,7 +2754,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                     <div className="py-4 px-6 bg-slate-50 rounded-2xl max-w-[240px] mx-auto border border-slate-100 flex items-center justify-around">
                       <div className="text-center">
                         <span className="text-[8px] text-slate-400 font-bold block">SKOR AKHIR</span>
-                        <span className="text-2xl font-black text-indigo-600">{cbtResult.score}</span>
+                        <span className="text-2xl font-black text-[#478F79]">{cbtResult.score}</span>
                       </div>
                       <div className="w-px h-8 bg-slate-200"></div>
                       <div className="text-center">
@@ -2200,7 +2782,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                         setCbtAnswers({});
                         setCbtResult(null);
                       }}
-                      className="w-full max-w-[200px] py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-600/10 cursor-pointer"
+                      className="w-full max-w-[200px] py-2.5 bg-[#5EAF95] hover:bg-[#478F79] text-white rounded-xl text-xs font-black shadow-md shadow-[#5EAF95]/10 cursor-pointer"
                     >
                       Kembali ke Menu Ujian
                     </button>
@@ -2216,7 +2798,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                       activeCbtExam.questions.map((q, idx) => (
                         <div key={q.id} className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
                           <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-                            <span className="text-[9px] font-black text-indigo-600">Pertanyaan {idx + 1} dari {activeCbtExam.questions.length}</span>
+                            <span className="text-[9px] font-black text-[#478F79]">Pertanyaan {idx + 1} dari {activeCbtExam.questions.length}</span>
                             <span className="px-2 py-0.5 bg-slate-100 rounded text-[7.5px] font-extrabold text-slate-500">
                               {q.type === 'pilihan_ganda' ? 'Pilihan Ganda' : 'Essay'}
                             </span>
@@ -2228,8 +2810,18 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                           {q.type === 'pilihan_ganda' && q.options && (
                             <div className="space-y-2 pt-1 pl-1">
                               {q.options.map((opt, optIdx) => {
-                                const optionCode = opt.substring(0, 1); // "A", "B", "C", "D"
-                                const isSelected = cbtAnswers[q.id] === optionCode;
+                                const optionLetters = ['A', 'B', 'C', 'D', 'E'];
+                                const optionCode =
+                                  optionLetters[optIdx] ||
+                                  String(optIdx + 1);
+
+                                const optionText = String(opt).replace(
+                                  /^[A-E][.\)]\s*/i,
+                                  ''
+                                );
+
+                                const isSelected =
+                                  cbtAnswers[String(q.id)] === optionCode;
                                 return (
                                   <button
                                     key={optIdx}
@@ -2237,14 +2829,14 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                                     onClick={() => setCbtAnswers(prev => ({ ...prev, [q.id]: optionCode }))}
                                     className={`w-full p-2.5 rounded-xl text-[10px] font-bold text-left border flex items-center transition-all cursor-pointer ${
                                       isSelected 
-                                        ? 'bg-pink-50 border-pink-500 text-pink-850' 
+                                        ? 'bg-[#EAF7F2] border-[#5EAF95] text-[#356F5E]' 
                                         : 'bg-slate-50 border-slate-150 text-slate-600 hover:bg-slate-100'
                                     }`}
                                   >
                                     <span className={`w-5 h-5 rounded-full flex items-center justify-center mr-2 text-[9px] font-black ${
-                                      isSelected ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-500'
+                                      isSelected ? 'bg-[#EAF7F2]0 text-white' : 'bg-slate-200 text-slate-500'
                                     }`}>{optionCode}</span>
-                                    <span>{opt.substring(3)}</span>
+                                    <span>{optionText}</span>
                                   </button>
                                 );
                               })}
@@ -2259,7 +2851,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                                 placeholder="Ketik jawaban penjelasan Anda secara lengkap dan logis..."
                                 value={cbtAnswers[q.id] || ''}
                                 onChange={(e) => setCbtAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
-                                className="w-full p-3 bg-slate-50 border border-slate-250 rounded-xl text-[10px] font-semibold text-slate-800 focus:outline-none focus:border-pink-500 min-h-[80px]"
+                                className="w-full p-3 bg-slate-50 border border-slate-250 rounded-xl text-[10px] font-semibold text-slate-800 focus:outline-none focus:border-[#5EAF95] min-h-[80px]"
                               />
                             </div>
                           )}
@@ -2285,7 +2877,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                           onClick={() => {
                             setShowCbtSubmitConfirm(true);
                           }}
-                          className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                          className="flex-1 py-2.5 bg-[#5EAF95] hover:bg-[#478F79] text-white rounded-xl text-xs font-black shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                         >
                           <CheckCircle className="w-4 h-4 text-white" /> Kumpulkan Ujian CBT
                         </button>
@@ -2336,8 +2928,8 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                 {showCbtSubmitConfirm && activeCbtExam && (
                   <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-3xl border border-slate-150 shadow-2xl p-5 w-full max-w-xs text-center space-y-4 animate-fade-in">
-                      <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mx-auto border border-indigo-200">
-                        <CheckCircle className="w-6 h-6 text-indigo-600 animate-pulse" />
+                      <div className="w-12 h-12 bg-[#EAF7F2] rounded-full flex items-center justify-center mx-auto border border-[#B8DFD2]">
+                        <CheckCircle className="w-6 h-6 text-[#478F79] animate-pulse" />
                       </div>
                       <div>
                         <h4 className="text-sm font-black text-slate-800">Kumpulkan Ujian?</h4>
@@ -2371,7 +2963,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                         <button
                           type="button"
                           onClick={handleCbtSubmit}
-                          className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-extrabold transition-all cursor-pointer shadow-md shadow-indigo-600/10"
+                          className="flex-1 py-2 bg-[#5EAF95] hover:bg-[#478F79] text-white rounded-xl text-[10px] font-extrabold transition-all cursor-pointer shadow-md shadow-[#5EAF95]/10"
                         >
                           Ya, Kumpulkan
                         </button>
@@ -2407,7 +2999,9 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                   </div>
                 ) : (
                   exams.map((exam) => {
-                    const isCompleted = !!completedExams[exam.id];
+                    const isCompleted =
+                      exam.pengerjaan?.status === 'SELESAI' ||
+                      exam.pengerjaan?.status === 'MENUNGGU_PENILAIAN';
                     const now = new Date();
                     const startDate = exam.tanggalMulai ? new Date(exam.tanggalMulai) : null;
                     const endDate = exam.tanggalSelesai ? new Date(exam.tanggalSelesai) : null;
@@ -2469,7 +3063,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                         
                         <div className="pt-1.5 border-t border-slate-100 grid grid-cols-2 gap-2 text-[9px] text-slate-400 font-bold">
                           <div>
-                            <span>Guru:</span> <span className="text-slate-700">Bu Rina</span>
+                            <span>Guru:</span> <span className="text-slate-700">{exam.guruNama || 'Guru'}</span>
                           </div>
                           <div>
                             <span>Jumlah Soal:</span> <span className="text-slate-700">{exam.jumlahSoal || exam.questions.length || 0} Butir</span>
@@ -2494,7 +3088,11 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                         {isCompleted && exam.tampilkanNilai && (
                           <div className="pt-2 border-t border-slate-100 bg-emerald-50 p-3 rounded-xl">
                             <div className="text-[9px] font-bold text-emerald-700">
-                              Nilai Kamu: <span className="text-xl font-black text-emerald-600">{completedExams[exam.id].score}</span>
+                              Nilai Kamu: <span className="text-xl font-black text-emerald-600">{
+                                exam.pengerjaan?.nilai_akhir ??
+                                exam.pengerjaan?.nilai_otomatis ??
+                                0
+                              }</span>
                             </div>
                           </div>
                         )}
@@ -2503,8 +3101,31 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                           exam.tampilkanNilai ? (
                             <button 
                               onClick={() => {
+                                const pengerjaan = exam.pengerjaan;
+                                const essayCount = exam.questions.filter(
+                                  (q) => q.type === 'essay'
+                                ).length;
+
                                 setActiveCbtExam(exam);
-                                setCbtResult(completedExams[exam.id] as any);
+                                setCbtResult({
+                                  score: Number(
+                                    pengerjaan?.nilai_akhir ??
+                                    pengerjaan?.nilai_otomatis ??
+                                    0
+                                  ),
+                                  mcCorrect: Number(
+                                    pengerjaan?.jumlah_benar || 0
+                                  ),
+                                  mcTotal: exam.questions.filter(
+                                    (q) => q.type === 'pilihan_ganda'
+                                  ).length,
+                                  essayCount,
+                                  feedback:
+                                    pengerjaan?.status ===
+                                    'MENUNGGU_PENILAIAN'
+                                      ? 'Jawaban esai sedang menunggu penilaian guru.'
+                                      : 'Hasil ujian sudah tersimpan di server.',
+                                });
                               }}
                               className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md"
                             >
@@ -2514,9 +3135,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                         ) : canStart ? (
                           <button 
                             onClick={() => {
-                              setActiveCbtExam(exam);
-                              setCbtAnswers({});
-                              setCbtResult(null);
+                              handleMulaiCbt(exam);
                             }}
                             className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md"
                           >
@@ -2549,7 +3168,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
           subjects={subjects || []}
           loggedInUser={{
             id: studentObj.id || 'SIS-1001',
-            nama: studentObj.nama || 'Fajar Pratama',
+            nama: studentObj.nama || username || 'Siswa',
             role: 'siswa'
           }}
         />
@@ -2557,7 +3176,17 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
 
       {/* PROGRESS SKK SAYA SCREEN */}
       {activeTab === 'skk' && (() => {
-        const studentObj = students?.find(s => s.username?.toLowerCase() === username?.toLowerCase() || s.nama?.toLowerCase()?.includes(username?.toLowerCase() || '')) || { id: 'SIS-1001', nama: 'Fajar Pratama', program: 'Paket C' };
+        const studentObj = students?.find(
+      s =>
+        s.username?.toLowerCase() === username?.toLowerCase() ||
+        s.nama?.toLowerCase() === username?.toLowerCase()
+    ) || {
+      id: '',
+      username: '',
+      nama: username || 'Siswa',
+      program: '',
+      kelas: ''
+    };
         
         // Match subjects for student
         const studentClassLower = studentObj.kelas?.toLowerCase() || '';
@@ -3019,7 +3648,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                 
                 {/* Horizontal scrollable categories */}
                 <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
-                  {['Semua', 'Modul Pembelajaran', 'Ebook', 'Buku Referensi', 'Favorit Saya'].map((cat) => (
+                  {['Semua', 'Modul Pembelajaran', 'Ebook', 'Buku Referensi'].map((cat) => (
                     <button
                       key={cat}
                       onClick={() => setPustakaCategoryFilter(cat)}
@@ -3037,173 +3666,111 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
 
               {/* Books Grid */}
               <div className="flex-1 p-4 overflow-y-auto no-scrollbar space-y-3 bg-slate-50">
-                {(() => {
-                  const saved = localStorage.getItem('lulus_perpustakaan');
-                  let books = [];
-                  if (saved) {
-                    try {
-                      const parsed = JSON.parse(saved);
-                      // Only show 'Publik' status books
-                      books = parsed.filter((b: any) => b.statusPublikasi === 'Publik' || b.status === 'Publish');
-                    } catch (e) {}
-                  }
-                  
-                  if (books.length === 0) {
-                    books = [
-                      {
-                        id: 'LIB-001',
-                        title: 'Modul Bahasa Indonesia Lengkap',
-                        judul: 'Modul Bahasa Indonesia Lengkap',
-                        description: 'Modul lengkap mencakup tata bahasa, penulisan artikel ilmiah, ringkasan teks, dan persiapan ujian kesetaraan Paket C.',
-                        deskripsi: 'Modul lengkap mencakup tata bahasa, penulisan artikel ilmiah, ringkasan teks, dan persiapan ujian kesetaraan Paket C.',
-                        author: 'Tim Kurikulum Lulus.id',
-                        penulis: 'Tim Kurikulum Lulus.id',
-                        publisher: 'Lulus.id',
-                        year: 2026,
-                        isbn: '978-602-1234-56-7',
-                        category: 'Modul Pembelajaran',
-                        subject: 'Bahasa Indonesia',
-                        mataPelajaran: 'Bahasa Indonesia',
-                        program: 'Semua',
-                        kelas: 'Semua Kelas',
-                        semester: 'Semua',
-                        cover: 'https://placehold.co/200x300/1e3a8a/ffffff?text=Modul+Bahasa',
-                        file: 'modul_bahasa_indonesia.pdf',
-                        filePdf: 'modul_bahasa_indonesia.pdf',
-                        fileType: 'pdf',
-                        status: 'Publish',
-                        statusPublikasi: 'Publik',
-                        views: 156,
-                        downloads: 42,
-                        downloadCount: 42,
-                        averageRating: 4.5,
-                        totalRatings: 18,
-                        reviews: [
-                          { id: 'REV-1', user: 'Andi Wijaya', rating: 5, text: 'Sangat membantu dalam memahami materi Paket C!', date: '12 Januari 2026' }
-                        ]
-                      },
-                      {
-                        id: 'LIB-002',
-                        title: 'Kumpulan Rumus Matematika Kesetaraan',
-                        judul: 'Kumpulan Rumus Matematika Kesetaraan',
-                        description: 'Buku ringkasan rumus praktis aljabar, kalkulus dasar, trigonometri, dan statistika kesetaraan Paket C.',
-                        deskripsi: 'Buku ringkasan rumus praktis aljabar, kalkulus dasar, trigonometri, dan statistika kesetaraan Paket C.',
-                        author: 'Ir. H. Budi Santoso',
-                        penulis: 'Ir. H. Budi Santoso',
-                        publisher: 'Gramedia Pustaka Utama',
-                        year: 2025,
-                        isbn: '978-602-7654-32-1',
-                        category: 'Ebook',
-                        subject: 'Matematika',
-                        mataPelajaran: 'Matematika',
-                        program: 'Paket C',
-                        kelas: 'Kelas X, XI, XII',
-                        semester: 'Semua',
-                        cover: 'https://placehold.co/200x300/15803d/ffffff?text=Matematika',
-                        file: 'rumus_matematika.pdf',
-                        filePdf: 'rumus_matematika.pdf',
-                        fileType: 'pdf',
-                        status: 'Publish',
-                        statusPublikasi: 'Publik',
-                        views: 234,
-                        downloads: 89,
-                        downloadCount: 89,
-                        averageRating: 4.8,
-                        totalRatings: 32,
-                        reviews: [
-                          { id: 'REV-2', user: 'Siti Rahma', rating: 4, text: 'Rumus-rumusnya lengkap dan mudah dipahami.', date: '15 Februari 2026' }
-                        ]
+                {libraryLoading ? (
+                  <div className="py-12 text-center bg-white rounded-2xl border border-slate-150 p-6">
+                    <BookOpen className="w-12 h-12 text-emerald-300 mx-auto mb-3 animate-pulse" />
+                    <h4 className="text-sm font-black text-slate-700">
+                      Memuat koleksi perpustakaan...
+                    </h4>
+                  </div>
+                ) : (() => {
+                  const filteredBooks = libraryBooks.filter(
+                    (book: any) => {
+                      const keyword =
+                        pustakaSearchQuery.toLowerCase();
+
+                      const matchesSearch =
+                        (book.title || '')
+                          .toLowerCase()
+                          .includes(keyword) ||
+                        (book.author || '')
+                          .toLowerCase()
+                          .includes(keyword) ||
+                        (book.subject || '')
+                          .toLowerCase()
+                          .includes(keyword);
+
+                      if (
+                        pustakaCategoryFilter === 'Semua'
+                      ) {
+                        return matchesSearch;
                       }
-                    ];
-                  }
-                  
-                  // Apply search and category filtering
-                  let filteredBooks = books.filter((b: any) => {
-                    const matchesSearch = 
-                      (b.title || b.judul || '').toLowerCase().includes(pustakaSearchQuery.toLowerCase()) ||
-                      (b.author || b.penulis || '').toLowerCase().includes(pustakaSearchQuery.toLowerCase()) ||
-                      (b.subject || b.mataPelajaran || '').toLowerCase().includes(pustakaSearchQuery.toLowerCase());
-                    
-                    if (pustakaCategoryFilter === 'Semua') return matchesSearch;
-                    if (pustakaCategoryFilter === 'Favorit Saya') {
-                      return matchesSearch && favorites.includes(b.id);
+
+                      return (
+                        matchesSearch &&
+                        (book.category || '')
+                          .toLowerCase() ===
+                          pustakaCategoryFilter.toLowerCase()
+                      );
                     }
-                    return matchesSearch && (b.category || '').toLowerCase() === pustakaCategoryFilter.toLowerCase();
-                  });
+                  );
 
                   if (filteredBooks.length === 0) {
                     return (
                       <div className="py-12 text-center bg-white rounded-2xl border border-slate-150 p-6">
                         <BookMarked className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                        <h4 className="text-sm font-black text-slate-700">Tidak ada koleksi ditemukan</h4>
-                        <p className="text-[10px] text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian atau filter kategori Anda.</p>
+                        <h4 className="text-sm font-black text-slate-700">
+                          Tidak ada koleksi ditemukan
+                        </h4>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Coba sesuaikan kata kunci atau
+                          kategori pencarian.
+                        </p>
                       </div>
                     );
                   }
 
                   return (
                     <div className="grid grid-cols-2 gap-3.5">
-                      {filteredBooks.map((book: any) => {
-                        const isFav = favorites.includes(book.id);
-                        return (
-                          <div
-                            key={book.id}
-                            onClick={() => {
-                              setSelectedLibraryBook(book);
-                              setPustakaSubView('detail');
-                            }}
-                            className="bg-white rounded-2xl border border-slate-150 p-3 shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between group"
-                          >
-                            <div className="space-y-2.5">
-                              {/* Cover Frame */}
-                              <div className="aspect-[3/4] w-full rounded-xl bg-slate-100 overflow-hidden relative shadow-inner border border-slate-100">
-                                <img
-                                  src={book.cover || 'https://placehold.co/200x300/1e3a8a/ffffff?text=Modul'}
-                                  alt={book.title || book.judul}
-                                  referrerPolicy="no-referrer"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                />
-                                {/* Favorite Badge / Overlay */}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleFavorite(book.id);
-                                  }}
-                                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/90 backdrop-blur-xs flex items-center justify-center shadow-md hover:bg-white active:scale-95 transition-all text-slate-500 hover:text-red-500"
-                                >
-                                  <Heart className={`w-4 h-4 ${isFav ? 'fill-red-500 text-red-500' : ''}`} />
-                                </button>
-                                {/* Format badge */}
-                                <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-slate-900/75 backdrop-blur-xs text-[8px] font-black text-white uppercase tracking-wider">
-                                  {book.fileType || (book.filePdf?.endsWith('.epub') ? 'epub' : 'pdf')}
-                                </span>
-                              </div>
+                      {filteredBooks.map((book: any) => (
+                        <div
+                          key={book.id}
+                          onClick={() => {
+                            setSelectedLibraryBook(book);
+                            setPustakaSubView('detail');
+                          }}
+                          className="bg-white rounded-2xl border border-slate-150 p-3 shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between group"
+                        >
+                          <div className="space-y-2.5">
+                            <div className="aspect-[3/4] w-full rounded-xl bg-slate-100 overflow-hidden relative shadow-inner border border-slate-100">
+                              <img
+                                src={book.cover}
+                                alt={book.title}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
 
-                              <div className="space-y-1">
-                                <span className="text-[8px] font-extrabold text-emerald-600 uppercase tracking-wider block">
-                                  {book.subject || book.mataPelajaran}
-                                </span>
-                                <h4 className="text-[11px] font-black text-slate-800 leading-tight line-clamp-2">
-                                  {book.title || book.judul}
-                                </h4>
-                                <p className="text-[9px] text-slate-400 font-semibold truncate">
-                                  {book.author || book.penulis}
-                                </p>
-                              </div>
+                              <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-slate-900/75 backdrop-blur-xs text-[8px] font-black text-white uppercase tracking-wider">
+                                {book.fileType}
+                              </span>
                             </div>
 
-                            {/* Ratings & Metadata bar */}
-                            <div className="pt-2 border-t border-slate-100 mt-2.5 flex items-center justify-between text-[9px] font-bold text-slate-500">
-                              <div className="flex items-center gap-0.5 text-amber-500">
-                                <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                                <span className="text-slate-700 font-extrabold">{book.averageRating || '0.0'}</span>
-                                <span className="text-slate-400 font-medium">({book.totalRatings || 0})</span>
-                              </div>
-                              <span className="text-slate-400 font-semibold">{book.views || 0} Dilihat</span>
+                            <div className="space-y-1">
+                              <span className="text-[8px] font-extrabold text-emerald-600 uppercase tracking-wider block">
+                                {book.subject}
+                              </span>
+
+                              <h4 className="text-[11px] font-black text-slate-800 leading-tight line-clamp-2">
+                                {book.title}
+                              </h4>
+
+                              <p className="text-[9px] text-slate-400 font-semibold truncate">
+                                {book.author}
+                              </p>
                             </div>
                           </div>
-                        );
-                      })}
+
+                          <div className="pt-2 border-t border-slate-100 mt-2.5 flex items-center justify-between text-[9px] font-bold text-slate-500">
+                            <span className="text-slate-400 font-semibold">
+                              {book.views || 0} Dilihat
+                            </span>
+
+                            <span className="text-slate-400 font-semibold">
+                              {book.downloads || 0} Unduhan
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   );
                 })()}
@@ -3312,76 +3879,6 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
                     </p>
                   </div>
 
-                  {/* RATING & REVIEWS ENGINE */}
-                  <div className="border-t border-slate-100 pt-5 space-y-4">
-                    <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                      Ulasan & Penilaian Siswa
-                    </h4>
-
-                    {/* Submit Review Form */}
-                    <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-3">
-                      <h5 className="text-[10px] font-black text-slate-700">Tulis Ulasan Anda</h5>
-                      
-                      {/* Interactive star pick */}
-                      <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            type="button"
-                            onClick={() => setSelectedRating(star)}
-                            className="text-amber-400 hover:scale-110 transition-transform cursor-pointer"
-                          >
-                            <Star className={`w-5 h-5 ${selectedRating >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`} />
-                          </button>
-                        ))}
-                        <span className="text-[10px] font-extrabold text-slate-500 ml-1.5">
-                          {selectedRating === 5 ? 'Sempurna' : selectedRating === 4 ? 'Sangat Bagus' : selectedRating === 3 ? 'Cukup Baik' : selectedRating === 2 ? 'Kurang Bagus' : 'Buruk'}
-                        </span>
-                      </div>
-
-                      {/* Text area */}
-                      <textarea
-                        rows={2}
-                        placeholder="Bagikan ulasan jujur Anda tentang modul ini..."
-                        value={reviewText}
-                        onChange={(e) => setReviewText(e.target.value)}
-                        className="w-full p-3 bg-white border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => handleSubmitRating(selectedLibraryBook.id)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] font-black shadow-sm tracking-wider cursor-pointer transition-colors"
-                      >
-                        Kirim Ulasan
-                      </button>
-                    </div>
-
-                    {/* Historical Reviews List */}
-                    <div className="space-y-3">
-                      {(selectedLibraryBook.reviews && selectedLibraryBook.reviews.length > 0) ? (
-                        selectedLibraryBook.reviews.map((rev: any) => (
-                          <div key={rev.id} className="border-b border-slate-100 pb-3 space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-extrabold text-slate-800">{rev.user}</span>
-                              <span className="text-[8px] text-slate-400 font-semibold">{rev.date}</span>
-                            </div>
-                            <div className="flex items-center gap-0.5 text-amber-400">
-                              {[1, 2, 3, 4, 5].map((s) => (
-                                <Star key={s} className={`w-3 h-3 ${rev.rating >= s ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
-                              ))}
-                            </div>
-                            <p className="text-[9.5px] font-medium text-slate-500 italic leading-relaxed">
-                              "{rev.text}"
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-[10px] font-semibold text-slate-400 italic text-center py-4">Belum ada ulasan untuk modul ini. Jadilah yang pertama memberikan penilaian!</p>
-                      )}
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -3578,7 +4075,7 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
           students={students || []}
           loggedInUser={{
             id: studentObj.id || 'SIS-1001',
-            nama: studentObj.nama || 'Fajar Pratama',
+            nama: studentObj.nama || username || 'Siswa',
             nisn: studentObj.nisn || '0098765432',
               studentId: studentObj.id || 'SIS-1001',
             role: 'siswa'
@@ -3594,6 +4091,30 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
             <h2 className="text-base font-extrabold text-slate-800">Mading Sekolah</h2>
           </div>
           <div className="flex-1 p-4 space-y-3 overflow-y-auto no-scrollbar">
+            {madingLoading && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
+                <p className="text-xs font-bold text-slate-500">
+                  Memuat Mading sekolah...
+                </p>
+              </div>
+            )}
+
+            {!madingLoading && madingError && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <p className="text-xs font-bold text-rose-700">
+                  {madingError}
+                </p>
+              </div>
+            )}
+
+            {!madingLoading && !madingError && madingItems.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
+                <p className="text-xs font-bold text-slate-600">
+                  Belum ada pengumuman.
+                </p>
+              </div>
+            )}
+
             {madingItems.map((item) => (
               <div key={item.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-2">
                 <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200 text-[8px] font-extrabold uppercase">
@@ -3635,15 +4156,6 @@ Tolong berikan laporan analisis perkembangan kompetensi siswa ini beserta rencan
         >
           <FileText className="w-4 h-4" />
           <span className="text-[8px] font-bold">Tugas</span>
-        </div>
-        <div 
-          onClick={() => setActiveTab('skk')} 
-          className={`flex flex-col items-center gap-0.5 cursor-pointer transition-colors ${
-            activeTab === 'skk' ? 'text-pink-600' : 'text-slate-400 hover:text-pink-600'
-          }`}
-        >
-          <Award className="w-4 h-4" />
-          <span className="text-[8px] font-bold">SKK</span>
         </div>
         <div 
           onClick={() => setActiveTab('tagihan')} 

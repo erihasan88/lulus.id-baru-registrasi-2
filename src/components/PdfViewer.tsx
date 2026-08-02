@@ -215,6 +215,38 @@ export default function PdfViewer({
 
   const predikatVal = transcript ? (transcript.predicate || getPredikat(transcript.averageScore)) : '';
 
+  /*
+   * Pembagian halaman transkrip:
+   * - Halaman pertama maksimal 8 mata pelajaran.
+   * - Halaman berikutnya maksimal 10 mata pelajaran.
+   * - Rekap, QR, dan pengesahan hanya berada di halaman terakhir.
+   */
+  const transcriptSubjectPages = (() => {
+    if (!transcript) return [];
+
+    const subjects = Array.isArray(transcript.subjects)
+      ? transcript.subjects
+      : [];
+
+    if (subjects.length === 0) return [[]];
+
+    const pages: typeof subjects[] = [];
+    const firstPageSize = 8;
+    const nextPageSize = 10;
+
+    pages.push(subjects.slice(0, firstPageSize));
+
+    for (
+      let index = firstPageSize;
+      index < subjects.length;
+      index += nextPageSize
+    ) {
+      pages.push(subjects.slice(index, index + nextPageSize));
+    }
+
+    return pages;
+  })();
+
   // Calculate receipt terbilang string (150,000 SPP amount as default)
   const getTerbilang = (amount: number) => {
     if (amount === 150000) return '# Seratus Lima Puluh Ribu Rupiah #';
@@ -324,243 +356,400 @@ export default function PdfViewer({
         {/* A4 Page Container */}
         <div 
           style={{ zoom: zoom }}
-          className="w-full max-w-[794px] bg-white rounded-sm shadow-xl p-[45px] md:p-[60px] flex flex-col justify-between aspect-[1/1.414] border border-slate-200 print:shadow-none print:border-none print:p-0 print:max-w-none print:w-full print:aspect-auto"
+          className={
+            documentType === 'transcript'
+              ? 'w-full max-w-[794px] flex flex-col gap-8 print:gap-0 print:max-w-none'
+              : 'w-full max-w-[794px] bg-white rounded-sm shadow-xl p-[45px] md:p-[60px] flex flex-col justify-between aspect-[1/1.414] border border-slate-200 print:shadow-none print:border-none print:p-0 print:max-w-none print:w-full print:aspect-auto'
+          }
         >
-          {/* --- TRANSCRIPT VIEW --- */}
+          {/* --- TRANSCRIPT VIEW MULTI PAGE --- */}
           {documentType === 'transcript' && transcript && (
-            <div id="official-transcript-print-area" className="flex flex-col justify-between h-full">
-              <div>
-                {/* 1. KOP SURAT */}
-                <div className="flex items-center justify-between border-b-4 border-double border-slate-950 pb-4 mb-5">
-                  {/* Logo Lembaga */}
-                  <div className="w-[85px] h-[85px] flex items-center justify-center bg-white border border-slate-100 p-1 shrink-0">
-                    <img 
-                      src={identity.logoPkbm || defaults.logoPkbm} 
-                      alt="Logo Lembaga" 
-                      className="max-w-full max-h-full object-contain"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
+            <div
+              id="official-transcript-print-area"
+              className="flex flex-col gap-8 print:gap-0"
+            >
+              {transcriptSubjectPages.map((pageSubjects, pageIndex) => {
+                const isFirstPage = pageIndex === 0;
+                const isLastPage =
+                  pageIndex === transcriptSubjectPages.length - 1;
 
-                  {/* Institution Identity */}
-                  <div className="flex-1 text-center px-4">
-                    <h1 className="text-sm font-black tracking-wide text-slate-950 leading-tight uppercase font-sans">
-                      PANITIA UJIAN KESETARAAN
-                    </h1>
-                    <h2 className="text-base font-extrabold tracking-wider text-slate-950 mt-0.5 leading-snug uppercase font-sans">
-                      {identity.namaPkbm || defaults.namaPkbm}
-                    </h2>
-                    <p className="text-[10px] text-slate-700 font-bold leading-normal mt-1 font-sans">
-                      Izin Operasional: {identity.npsn ? `NPSN ${identity.npsn}` : 'Lulus.id DRF Verified Office'} • Terakreditasi Resmi
-                    </p>
-                    <p className="text-[9px] text-slate-600 font-semibold leading-relaxed font-sans">
-                      {identity.alamat}, Kec. {identity.kecamatan}, Kab. {identity.kabupaten}, Prov. {identity.provinsi}
-                    </p>
-                    <p className="text-[8.5px] text-slate-500 font-semibold tracking-wide font-sans">
-                      Telp: {identity.nomorTelepon} • Email: {identity.emailLembaga} • Web: {identity.website}
-                    </p>
-                  </div>
+                const previousSubjectCount =
+                  pageIndex === 0
+                    ? 0
+                    : 8 + ((pageIndex - 1) * 10);
 
-                  <div className="w-[85px] shrink-0 print:hidden opacity-0" />
-                </div>
+                return (
+                  <section
+                    key={`transcript-page-${pageIndex}`}
+                    className="w-full min-h-[1123px] bg-white rounded-sm shadow-xl border border-slate-200 p-[45px] md:p-[60px] flex flex-col print:shadow-none print:border-none print:rounded-none print:w-[210mm] print:min-h-[297mm] print:p-[15mm]"
+                    style={{
+                      breakAfter: isLastPage ? 'auto' : 'page',
+                      pageBreakAfter: isLastPage ? 'auto' : 'always',
+                    }}
+                  >
+                    <div className="flex-1">
+                      {isFirstPage ? (
+                        <>
+                          {/* Kop Surat */}
+                          <div className="flex items-center justify-between border-b-4 border-double border-slate-950 pb-4 mb-5">
+                            <div className="w-[85px] h-[85px] flex items-center justify-center bg-white border border-slate-100 p-1 shrink-0">
+                              <img
+                                src={identity.logoPkbm || defaults.logoPkbm}
+                                alt="Logo Lembaga"
+                                className="max-w-full max-h-full object-contain"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
 
-                {/* Title Document */}
-                <div className="text-center mb-6">
-                  <h3 className="text-sm font-black tracking-widest text-slate-950 uppercase underline font-sans">
-                    TRANSKRIP NILAI AKADEMIK
-                  </h3>
-                  <p className="text-[9.5px] font-extrabold text-slate-800 mt-1 font-mono">
-                    Nomor: {transcript.documentNumber}
-                  </p>
-                </div>
+                            <div className="flex-1 text-center px-4">
+                              <h1 className="text-sm font-black tracking-wide text-slate-950 leading-tight uppercase">
+                                PANITIA UJIAN KESETARAAN
+                              </h1>
 
-                {/* 2. IDENTITAS PESERTA DIDIK */}
-                <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-[10px] text-slate-900 border border-slate-300 p-4 rounded-xl mb-6 bg-slate-50/40">
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Nama Lengkap</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-black text-slate-950 uppercase">{transcript.studentName}</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">NISN</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{transcript.nisn}</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">NIPD / NIS</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">{transcript.nipd}</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Tempat Lahir</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900">Cianjur</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Tanggal Lahir</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">14 April 2008</span>
-                    </div>
-                  </div>
+                              <h2 className="text-base font-extrabold tracking-wider text-slate-950 mt-0.5 leading-snug uppercase">
+                                {identity.namaPkbm || defaults.namaPkbm}
+                              </h2>
 
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Jenis Kelamin</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900">Laki-laki</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Program</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-black text-emerald-700">{transcript.program}</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Kelas</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900">{transcript.kelas}</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Tahun Masuk</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">2025</span>
-                    </div>
-                    <div className="grid grid-cols-12">
-                      <span className="col-span-4 font-bold text-slate-500">Tahun Lulus</span>
-                      <span className="col-span-1 text-center font-bold text-slate-400">:</span>
-                      <span className="col-span-7 font-extrabold text-slate-900 font-mono">2026</span>
-                    </div>
-                  </div>
-                </div>
+                              <p className="text-[10px] text-slate-700 font-bold leading-normal mt-1">
+                                Izin Operasional:{' '}
+                                {identity.npsn
+                                  ? `NPSN ${identity.npsn}`
+                                  : 'Lulus.id DRF Verified Office'}{' '}
+                                • Terakreditasi Resmi
+                              </p>
 
-                {/* 3. TABEL NILAI PDF */}
-                <div className="border border-slate-950 overflow-hidden rounded-md mb-6">
-                  <table className="w-full text-left border-collapse text-[10px]">
-                    <thead>
-                      <tr className="border-b border-slate-950 text-slate-900 bg-slate-100/85 font-black uppercase tracking-wider">
-                        <th className="py-2.5 px-4 border-r border-slate-950 w-12 text-center">No</th>
-                        <th className="py-2.5 px-4 border-r border-slate-950">Mata Pelajaran</th>
-                        <th className="py-2.5 px-4 border-r border-slate-950 text-center w-20">KKM</th>
-                        <th className="py-2.5 px-4 border-r border-slate-950 text-center w-24">Nilai Akhir</th>
-                        <th className="py-2.5 px-4 text-center w-36">Keterangan</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-950 text-slate-900 font-bold">
-                      {transcript.subjects.map((sub, idx) => (
-                        <tr key={sub.id || idx}>
-                          <td className="py-2 px-4 border-r border-slate-950 text-center font-mono">{idx + 1}</td>
-                          <td className="py-2 px-4 border-r border-slate-950 font-black">{sub.name}</td>
-                          <td className="py-2 px-4 border-r border-slate-950 text-center font-mono">{sub.kkm}</td>
-                          <td className="py-2 px-4 border-r border-slate-950 text-center font-mono font-black">{sub.score}</td>
-                          <td className="py-2 px-4 text-center">
-                            <span className="uppercase text-[9px] font-extrabold tracking-wider">
-                              {sub.score >= sub.kkm ? 'LULUS' : 'BELUM TUNTAS'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                              <p className="text-[9px] text-slate-600 font-semibold leading-relaxed">
+                                {identity.alamat}, Kec. {identity.kecamatan},
+                                Kab. {identity.kabupaten}, Prov.{' '}
+                                {identity.provinsi}
+                              </p>
 
-                {/* 4. REKAP NILAI PDF */}
-                <div className="grid grid-cols-2 gap-8 mb-8">
-                  {/* Rekapitulasi Data */}
-                  <div className="border border-slate-950 rounded-lg p-3 space-y-1.5 text-[9.5px] font-bold text-slate-800 bg-slate-50/20">
-                    <div className="flex justify-between">
-                      <span>Jumlah Mata Pelajaran</span>
-                      <span className="font-black text-slate-950 font-mono">{transcript.subjects.length} Mapel</span>
-                    </div>
-                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
-                      <span>Total Nilai Akhir</span>
-                      <span className="font-black text-slate-950 font-mono">{transcript.score}</span>
-                    </div>
-                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
-                      <span>Rata-rata Nilai</span>
-                      <span className="font-black text-emerald-700 font-mono">{transcript.averageScore}</span>
-                    </div>
-                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
-                      <span>Predikat Hasil Belajar</span>
-                      <span className="font-black text-slate-950 uppercase">{predikatVal}</span>
-                    </div>
-                  </div>
+                              <p className="text-[8.5px] text-slate-500 font-semibold tracking-wide">
+                                Telp: {identity.nomorTelepon} • Email:{' '}
+                                {identity.emailLembaga} • Web:{' '}
+                                {identity.website}
+                              </p>
+                            </div>
 
-                  {/* Security verification description */}
-                  <div className="text-[8.5px] text-slate-500 font-semibold space-y-1 leading-normal flex flex-col justify-center">
-                    <p className="font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      Sertifikasi & Verifikasi Digital
-                    </p>
-                    <p>
-                      Dokumen resmi ini dilengkapi QR Code untuk verifikasi keaslian dokumen, validasi nomor surat resmi, dan menampilkan informasi penerbit secara real-time.
-                    </p>
-                  </div>
-                </div>
-              </div>
+                            <div className="w-[85px] shrink-0 opacity-0" />
+                          </div>
 
-              {/* 5. PENGESAHAN & QR CODE FOOTER */}
-              <div className="grid grid-cols-2 border-t border-slate-300 pt-6 gap-6 items-start text-[10px]">
-                {/* Left Side: Notice & QR Code */}
-                <div className="space-y-4">
-                  <div className="text-left space-y-1.5">
-                    <p className="font-black text-slate-900 leading-normal">
-                      Dokumen ini diterbitkan secara digital.
-                    </p>
-                    <p className="text-[9px] text-slate-500 font-semibold leading-normal">
-                      QR Code di bawah digunakan untuk verifikasi keaslian dokumen, validasi nomor surat resmi, serta menampilkan informasi resmi lembaga penerbit.
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <PdfDocumentQRCode code={transcript.verificationCode || 'TRK-2026-Y4M7V3'} size={64} />
-                    <div className="space-y-0.5 text-left">
-                      <p className="text-[8px] font-black text-slate-800 tracking-wider">
-                        Kode: <span className="font-mono uppercase">{transcript.verificationCode || 'TRK-2026-Y4M7V3'}</span>
-                      </p>
-                      <p className="text-[7.5px] font-extrabold text-emerald-600 font-mono break-all max-w-[130px]">
-                        {(typeof window !== 'undefined' ? window.location.origin : 'https://lulus.id').replace(/^https?:\/\//, '')}/verifikasi/{transcript.verificationCode || 'TRK-2026-Y4M7V3'}
-                      </p>
+                          <div className="text-center mb-6">
+                            <h3 className="text-sm font-black tracking-widest text-slate-950 uppercase underline">
+                              TRANSKRIP NILAI AKADEMIK
+                            </h3>
+
+                            <p className="text-[9.5px] font-extrabold text-slate-800 mt-1 font-mono">
+                              Nomor: {transcript.documentNumber}
+                            </p>
+                          </div>
+
+                          {/* Identitas Peserta Didik */}
+                          <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-[10px] text-slate-900 border border-slate-300 p-4 rounded-xl mb-6 bg-slate-50/40">
+                            <div className="space-y-1.5">
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">
+                                  Nama Lengkap
+                                </span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-black text-slate-950 uppercase">
+                                  {transcript.studentName}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">NISN</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900 font-mono">
+                                  {transcript.nisn}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">NIPD / NIS</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900 font-mono">
+                                  {transcript.nipd}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">Tempat Lahir</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900">Cianjur</span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">Tanggal Lahir</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900 font-mono">
+                                  14 April 2008
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">Jenis Kelamin</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900">Laki-laki</span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">Program</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-black text-emerald-700">
+                                  {transcript.program}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">Kelas</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900">
+                                  {transcript.kelas}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">Tahun Masuk</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900 font-mono">
+                                  2025
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-12">
+                                <span className="col-span-4 font-bold text-slate-500">Tahun Lulus</span>
+                                <span className="col-span-1 text-center font-bold text-slate-400">:</span>
+                                <span className="col-span-7 font-extrabold text-slate-900 font-mono">
+                                  2026
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        /* Kop ringkas halaman lanjutan */
+                        <div className="border-b-4 border-double border-slate-950 pb-3 mb-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[11px] font-black uppercase text-slate-950">
+                                {identity.namaPkbm || defaults.namaPkbm}
+                              </p>
+                              <p className="text-[9px] font-bold text-slate-500">
+                                Lanjutan Transkrip Nilai Akademik
+                              </p>
+                            </div>
+
+                            <div className="text-right">
+                              <p className="text-[9px] font-black font-mono text-slate-900">
+                                {transcript.documentNumber}
+                              </p>
+                              <p className="text-[8px] font-bold text-slate-500">
+                                Halaman {pageIndex + 1} dari{' '}
+                                {transcriptSubjectPages.length}
+                              </p>
+                            </div>
+                          </div>
+
+                          <p className="mt-3 text-[9px] font-bold text-slate-700 uppercase">
+                            {transcript.studentName} • {transcript.nisn}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Tabel Nilai Per Halaman */}
+                      <div className="border border-slate-950 overflow-hidden rounded-md mb-6">
+                        <table className="w-full text-left border-collapse text-[10px]">
+                          <thead>
+                            <tr className="border-b border-slate-950 text-slate-900 bg-slate-100/85 font-black uppercase tracking-wider">
+                              <th className="py-2.5 px-4 border-r border-slate-950 w-12 text-center">No</th>
+                              <th className="py-2.5 px-4 border-r border-slate-950">Mata Pelajaran</th>
+                              <th className="py-2.5 px-4 border-r border-slate-950 text-center w-20">KKM</th>
+                              <th className="py-2.5 px-4 border-r border-slate-950 text-center w-24">Nilai Akhir</th>
+                              <th className="py-2.5 px-4 text-center w-36">Keterangan</th>
+                            </tr>
+                          </thead>
+
+                          <tbody className="divide-y divide-slate-950 text-slate-900 font-bold">
+                            {pageSubjects.map((sub, subjectIndex) => (
+                              <tr key={sub.id || subjectIndex}>
+                                <td className="py-2 px-4 border-r border-slate-950 text-center font-mono">
+                                  {previousSubjectCount + subjectIndex + 1}
+                                </td>
+
+                                <td className="py-2 px-4 border-r border-slate-950 font-black">
+                                  {sub.name}
+                                </td>
+
+                                <td className="py-2 px-4 border-r border-slate-950 text-center font-mono">
+                                  {sub.kkm}
+                                </td>
+
+                                <td className="py-2 px-4 border-r border-slate-950 text-center font-mono font-black">
+                                  {sub.score}
+                                </td>
+
+                                <td className="py-2 px-4 text-center">
+                                  <span className="uppercase text-[9px] font-extrabold tracking-wider">
+                                    {sub.score >= sub.kkm
+                                      ? 'LULUS'
+                                      : 'BELUM TUNTAS'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {isLastPage && (
+                        <div className="grid grid-cols-2 gap-8 mb-8">
+                          <div className="border border-slate-950 rounded-lg p-3 space-y-1.5 text-[9.5px] font-bold text-slate-800 bg-slate-50/20">
+                            <div className="flex justify-between">
+                              <span>Jumlah Mata Pelajaran</span>
+                              <span className="font-black text-slate-950 font-mono">
+                                {transcript.subjects.length} Mapel
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                              <span>Total Nilai Akhir</span>
+                              <span className="font-black text-slate-950 font-mono">
+                                {transcript.score}
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                              <span>Rata-rata Nilai</span>
+                              <span className="font-black text-emerald-700 font-mono">
+                                {transcript.averageScore}
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                              <span>Predikat Hasil Belajar</span>
+                              <span className="font-black text-slate-950 uppercase">
+                                {predikatVal}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-[8.5px] text-slate-500 font-semibold space-y-1 leading-normal flex flex-col justify-center">
+                            <p className="font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1">
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              Sertifikasi & Verifikasi Digital
+                            </p>
+
+                            <p>
+                              Dokumen resmi ini dilengkapi QR Code untuk
+                              verifikasi keaslian dokumen dan validasi nomor
+                              surat resmi.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </div>
 
-                {/* Right Side: Area Pengesahan */}
-                <div className="text-right flex flex-col items-end space-y-1 pr-4">
-                  <p className="font-semibold text-slate-700">
-                    Cianjur, {new Date(transcript.issueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
-                  </p>
-                  <p className="font-black text-slate-950 uppercase tracking-wide">
-                    {identity.jabatanPejabatTtd || identity.jabatanPejabatTtd === '' ? identity.jabatanPejabatTtd : 'Kepala PKBM'}
-                  </p>
-                  
-                  {/* Signature & Stempel Container */}
-                  <div className={`relative h-20 w-44 flex items-center justify-end ${role === 'siswa' ? 'hidden print:flex' : 'flex'}`}>
-                    <img 
-                      src={safeSrc(identity.tandaTanganKepalaSekolah || 'https://placehold.co/200x100/ffffff/000000?text=Tanda+Tangan')} 
-                      alt="Tanda Tangan" 
-                      className="absolute z-10 max-h-full max-w-[140px] object-contain mix-blend-multiply"
-                      referrerPolicy="no-referrer"
-                    />
-                    {identity.capStempelDigital && (
-                      <img 
-                        src={safeSrc(identity.capStempelDigital)} 
-                        alt="Stempel PKBM" 
-                        className="absolute right-8 z-20 h-16 w-16 object-contain mix-blend-multiply opacity-80"
-                        referrerPolicy="no-referrer"
-                      />
+                    {isLastPage && (
+                      <div className="grid grid-cols-2 border-t border-slate-300 pt-6 gap-6 items-start text-[10px]">
+                        <div className="space-y-4">
+                          <div className="text-left space-y-1.5">
+                            <p className="font-black text-slate-900">
+                              Dokumen ini diterbitkan secara digital.
+                            </p>
+
+                            <p className="text-[9px] text-slate-500 font-semibold leading-normal">
+                              Pindai QR Code untuk memeriksa keaslian dan
+                              status dokumen.
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <PdfDocumentQRCode
+                              code={transcript.verificationCode}
+                              size={64}
+                            />
+
+                            <div className="space-y-0.5 text-left">
+                              <p className="text-[8px] font-black text-slate-800 tracking-wider">
+                                Kode:{' '}
+                                <span className="font-mono uppercase">
+                                  {transcript.verificationCode}
+                                </span>
+                              </p>
+
+                              <p className="text-[7.5px] font-extrabold text-emerald-600 font-mono break-all max-w-[150px]">
+                                {(typeof window !== 'undefined'
+                                  ? window.location.origin
+                                  : 'https://lulusdigital.click'
+                                ).replace(/^https?:\/\//, '')}
+                                /verifikasi/{transcript.verificationCode}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right flex flex-col items-end space-y-1 pr-4">
+                          <p className="font-semibold text-slate-700">
+                            Cianjur,{' '}
+                            {new Date(
+                              transcript.issueDate
+                            ).toLocaleDateString('id-ID', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                            })}
+                          </p>
+
+                          <p className="font-black text-slate-950 uppercase tracking-wide">
+                            {identity.jabatanPejabatTtd ||
+                              identity.jabatanPejabatTtd === ''
+                              ? identity.jabatanPejabatTtd
+                              : 'Kepala PKBM'}
+                          </p>
+
+                          <div className="relative h-24 w-52 flex items-center justify-end">
+                            {identity.atributPengesahanDigital ? (
+                              <img
+                                src={safeSrc(
+                                  identity.atributPengesahanDigital
+                                )}
+                                alt="Atribut Pengesahan Digital Kepala Sekolah"
+                                className="max-h-24 max-w-[190px] object-contain"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="text-[8px] text-slate-400 italic text-right">
+                                Atribut pengesahan digital belum diunggah.
+                              </div>
+                            )}
+                          </div>
+
+                          <p className="font-black text-slate-950 underline mt-1 text-[10.5px]">
+                            {identity.namaPejabatTtd ||
+                              identity.namaKepalaSekolah ||
+                              defaults.namaKepalaSekolah}
+                          </p>
+                        </div>
+                      </div>
                     )}
-                  </div>
-                  {role === 'siswa' && (
-                    <div className="h-20 flex items-center justify-end text-[8.5px] font-bold text-slate-400 italic print:hidden">
-                      [Tanda Tangan & Stempel Resmi Terverifikasi]
-                    </div>
-                  )}
 
-                  <p className="font-black text-slate-950 underline mt-1 text-[10.5px]">
-                    {identity.namaPejabatTtd || identity.namaKepalaSekolah || defaults.namaKepalaSekolah}
-                  </p>
-                </div>
-              </div>
+                    <div className="mt-5 pt-2 border-t border-slate-100 flex justify-between text-[7.5px] font-bold text-slate-400">
+                      <span>
+                        Transkrip Nilai Akademik •{' '}
+                        {identity.namaPkbm || defaults.namaPkbm}
+                      </span>
+
+                      <span>
+                        Halaman {pageIndex + 1} dari{' '}
+                        {transcriptSubjectPages.length}
+                      </span>
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           )}
 

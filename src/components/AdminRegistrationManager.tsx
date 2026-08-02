@@ -22,6 +22,9 @@ interface AdminRegistrationManagerProps {
   financialTransactions: any[];
   onUpdateTransactions: (txs: any[]) => void;
   showModal: (title: string, message: string, type: 'success' | 'error' | 'info') => void;
+  lembagaIdentitas?: {
+    namaPkbm?: string;
+  };
 }
 
 export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> = ({
@@ -29,7 +32,8 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
   setStudents,
   financialTransactions,
   onUpdateTransactions,
-  showModal
+  showModal,
+  lembagaIdentitas
 }) => {
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +47,8 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
   const [showRejectForm, setShowRejectForm] = useState(false);
 
   // Plotting form states
-  const [selectedClass, setSelectedClass] = useState('Kelas 10 - Rombel Srikandi');
+  const [rombels, setRombels] = useState<any[]>([]);
+  const [selectedClass, setSelectedClass] = useState('');
   
   // AI Audit States
   const [aiResult, setAiResult] = useState<string>('');
@@ -52,8 +57,17 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
   const fetchRegistrations = async () => {
     try {
       setLoading(true);
-      const data = await api.adminGetRegistrations();
-      setRegistrations(data);
+      const [registrationData, rombelData] = await Promise.all([
+        api.adminGetRegistrations(),
+        api.adminGetRombel()
+      ]);
+
+      setRegistrations(registrationData);
+      setRombels(
+        Array.isArray(rombelData)
+          ? rombelData.filter((rombel: any) => rombel.status === 'Aktif')
+          : []
+      );
     } catch (err: any) {
       console.warn("Failed to fetch registrations, seeding initial preview data...", err);
       // Fallback seeded registrations is handled gracefully
@@ -66,39 +80,67 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
     fetchRegistrations();
   }, []);
 
-  const handleVerify = async (regId: string, action: 'ACCEPT' | 'REJECT') => {
+  useEffect(() => {
+    setSelectedClass('');
+  }, [selectedReg?.id]);
+
+  const handleVerify = async (
+    regId: string,
+    action: 'ACCEPT' | 'REJECT'
+  ) => {
     try {
       if (action === 'REJECT') {
-        if (!rejectReason) {
-          alert("Alasan penolakan berkas wajib diisi.");
+        if (!rejectReason.trim()) {
+          showModal(
+            'Alasan Wajib Diisi',
+            'Tuliskan alasan atau catatan perbaikan untuk calon siswa.',
+            'error'
+          );
           return;
         }
-        await api.verifySiswa(regId, 'Nonaktif'); // Trigger fallback state modification
-        const updated = await api.adminVerifyRegistration(regId, {
+
+        await api.adminVerifyRegistration(regId, {
           action: 'REJECT',
           category: rejectCategory,
-          reason: rejectReason
+          reason: rejectReason.trim()
         });
-        
+
         showModal(
-          "Pendaftaran Ditangguhkan", 
-          `Berkas pendaftaran telah dikembalikan ke kategori: ${rejectCategory} dengan alasan: ${rejectReason}`, 
+          'Pendaftaran Dikembalikan',
+          'Catatan perbaikan berhasil dikirim kepada calon siswa.',
           'info'
         );
       } else {
-        const updated = await api.adminVerifyRegistration(regId, { action: 'ACCEPT' });
+        const updated = await api.adminVerifyRegistration(regId, {
+          action: 'ACCEPT'
+        });
+
+        const amount = Number(updated.invoice?.amount || 0);
+
         showModal(
-          "Berkas Lolos Seleksi!", 
-          `Siswa dinyatakan DITERIMA. Sistem telah meng-generate invoice nominal Rp ${updated.invoice?.amount?.toLocaleString('id-ID')} secara otomatis.`, 
+          'Berkas Diterima',
+          `Berkas dinyatakan lengkap. Tagihan pendaftaran sebesar Rp ${amount.toLocaleString('id-ID')} telah diterbitkan.`,
           'success'
         );
+
+        setActiveSubTab('pembayaran');
       }
+
       setShowRejectForm(false);
       setRejectReason('');
       setSelectedReg(null);
-      fetchRegistrations();
+      await fetchRegistrations();
     } catch (err: any) {
-      showModal("Gagal Verifikasi", err.message || err, "error");
+      let message = 'Verifikasi pendaftaran gagal.';
+
+      try {
+        const parsed = JSON.parse(err?.message || '{}');
+        message = parsed.detail || message;
+      } catch {
+        message = err?.message || message;
+      }
+
+      showModal('Gagal Verifikasi', message, 'error');
     }
   };
 
@@ -108,7 +150,7 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
       showModal(
         action === 'APPROVE' ? "Pembayaran Sah!" : "Pembayaran Ditolak", 
         action === 'APPROVE' 
-          ? "Pembayaran pendaftaran telah divalidasi. Siswa diaktifkan untuk masuk fase Orientasi Akademik."
+          ? "Pembayaran telah diverifikasi. Pendaftar sekarang masuk ke tahap Plotting Rombel dan akun belum aktif."
           : "Unggahan bukti pendaftaran ditolak. Status tagihan siswa kembali ke UNPAID.", 
         action === 'APPROVE' ? 'success' : 'info'
       );
@@ -120,69 +162,40 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
   };
 
   const handlePlottingClass = async (reg: any) => {
+    if (!selectedClass) {
+      showModal(
+        "Rombel Belum Dipilih",
+        "Silakan pilih rombel terlebih dahulu.",
+        "info"
+      );
+      return;
+    }
+
     try {
-      // Mark as plotted
-      const updatedBiodata = {
-        ...reg.biodata,
-        kelas_plotted: true,
-        rombel_nama: selectedClass
-      };
-      
-      // Update registration record on server mock
-      await api.adminPlotRegistration(reg.id, {
-        kelas_plotted: true,
-        rombel_nama: selectedClass
+      const result = await api.adminPlotRegistration(reg.id, {
+        rombel_id: selectedClass
       });
-      
-      // Sync into existing global `students` list to guarantee full compatibility with CBT and LMS!
-      const currentStudents = [...students];
-      const matchIdx = currentStudents.findIndex(s => s.nis === reg.biodata.nik || s.nama === reg.biodata.nama);
-      
-      const newStudentEntry = {
-        id: `stu-${Math.floor(Math.random() * 10000)}`,
-        nis: reg.biodata.nik || `3201${Math.floor(1000000000 + Math.random() * 9000000000)}`,
-        nama: reg.biodata.nama,
-        kelas: reg.program_paket === 'Paket A' ? 'VII' : reg.program_paket === 'Paket B' ? 'IX' : 'XII',
-        status: 'Aktif',
-        kontak: reg.biodata.no_hp || '081234567890',
-        program: reg.program_paket,
-        tipe_kelas: reg.tipe_kelas,
-        alamat: reg.biodata.alamat || 'Sukabumi',
-        biodata_lengkap: {
-          ...reg.biodata,
-          rombel: selectedClass
-        }
-      };
-
-      if (matchIdx >= 0) {
-        currentStudents[matchIdx] = { ...currentStudents[matchIdx], status: 'Aktif', kelas: newStudentEntry.kelas };
-      } else {
-        currentStudents.push(newStudentEntry);
-      }
-      setStudents(currentStudents);
-
-      // Add to financial transactions
-      const newTx = {
-        id: `tx-${Math.floor(Math.random() * 10000)}`,
-        siswa: reg.biodata.nama,
-        tanggal: new Date().toISOString().split('T')[0],
-        nominal: reg.tipe_kelas === 'Karyawan' ? 500000 : 300000,
-        tipe: 'Pemasukan',
-        kategori: 'Pendaftaran Siswa Baru',
-        keterangan: `Pembayaran Lunas pendaftaran ${reg.program_paket} Kelas ${reg.tipe_kelas} an. ${reg.biodata.nama}`,
-        status: 'Lunas'
-      };
-      onUpdateTransactions([...financialTransactions, newTx]);
 
       showModal(
-        "Plotting Rombel Sukses!", 
-        `Siswa ${reg.biodata.nama} secara resmi di-plot ke kelompok belajar: **${selectedClass}**. Akses LMS akademik penuh telah terbuka!`, 
-        'success'
+        "Plotting dan Aktivasi Berhasil!",
+        `Siswa ${result.nama} telah ditempatkan di ${result.rombel}.
+
+Username: ${result.username}
+Password awal: ${result.password_awal}
+
+Simpan dan kirimkan kredensial ini kepada siswa. Password hanya ditampilkan satu kali.`,
+        "success"
       );
+
+      setSelectedClass('');
       setSelectedReg(null);
-      fetchRegistrations();
+      await fetchRegistrations();
     } catch (err: any) {
-      showModal("Gagal Plotting", err.message || err, "error");
+      showModal(
+        "Gagal Plotting",
+        err.message || String(err),
+        "error"
+      );
     }
   };
 
@@ -233,7 +246,7 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
             <Users className="w-5 h-5 text-pink-500" />
             <div>
               <h3 className="text-xs font-black uppercase tracking-widest text-slate-100">Registrasi & Pembayaran Siswa V2</h3>
-              <p className="text-[10px] text-slate-400 font-bold">Portal Administrasi Pendaftaran Terintegrasi PKBM Agrabinta</p>
+              <p className="text-[10px] text-slate-400 font-bold">Portal Administrasi Pendaftaran Terintegrasi {lembagaIdentitas?.namaPkbm || 'PKBM Darul Ulum'}</p>
             </div>
           </div>
           <button 
@@ -262,7 +275,7 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
             onClick={() => { setActiveSubTab('plotting'); setSelectedReg(null); }}
             className={`flex-1 py-2 text-center text-[10.5px] font-black rounded-lg transition-all cursor-pointer ${activeSubTab === 'plotting' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'}`}
           >
-            Plotting Rombel ({registrations.filter(r => r.registration_status === 'DITERIMA' && r.invoice?.payment_status === 'PAID' && !r.biodata?.kelas_plotted).length})
+            Plotting Rombel ({registrations.filter(r => r.registration_status === 'MENUNGGU_PLOTTING_ROMBEL' && r.invoice?.payment_status === 'PAID' && !r.biodata?.kelas_plotted).length})
           </button>
         </div>
 
@@ -300,7 +313,7 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
                   return r.invoice?.payment_status === 'WAITING_CONFIRMATION';
                 }
                 if (activeSubTab === 'plotting') {
-                  return r.registration_status === 'DITERIMA' && r.invoice?.payment_status === 'PAID' && !r.biodata?.kelas_plotted;
+                  return r.registration_status === 'MENUNGGU_PLOTTING_ROMBEL' && r.invoice?.payment_status === 'PAID' && !r.biodata?.kelas_plotted;
                 }
                 return true;
               })
@@ -377,32 +390,78 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
               </div>
             </div>
 
-            {/* Documents preview tab */}
-            {selectedReg.dokumen && Object.keys(selectedReg.dokumen).length > 0 && (
+            {/* Preview dokumen calon siswa */}
+            {selectedReg.dokumen && (
               <div className="space-y-3">
                 <h4 className="text-[9px] font-black text-indigo-400 uppercase tracking-wider">
-                  📂 Berkas Unggahan Calon Siswa
+                  Berkas Unggahan Calon Siswa
                 </h4>
-                <div className="grid grid-cols-4 gap-2">
-                  {Object.entries(selectedReg.dokumen).map(([key, val]: any) => (
-                    <div key={key} className="p-2 bg-slate-900 border border-slate-850 rounded-xl text-center space-y-1 relative group">
-                      <span className="block text-[8px] font-black text-slate-400 uppercase tracking-wide">{key}</span>
-                      <a 
-                        href={val} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="w-full py-1 bg-slate-950 hover:bg-slate-800 rounded-lg text-[8px] font-black text-slate-300 flex items-center justify-center gap-1 cursor-pointer transition-all"
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {[
+                    { key: 'foto', label: 'Pas Foto' },
+                    { key: 'ktp', label: 'KTP / Identitas' },
+                    { key: 'kk', label: 'Kartu Keluarga' },
+                    { key: 'ijazah', label: 'Ijazah Terakhir' },
+                    { key: 'akta', label: 'Akta Kelahiran' }
+                  ].map(({ key, label }) => {
+                    const value = selectedReg.dokumen?.[key];
+                    const isImage =
+                      typeof value === 'string' &&
+                      /\.(jpg|jpeg|png|webp)(\?.*)?$/i.test(value);
+
+                    return (
+                      <div
+                        key={key}
+                        className="p-2 bg-slate-900 border border-slate-800 rounded-xl text-center space-y-2"
                       >
-                        <Eye className="w-2.5 h-2.5 text-pink-500" /> Lihat
-                      </a>
-                      <button
-                        onClick={() => handleAiAudit(val, key, selectedReg.biodata?.nama || selectedReg.username)}
-                        className="w-full py-0.5 mt-1 bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-900 rounded text-[7px] font-bold block"
-                      >
-                        Audit AI
-                      </button>
-                    </div>
-                  ))}
+                        <span className="block text-[8px] font-black text-slate-400 uppercase">
+                          {label}
+                        </span>
+
+                        {!value ? (
+                          <div className="py-4 text-[8px] font-bold text-slate-600">
+                            Belum diunggah
+                          </div>
+                        ) : (
+                          <>
+                            {isImage && (
+                              <img
+                                src={value}
+                                alt={label}
+                                className="w-full h-20 object-cover rounded-lg border border-slate-800"
+                              />
+                            )}
+
+                            <a
+                              href={value}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-[8px] font-black text-slate-300 flex items-center justify-center gap-1 transition-all"
+                            >
+                              <Eye className="w-3 h-3 text-pink-500" />
+                              Lihat Dokumen
+                            </a>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAiAudit(
+                                  value,
+                                  label,
+                                  selectedReg.biodata?.nama ||
+                                  selectedReg.username
+                                )
+                              }
+                              className="w-full py-1 bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-900 rounded text-[7px] font-bold"
+                            >
+                              Audit AI
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -536,16 +595,23 @@ export const AdminRegistrationManager: React.FC<AdminRegistrationManagerProps> =
                     onChange={(e) => setSelectedClass(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-850 rounded-xl px-4 py-3 text-xs text-slate-300 outline-none focus:border-pink-500 cursor-pointer"
                   >
-                    <option value="Kelas 7 - Rombel Diponegoro (Paket A)">Kelas 7 - Rombel Diponegoro (Paket A)</option>
-                    <option value="Kelas 9 - Rombel Kartini (Paket B)">Kelas 9 - Rombel Kartini (Paket B)</option>
-                    <option value="Kelas 10 - Rombel Srikandi (Paket C)">Kelas 10 - Rombel Srikandi (Paket C)</option>
-                    <option value="Kelas 11 - Rombel Gajah Mada (Paket C)">Kelas 11 - Rombel Gajah Mada (Paket C)</option>
-                    <option value="Kelas 12 - Rombel Pattimura (Paket C)">Kelas 12 - Rombel Pattimura (Paket C)</option>
+                    <option value="">Pilih rombel...</option>
+
+                    {rombels
+                      .filter(
+                        (rombel: any) =>
+                          rombel.sistem_belajar === selectedReg.tipe_kelas
+                      )
+                      .map((rombel: any) => (
+                        <option key={rombel.id} value={rombel.id}>
+                          {rombel.nama_rombel} — {rombel.sistem_belajar}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
                 <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                  Menyimpan plotting rombel akan melahirkan profile siswa aktif baru di database CBT, materi ajar, dan e-rapor Lulus.id serta melunasi riwayat pendaftaran.
+                  Setelah plotting disimpan, sistem akan membuat username dan password awal, mengaktifkan akun, lalu memasukkan siswa ke Data Siswa.
                 </p>
 
                 <button

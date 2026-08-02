@@ -1,0 +1,11618 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Home, BookOpen, FileText, Award, Calendar, ChevronRight, Play,
+  Clock, CheckCircle, Search, FileDown, MessageSquare, Sparkles, 
+  BookMarked, HelpCircle, Megaphone, Wallet, User, UserCheck, ShieldAlert,
+  Bell, ArrowLeft, RefreshCw, Star, BarChart2, Plus, Check, Send, AlertCircle,
+  Edit, Lock, X, Settings, Key, Upload, Trash2, Copy, Loader2, Library, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight as ChevronRightIcon, Moon, Eye,
+  Activity, Camera
+} from 'lucide-react';
+import { Subject, Task, TaskSubmission, Teacher, AcademicYear, Exam, Question, Announcement, Role, DigitalLibraryBook } from '../types';
+import AdminTranscript from '../pages/AdminTranscript';
+import { api } from '../lib/api';
+
+interface DashboardGuruProps {
+  onBackToLogin: () => void;
+  showModal: (title: string, desc: string, type?: 'info' | 'warning' | 'success') => void;
+  activeSubTab: string;
+  setActiveSubTab: (tab: string) => void;
+  subjects?: Subject[];
+  setSubjects?: React.Dispatch<React.SetStateAction<Subject[]>>;
+  tasks?: Task[];
+  setTasks?: React.Dispatch<React.SetStateAction<Task[]>>;
+  taskSubmissions?: TaskSubmission[];
+  setTaskSubmissions?: React.Dispatch<React.SetStateAction<TaskSubmission[]>>;
+  teachers?: Teacher[];
+  setTeachers?: React.Dispatch<React.SetStateAction<Teacher[]>>;
+  username?: string;
+  setUsername?: (username: string) => void;
+  setAutoOpenPdf?: (val: boolean) => void;
+  competencies?: any[];
+  setCompetencies?: React.Dispatch<React.SetStateAction<any[]>>;
+  studentCompetencies?: any[];
+  setStudentCompetencies?: React.Dispatch<React.SetStateAction<any[]>>;
+  skkReports?: any[];
+  setSkkReports?: React.Dispatch<React.SetStateAction<any[]>>;
+  students?: any[];
+  lembagaIdentitas?: any;
+  activeAcademicYear?: AcademicYear;
+}
+
+interface TeacherTaskSubmission {
+  id: string;
+  studentName: string;
+  studentPhoto: string;
+  class: string;
+  subject: string;
+  taskTitle: string;
+  submissionDate: string;
+  fileSize: string;
+  status: 'Menunggu Penilaian' | 'Dinilai';
+  grade?: number;
+  feedback?: string;
+}
+
+export default function DashboardGuru({ 
+  onBackToLogin, 
+  showModal,
+  activeSubTab,
+  setActiveSubTab,
+  subjects,
+  setSubjects,
+  tasks = [],
+  setTasks,
+  taskSubmissions = [],
+  setTaskSubmissions,
+  teachers,
+  setTeachers,
+  username,
+  setUsername,
+  setAutoOpenPdf,
+  competencies = [],
+  studentCompetencies = [],
+  setStudentCompetencies,
+  skkReports = [],
+  setSkkReports,
+  lembagaIdentitas,
+  activeAcademicYear
+}: DashboardGuruProps) {
+
+  // Profil guru aktif dari Django API
+  const [guruProfile, setGuruProfile] = useState<Teacher | null>(null);
+
+  // Siswa yang tampil di Dashboard Guru berasal dari rombel guru.
+  // Data Siswa Admin tetap menjadi sumber utama di backend,
+  // tetapi endpoint guru hanya mengirim siswa yang berhak dilihat guru.
+  const [students, setGuruStudents] = useState<any[]>([]);
+  const [guruStudentsLoading, setGuruStudentsLoading] = useState(true);
+
+  // Data kosong hanya untuk menjaga komponen tetap aman saat API sedang dimuat.
+  // Tidak berisi identitas, mapel, rombel, atau password dummy.
+  const emptyTeacher: Teacher = {
+    id: '',
+    nama: '',
+    nip: '',
+    mapel: '',
+    kelas: '',
+    materiCount: 0,
+    tugasCount: 0,
+    penilaianCount: 0,
+    status: 'Aktif',
+    username: '',
+    password: '',
+    mapels: [],
+    kelasList: [],
+    rekeningType: 'Bank',
+    rekeningNomor: '',
+    rekeningNama: '',
+    isWaliKelas: false,
+    tandaTangan: '',
+    qrTandaTangan: '',
+    photo: ''
+  };
+
+  // API adalah sumber utama.
+  // Props teachers dipertahankan sementara agar modul lama tidak langsung terganggu.
+  const teacherFromProps = teachers?.find(t =>
+    t.username?.toLowerCase() === username?.toLowerCase()
+  );
+
+  const loggedInTeacher =
+    guruProfile ||
+    teacherFromProps ||
+    emptyTeacher;
+
+  // Edit Profile modal and state variables
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [profileForm, setProfileForm] = useState<Partial<Teacher>>({
+    nama: '',
+    nip: '',
+    username: '',
+    password: '',
+    rekeningType: 'Bank',
+    rekeningNomor: '',
+    rekeningNama: '',
+    tandaTangan: ''
+  });
+
+
+  useEffect(() => {
+    let active = true;
+
+    const loadGuruProfile = async () => {
+      try {
+        const data = await api.getGuruProfile();
+
+        if (!active) return;
+
+        const mappedTeacher: Teacher = {
+          id: data.id,
+          nama: data.nama || '',
+          nip: data.nip || '',
+          username: data.username || '',
+          password: '',
+          status: data.status || 'Aktif',
+
+          mapels: Array.isArray(data.mapels) ? data.mapels : [],
+          mapel: Array.isArray(data.mapels) ? (data.mapels[0] || '') : '',
+
+          kelasList: Array.isArray(data.kelas_list)
+            ? data.kelas_list
+            : [],
+          kelas: Array.isArray(data.kelas_list)
+            ? (data.kelas_list[0] || '')
+            : '',
+
+          rekeningType: data.rekening_type || 'Bank',
+          rekeningNomor: data.rekening_nomor || '',
+          rekeningNama: data.rekening_nama || '',
+
+          tandaTangan: data.tanda_tangan || '',
+          qrTandaTangan: data.qr_tanda_tangan || '',
+          photo: data.photo || '',
+          isWaliKelas: Boolean(data.is_wali_kelas),
+
+          materiCount: 0,
+          tugasCount: 0,
+          penilaianCount: 0
+        };
+
+        setGuruProfile(mappedTeacher);
+
+        // Menjaga data props lama tetap sinkron sementara.
+        if (setTeachers) {
+          setTeachers(prev => {
+            const exists = prev.some(t => t.id === mappedTeacher.id);
+
+            if (exists) {
+              return prev.map(t =>
+                t.id === mappedTeacher.id ? mappedTeacher : t
+              );
+            }
+
+            return [...prev, mappedTeacher];
+          });
+        }
+
+        if (setUsername) {
+          setUsername(mappedTeacher.username || mappedTeacher.nama);
+        }
+      } catch (error) {
+        console.error('Gagal mengambil profil guru:', error);
+
+        showModal(
+          'Profil Guru Tidak Dapat Dimuat',
+          'Data profil guru dari server belum dapat diambil. Silakan masuk kembali.',
+          'warning'
+        );
+      }
+    };
+
+    loadGuruProfile();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadGuruStudents = async () => {
+      try {
+        setGuruStudentsLoading(true);
+
+        const data = await api.getGuruStudents();
+
+        if (!active) return;
+
+        if (!Array.isArray(data)) {
+          setGuruStudents([]);
+          return;
+        }
+
+        const mappedStudents = data.map((item: any) => ({
+          id: item.id,
+          userId: item.user_id || null,
+          nama: item.nama || item.username || '',
+          username: item.username || '',
+          email: item.email || '',
+          nisn: item.nisn || '',
+          nik: item.nik || '',
+          program: item.program || '',
+          kelas: item.kelas || '',
+          tipeKelas: item.tipe_kelas || '',
+          rombelId: item.rombel_id || '',
+          tahunAjaranId: item.tahun_ajaran_id || '',
+          status:
+            item.status === 'AKUN_AKTIF'
+              ? 'Aktif'
+              : item.status || ''
+        }));
+
+        setGuruStudents(mappedStudents);
+      } catch (error) {
+        console.error(
+          'Gagal mengambil siswa sesuai rombel guru:',
+          error
+        );
+
+        if (active) {
+          setGuruStudents([]);
+          showModal(
+            'Data Siswa Tidak Dapat Dimuat',
+            'Daftar siswa sesuai rombel guru belum dapat diambil dari server.',
+            'warning'
+          );
+        }
+      } finally {
+        if (active) {
+          setGuruStudentsLoading(false);
+        }
+      }
+    };
+
+    loadGuruStudents();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+
+  // Realtime clock state
+  const [currentTime, setCurrentTime] = useState<string>('');
+  const [currentDateString, setCurrentDateString] = useState<string>('');
+  
+  useEffect(() => {
+    const updateDateTime = () => {
+      const now = new Date();
+      
+      // Time format: HH:mm:ss
+      const hh = now.getHours().toString().padStart(2, '0');
+      const mm = now.getMinutes().toString().padStart(2, '0');
+      const ss = now.getSeconds().toString().padStart(2, '0');
+      setCurrentTime(`${hh}:${mm}:${ss}`);
+      
+      // Date format
+      const options: Intl.DateTimeFormatOptions = { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      };
+      setCurrentDateString(now.toLocaleDateString('id-ID', options));
+    };
+    
+    updateDateTime();
+    const interval = setInterval(updateDateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Tasks awaiting review — diisi dari backend saat siswa mengumpulkan tugas
+  const [submissions, setSubmissions] = useState<TeacherTaskSubmission[]>([]);
+
+  // Feed aktivitas guru, diisi dari tindakan nyata pengguna
+  const [activities, setActivities] = useState<any[]>([]);
+
+  // Pesan belum dibaca, akan diisi dari backend chat
+  const [unreadMessages, setUnreadMessages] = useState<any[]>([]);
+
+  // Form toggles
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showExamModal, setShowExamModal] = useState(false);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  
+  // Interactive grading state
+  const [gradingSubmission, setGradingSubmission] = useState<TeacherTaskSubmission | null>(null);
+  const [inputGrade, setInputGrade] = useState<string>('');
+  const [inputFeedback, setInputFeedback] = useState<string>('');
+
+  // Interactive SKK states
+  const [selectedStudentComp, setSelectedStudentComp] = useState<any | null>(null);
+  const [gradingSkkScore, setGradingSkkScore] = useState<string>('');
+  const [gradingSkkStatus, setGradingSkkStatus] = useState<'tercapai' | 'proses' | 'belum'>('tercapai');
+  const [gradingSkkFeedback, setGradingSkkFeedback] = useState<string>('');
+  const [skkActiveSection, setSkkActiveSection] = useState<'verifikasi' | 'master'>('verifikasi');
+  const [filterProgram, setFilterProgram] = useState<string>('all');
+  const [filterStudent, setFilterStudent] = useState<string>('all');
+
+  // Teacher Absensi States
+  const [currentView, setCurrentView] = useState<'dashboard' | 'absensi' | 'materi' | 'tugas' | 'cbt' | 'nilai' | 'mading' | 'perpustakaan' | 'transkrip'>('dashboard');
+  const [materiSubView, setMateriSubView] = useState<'list' | 'add' | 'edit' | 'view'>('list');
+  const [selectedMateri, setSelectedMateri] = useState<Subject | null>(null);
+  const [showDeleteMateriConfirm, setShowDeleteMateriConfirm] = useState<Subject | null>(null);
+
+  // Data Kelola Materi berasal dari Django API
+  const [guruMateri, setGuruMateri] = useState<any[]>([]);
+  const [guruMateriOptions, setGuruMateriOptions] = useState<{
+    mapel: any[];
+    rombel: any[];
+    kompetensi: any[];
+  }>({
+    mapel: [],
+    rombel: [],
+    kompetensi: []
+  });
+  const [guruMateriLoading, setGuruMateriLoading] = useState(true);
+  const [guruMateriSaving, setGuruMateriSaving] = useState(false);
+
+  // Data Kelola Tugas khusus guru yang sedang login.
+  // Dipisahkan dari props tasks agar data siswa dan admin tidak terganggu.
+  const [guruTugas, setGuruTugas] = useState<Task[]>([]);
+  const [guruTugasLoading, setGuruTugasLoading] = useState(true);
+  const [guruTugasSaving, setGuruTugasSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadGuruMateriData = async () => {
+      try {
+        setGuruMateriLoading(true);
+
+        const [materiData, optionsData] = await Promise.all([
+          api.getGuruMateri(),
+          api.getGuruMateriOptions()
+        ]);
+
+        if (!active) return;
+
+        setGuruMateri(
+          Array.isArray(materiData)
+            ? materiData
+            : []
+        );
+
+        setGuruMateriOptions({
+          mapel: Array.isArray(optionsData?.mapel)
+            ? optionsData.mapel
+            : [],
+          rombel: Array.isArray(optionsData?.rombel)
+            ? optionsData.rombel
+            : [],
+          kompetensi: Array.isArray(optionsData?.kompetensi)
+            ? optionsData.kompetensi
+            : []
+        });
+      } catch (error) {
+        console.error('Gagal memuat Kelola Materi guru:', error);
+
+        if (active) {
+          setGuruMateri([]);
+          setGuruMateriOptions({
+            mapel: [],
+            rombel: [],
+            kompetensi: []
+          });
+
+          showModal(
+            'Materi Tidak Dapat Dimuat',
+            'Data materi dan pilihan pembelajaran belum dapat diambil dari server.',
+            'warning'
+          );
+        }
+      } finally {
+        if (active) {
+          setGuruMateriLoading(false);
+        }
+      }
+    };
+
+    loadGuruMateriData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadGuruTugas = async () => {
+      try {
+        setGuruTugasLoading(true);
+
+        const data = await api.getGuruTugas();
+
+        if (!active) return;
+
+        const mapped: Task[] = (
+          Array.isArray(data) ? data : []
+        ).map((item: any) => ({
+          id: String(item.id),
+          subject: item.mata_pelajaran_nama || '',
+          title: item.judul || '',
+          dueDate: item.batas_pengumpulan || '',
+          startDate: item.tanggal_mulai || '',
+          status:
+            item.status === 'PUBLISHED'
+              ? 'Dipublikasikan'
+              : item.status === 'CLOSED'
+                ? 'Ditutup'
+                : 'Draft',
+          description: item.deskripsi || '',
+          program: item.program || '',
+          kelas: item.rombel_nama || '',
+          semester: item.semester || '',
+          tahunAjaran: item.tahun_ajaran || '',
+          pertemuan: item.nomor_pertemuan || 1,
+          lampiran: item.file_lampiran || '',
+          videoUrl: item.video_url || '',
+          maxGrade: item.nilai_maksimum || 100,
+          bobotNilai: item.bobot_nilai || 10,
+          createdDate: item.created_at
+            ? new Date(item.created_at).toLocaleDateString('id-ID')
+            : '',
+          teacherId: item.guru || '',
+          backendMapelId: item.mata_pelajaran || '',
+          backendRombelId: item.rombel || '',
+          backendCompetencyId: item.kompetensi || '',
+          lampiranUrl: item.file_lampiran || ''
+        })) as Task[];
+
+        setGuruTugas(mapped);
+      } catch (error) {
+        console.error(
+          'Gagal memuat Kelola Tugas guru:',
+          error
+        );
+
+        if (active) {
+          setGuruTugas([]);
+
+          showModal(
+            'Tugas Tidak Dapat Dimuat',
+            'Data tugas belum dapat diambil dari server.',
+            'warning'
+          );
+        }
+      } finally {
+        if (active) {
+          setGuruTugasLoading(false);
+        }
+      }
+    };
+
+    loadGuruTugas();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Mading Guru States
+  const [madingSubView, setMadingSubView] = useState<'list' | 'view'>('list');
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [madingLoading, setMadingLoading] = useState(false);
+  const [madingError, setMadingError] = useState('');
+
+  React.useEffect(() => {
+    let active = true;
+
+    const loadMadingGuru = async () => {
+      setMadingLoading(true);
+      setMadingError('');
+
+      try {
+        const data = await api.getPublicAnnouncements('Guru');
+
+        if (!active) return;
+
+        const mapped = (Array.isArray(data) ? data : []).map((item: any) => ({
+          ...item,
+          status:
+            item.status === 'Aktif'
+              ? 'Terbit'
+              : item.status === 'Nonaktif'
+                ? 'Arsip'
+                : item.status,
+          foto: item.gambar || '',
+          pdf: item.lampiranPdf || '',
+          video: '',
+          youtubeLink: ''
+        }));
+
+        setAnnouncements(mapped);
+      } catch (error: any) {
+        console.error('Gagal mengambil Mading guru:', error);
+
+        if (active) {
+          setMadingError(
+            error?.message || 'Mading guru gagal dimuat dari server.'
+          );
+        }
+      } finally {
+        if (active) {
+          setMadingLoading(false);
+        }
+      }
+    };
+
+    loadMadingGuru();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+  // Perpustakaan Digital States
+  const [perpustakaanSubView, setPerpustakaanSubView] = useState<'dashboard' | 'list' | 'add' | 'edit' | 'view' | 'viewer'>('dashboard');
+  const [selectedLibraryBook, setSelectedLibraryBook] = useState<DigitalLibraryBook | null>(null);
+  const [showDeleteLibraryBookConfirm, setShowDeleteLibraryBookConfirm] = useState<DigitalLibraryBook | null>(null);
+  const mapLibraryBook = (bk: any): DigitalLibraryBook => ({
+    id: bk.id,
+    title: bk.judul || '',
+    description: bk.deskripsi || '',
+    author: bk.penulis || '',
+    publisher: '',
+    year: bk.published_at
+      ? new Date(bk.published_at).getFullYear()
+      : undefined,
+    isbn: '',
+    category: bk.kategori || 'Modul Pembelajaran',
+    subject: bk.mata_pelajaran || 'Umum',
+    program:
+      bk.program === 'PAKET_A' ? 'Paket A' :
+      bk.program === 'PAKET_B' ? 'Paket B' :
+      bk.program === 'PAKET_C' ? 'Paket C' : 'Semua',
+    kelas: bk.kelas || 'Semua Kelas',
+    semester: 'Semua',
+    cover: bk.cover_url || '',
+    file: bk.file_url || bk.ebook_url || '',
+    fileType: bk.source_type === 'LINK' ? 'epub' : 'pdf',
+    keywords: [],
+    status:
+      bk.status === 'PUBLISHED' ? 'Publish' :
+      bk.status === 'PENDING' ? 'Menunggu Persetujuan' :
+      bk.status === 'REJECTED' ? 'Ditolak' :
+      bk.status === 'ARCHIVED' ? 'Arsip' : 'Draft',
+    createdBy: bk.uploaded_by_name || '',
+    createdRole: (bk.uploaded_role || 'GURU').toLowerCase() as Role,
+    createdAt: bk.created_at,
+    updatedAt: bk.updated_at,
+    views: bk.views_count || 0,
+    downloads: bk.downloads_count || 0,
+    averageRating: 0,
+    totalRatings: 0
+  });
+
+  const [libraryBooks, setLibraryBooks] = useState<DigitalLibraryBook[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+
+  const loadLibraryBooks = async () => {
+    setLibraryLoading(true);
+
+    try {
+      const books = await api.getLibraryBooks();
+      setLibraryBooks(
+        Array.isArray(books) ? books.map(mapLibraryBook) : []
+      );
+    } catch (error) {
+      console.error('Gagal mengambil perpustakaan guru:', error);
+      showModal(
+        'Gagal Memuat',
+        'Data perpustakaan tidak dapat diambil dari server.',
+        'warning'
+      );
+    } finally {
+      setLibraryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLibraryBooks();
+  }, []);
+
+  const [formLibraryBook, setFormLibraryBook] = useState<Partial<DigitalLibraryBook>>({
+    title: '',
+    description: '',
+    author: '',
+    publisher: '',
+    year: undefined,
+    isbn: '',
+    category: 'Modul Pembelajaran',
+    subject: '',
+    program: 'Semua',
+    kelas: 'Semua Kelas',
+    semester: 'Semua',
+    cover: '',
+    file: '',
+    fileType: 'pdf',
+    keywords: [],
+    status: 'Draft'
+  });
+  const [libraryViewerZoom, setLibraryViewerZoom] = useState(100);
+  const [libraryViewerPage, setLibraryViewerPage] = useState(1);
+  const [libraryViewerDarkMode, setLibraryViewerDarkMode] = useState(false);
+  const [libraryViewerFontSize, setLibraryViewerFontSize] = useState(16);
+
+  // Aliases for Digital Library states
+  const digitalLibraryBooks = libraryBooks;
+  const setDigitalLibraryBooks = setLibraryBooks;
+  const formDigitalLibraryBook = formLibraryBook;
+
+  // Input Nilai States
+  const [nilaiFilterClass, setNilaiFilterClass] = useState('all');
+  const [nilaiFilterSubject, setNilaiFilterSubject] = useState('all');
+  const [nilaiFilterSemester, setNilaiFilterSemester] = useState('Ganjil');
+  const [nilaiSearch, setNilaiSearch] = useState('');
+  const [nilaiTab, setNilaiTab] = useState<'akademik' | 'keaktifan'>('akademik');
+  const [studentKeaktifanLocal, setStudentKeaktifanLocal] = useState<Record<string, { status: string; deskripsi: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('lulus_student_keaktifan');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  const saveStudentKeaktifan = (studentId: string, semester: string, status: string, deskripsi: string) => {
+    const key = `${studentId}_${semester}`;
+    const updated = {
+      ...studentKeaktifanLocal,
+      [key]: { status, deskripsi }
+    };
+    setStudentKeaktifanLocal(updated);
+    localStorage.setItem('lulus_student_keaktifan', JSON.stringify(updated));
+  };
+  const [editingKeaktifanId, setEditingKeaktifanId] = useState<string | null>(null);
+  const [tempKeaktifanStatus, setTempKeaktifanStatus] = useState<string>('Aktif');
+  const [tempKeaktifanDesc, setTempKeaktifanDesc] = useState<string>('');
+  const [savedNilaiRecords, setSavedNilaiRecords] = useState<any[]>(() => {
+    const saved = localStorage.getItem('lulus_nilai_records');
+    return saved ? JSON.parse(saved) : [];
+  });
+  // State for editing grades in Input Nilai
+  const [editingGrade, setEditingGrade] = useState<{
+    studentId: string;
+    taskId: string;
+  } | null>(null);
+  const [editingGradeValue, setEditingGradeValue] = useState<string>('');
+  const [localTaskSubmissions, setLocalTaskSubmissions] = useState<TaskSubmission[]>([]);
+
+  // Sync localTaskSubmissions to the parent setTaskSubmissions when it changes
+  useEffect(() => {
+    if (setTaskSubmissions) {
+      setTaskSubmissions(localTaskSubmissions);
+    }
+  }, [localTaskSubmissions, setTaskSubmissions]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadGuruTaskSubmissions = async () => {
+      try {
+        const data = await api.getGuruTugasSubmissions();
+
+        if (!active) return;
+
+        const statusMap: Record<string, TaskSubmission['status']> = {
+          SUBMITTED: 'Menunggu Penilaian',
+          GRADED: 'Sudah Dinilai',
+          REVISION: 'Revisi'
+        };
+
+        const mapped: TaskSubmission[] = (
+          Array.isArray(data) ? data : []
+        ).map((item: any) => {
+          const fileUrl = item.file_jawaban || '';
+          const fileName = fileUrl
+            ? decodeURIComponent(
+                fileUrl.split('/').pop()?.split('?')[0] || 'Lampiran'
+              )
+            : '';
+
+          return {
+            id: String(item.id),
+            taskId: String(item.tugas),
+            studentId: String(item.siswa),
+            studentName:
+              item.siswa_nama ||
+              item.siswa_username ||
+              'Siswa',
+            kelas: item.rombel_nama || '',
+            subject: item.mata_pelajaran_nama || '',
+            taskTitle: item.tugas_judul || '',
+            submissionDate: item.dikumpulkan_pada
+              ? new Date(item.dikumpulkan_pada)
+                  .toLocaleDateString('id-ID')
+              : '-',
+            status:
+              statusMap[item.status] ||
+              'Menunggu Penilaian',
+            submissionText: item.jawaban_teks || '',
+            submissionFiles: fileUrl
+              ? [{
+                  name: fileName,
+                  type: fileUrl,
+                  size: ''
+                }]
+              : [],
+            grade:
+              item.nilai !== null &&
+              item.nilai !== undefined
+                ? Number(item.nilai)
+                : undefined,
+            feedback: item.feedback_guru || ''
+          };
+        });
+
+        setLocalTaskSubmissions(mapped);
+      } catch (error: any) {
+        if (!active) return;
+
+        console.error(
+          'Gagal memuat pengumpulan tugas guru:',
+          error
+        );
+
+        setLocalTaskSubmissions([]);
+
+        showModal(
+          'Pengumpulan Tugas Tidak Dapat Dimuat',
+          error?.message ||
+            'Data pengumpulan tugas belum dapat diambil dari server.',
+          'warning'
+        );
+      }
+    };
+
+    loadGuruTaskSubmissions();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Helper to synchronize grades to Fajar Pratama's e-Rapor
+  const syncGradesToStudentRapor = (updatedSubmissions: TaskSubmission[]) => {
+    if (!setSubjects || !subjects) return;
+
+    const studentNameTarget = 'Fajar Pratama';
+    const studentList = students.length > 0 ? students : [
+      { id: 'std-001', nama: 'Fajar Pratama', kelas: 'Kelas X - Paket C', program: 'Paket C' },
+      { id: 'std-002', nama: 'Budi Santoso', kelas: 'Kelas XI - Paket C', program: 'Paket C' },
+      { id: 'std-003', nama: 'Siti Aminah', kelas: 'Kelas XII - Paket C', program: 'Paket C' },
+    ];
+    const targetStudent = studentList.find(s => s.nama.toLowerCase() === studentNameTarget.toLowerCase()) || { id: 'std-001', nama: 'Fajar Pratama' };
+
+    setSubjects(prevSubjects => {
+      const updated = prevSubjects.map(sub => {
+        // Only sync grades and CP for actual subjects, not materials
+        if (sub.isMateri) {
+          return sub;
+        }
+
+        // Find tasks for this subject
+        const subjectTasks = tasks.filter(task => {
+          const subjectMatch = task.subject.toLowerCase() === sub.name.toLowerCase();
+          return subjectMatch;
+        });
+
+        // Get student's task submissions from the updatedSubmissions
+        const studentSubmissions = updatedSubmissions.filter(s_sub => 
+          s_sub.studentId === targetStudent.id || s_sub.studentName.toLowerCase() === studentNameTarget.toLowerCase()
+        );
+
+        // Calculate task grades and average
+        const taskGrades = subjectTasks.map(task => {
+          const submission = studentSubmissions.find(s => s.taskId === task.id);
+          const grade = submission?.finalGrade ?? submission?.grade;
+          return grade;
+        });
+        const validGrades = taskGrades.filter(g => g !== null && g !== undefined) as number[];
+        const nilaiHarian = validGrades.length > 0 
+          ? Math.round(validGrades.reduce((sum, g) => sum + g, 0) / validGrades.length)
+          : null;
+
+        // UTS & UAS (remedial UTS/UAS or fallback to default 85/88)
+        let completedExams: any = {};
+        try {
+          const savedCompletedExams = localStorage.getItem('completedExams');
+          completedExams = savedCompletedExams ? JSON.parse(savedCompletedExams) : {};
+        } catch (e) {}
+        
+        const utsExams = daftarUjian.filter(ex => ex.jenisUjian === 'UTS' || ex.jenisUjian === 'Remedial UTS');
+        const uasExams = daftarUjian.filter(ex => ex.jenisUjian === 'UAS' || ex.jenisUjian === 'Remedial UAS');
+        
+        const utsScores = utsExams.map(ex => completedExams[ex.id]?.score).filter(s => s !== undefined) as number[];
+        const uasScores = uasExams.map(ex => completedExams[ex.id]?.score).filter(s => s !== undefined) as number[];
+        
+        const nilaiUTS = utsScores.length > 0 ? Math.max(...utsScores) : 85;
+        const nilaiUAS = uasScores.length > 0 ? Math.max(...uasScores) : 88;
+
+        // Keaktifan
+        const studentAttendance = attendanceRecords.filter(r => r.studentId === targetStudent.id);
+        const totalMeetings = meetings.length;
+        const hadirCount = studentAttendance.filter(r => r.status === 'Hadir').length;
+        const izinCount = studentAttendance.filter(r => r.status === 'Izin').length;
+        const sakitCount = studentAttendance.filter(r => r.status === 'Sakit').length;
+        const keaktifan = totalMeetings > 0 
+          ? Math.round(((hadirCount + izinCount * 0.75 + sakitCount * 0.5) / totalMeetings) * 100)
+          : 88;
+
+        // Nilai Akhir
+        const components = [nilaiHarian, nilaiUTS, nilaiUAS, keaktifan].filter(n => n !== null) as number[];
+        const finalGradeValue = components.length > 0 
+          ? Math.round(components.reduce((a, b) => a + b, 0) / components.length)
+          : sub.grade;
+
+        const finalStatus = finalGradeValue >= (sub.kkm || 75) ? 'Lulus' : 'Perlu Perbaikan';
+
+        // Integrate Capaian Pembelajaran (CP) integration
+        let finalCapaianUtama = sub.capaianUtama;
+        
+        // Versioning: Unpublished (isDraft !== false) reports use latest CP.
+        // Published (isDraft === false) reports retain historical CP.
+        if (sub.isDraft !== false) {
+          try {
+            const cachedCps = localStorage.getItem('lulus_master_cp');
+            if (cachedCps) {
+              const masterCps = JSON.parse(cachedCps);
+              const studentProgram = targetStudent.program || 'Paket C';
+              const studentKelas = targetStudent.kelas || 'Kelas X';
+
+              // Helper to map Kelas to Fase
+              const getFaseFromKelasAndProgram = (pStr: string, kStr: string): string => {
+                const p = (pStr || '').toUpperCase();
+                const k = (kStr || '').toUpperCase();
+                if (p.includes('PAKET A')) {
+                  if (k.includes('1') || k.includes('2') || k.includes('I') || k.includes('II')) return 'A';
+                  if (k.includes('3') || k.includes('4') || k.includes('III') || k.includes('IV')) return 'B';
+                  return 'C';
+                }
+                if (p.includes('PAKET B')) {
+                  return 'D';
+                }
+                if (p.includes('PAKET C')) {
+                  if (k.includes('10') || k.includes('X')) return 'E';
+                  return 'F';
+                }
+                return 'E';
+              };
+
+              const studentFase = getFaseFromKelasAndProgram(studentProgram, studentKelas);
+
+              // Find match in masterCps
+              const matchedCp = masterCps.find((cp: any) => 
+                (sub.cpId && cp.id === sub.cpId) || (
+                  cp.isActive &&
+                  (cp.program || '').toLowerCase() === (studentProgram || '').toLowerCase() &&
+                  (cp.fase || '').toUpperCase() === (studentFase || '').toUpperCase() &&
+                  ((cp.subject || '').toLowerCase() === (sub.name || '').toLowerCase() ||
+                   (sub.name || '').toLowerCase().includes((cp.subject || '').toLowerCase()) ||
+                   (cp.subject || '').toLowerCase().includes((sub.name || '').toLowerCase()))
+                )
+              );
+
+              if (matchedCp) {
+                const cpDesc = matchedCp.deskripsi || matchedCp.deskripsiCP || '';
+                // Clean standard starters
+                let cleanDesc = cpDesc.trim();
+                const prefixes = [
+                  'peserta didik mampu ',
+                  'peserta didik ',
+                  'siswa mampu ',
+                  'siswa '
+                ];
+                for (const prefix of prefixes) {
+                  if (cleanDesc.toLowerCase().startsWith(prefix)) {
+                    cleanDesc = cleanDesc.substring(prefix.length).trim();
+                    break;
+                  }
+                }
+                // Decapitalize first letter of cleanDesc for integration
+                if (cleanDesc.length > 0) {
+                  cleanDesc = cleanDesc.charAt(0).toLowerCase() + cleanDesc.slice(1);
+                }
+
+                const kkmVal = sub.kkm || 75;
+                if (finalGradeValue >= 85) {
+                  finalCapaianUtama = `Sangat baik dalam ${cleanDesc}`;
+                } else if (finalGradeValue >= kkmVal) {
+                  finalCapaianUtama = `Baik/berhasil dalam ${cleanDesc}`;
+                } else {
+                  finalCapaianUtama = `Memahami konsep dasar ${sub.name}, namun perlu meningkatkan kemampuan dalam ${cleanDesc}`;
+                }
+              } else {
+                // Default fallback if no CP matched
+                const kkmVal = sub.kkm || 75;
+                if (finalGradeValue >= 85) {
+                  finalCapaianUtama = `Sangat baik dalam memahami materi dan menerapkan kompetensi dasar ${sub.name}`;
+                } else if (finalGradeValue >= kkmVal) {
+                  finalCapaianUtama = `Berhasil menunjukkan pemahaman kompetensi dasar ${sub.name} dengan baik`;
+                } else {
+                  finalCapaianUtama = `Memahami beberapa konsep dasar ${sub.name}, namun perlu bimbingan lebih lanjut untuk meningkatkan kompetensi utama`;
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error fetching master CP for e-Rapor sync:', err);
+          }
+        }
+
+        return {
+          ...sub,
+          grade: finalGradeValue,
+          status: finalStatus,
+          capaianUtama: finalCapaianUtama
+        };
+      });
+
+      localStorage.setItem('lulus_subjects', JSON.stringify(updated));
+      return updated;
+    });
+  };
+  
+
+  // Kelola Tugas States
+  const [tugasSubView, setTugasSubView] = useState<'list' | 'add' | 'edit' | 'submissions' | 'view_submission' | 'grading'>('list');
+  const [selectedTaskForEdit, setSelectedTaskForEdit] = useState<Task | null>(null);
+  const [selectedTaskForSubmissions, setSelectedTaskForSubmissions] = useState<Task | null>(null);
+  const [showDeleteTugasConfirm, setShowDeleteTugasConfirm] = useState<Task | null>(null);
+  const [selectedStudentForView, setSelectedStudentForView] = useState<any | null>(null);
+  const [selectedSubmissionForView, setSelectedSubmissionForView] = useState<any | null>(null);
+
+  // CBT States
+  const [cbtActiveTab, setCbtActiveTab] = useState<'bankSoal' | 'importSoal' | 'daftarUjian' | 'hasilUjian'>('bankSoal');
+  
+  // CBT Sub Views
+  const [cbtSubView, setCbtSubView] = useState<'list' | 'addSoal' | 'editSoal' | 'viewSoal' | 'addUjian' | 'editUjian' | 'viewUjian' | 'kelolaSoalUjian' | 'viewUjianHasil'>('list');
+  const [isCbtLoading, setIsCbtLoading] = useState(false);
+  
+  // Bank Soal dari backend
+  const [bankSoal, setBankSoal] = useState<any[]>([]);
+  const [isBankSoalLoading, setIsBankSoalLoading] = useState(false);
+  
+  // Daftar Ujian dari backend
+  const [daftarUjian, setDaftarUjian] = useState<any[]>([]);
+  const [isDaftarUjianLoading, setIsDaftarUjianLoading] = useState(false);
+
+  const [selectedSoal, setSelectedSoal] = useState<any | null>(null);
+  const [selectedUjian, setSelectedUjian] = useState<any | null>(null);
+  
+  // Import Soal States
+  const [importFileType] = useState<'pdf'>('pdf');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importMateriId, setImportMateriId] = useState('');
+  const [importSubject, setImportSubject] = useState('Bahasa Indonesia');
+  const [importFormat, setImportFormat] = useState<'pilihan_ganda' | 'essay' | 'campuran'>('campuran');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractedQuestions, setExtractedQuestions] = useState<any[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  
+  // Form Soal States
+  const [formSoal, setFormSoal] = useState({
+    judul: '',
+    materiId: '',
+    mataPelajaran: 'Bahasa Indonesia',
+    program: 'Paket C',
+    kelas: '',
+    bab: '',
+    tingkatKesulitan: 'Sedang',
+    jenisSoal: 'Pilihan Ganda',
+    pertanyaan: '',
+    pilihanJawaban: ['', '', '', ''],
+    jawabanBenar: '',
+    pembahasan: '',
+    bobot: '10',
+    lampiranGambar: '',
+    lampiranAudio: ''
+  });
+  
+  // Form Ujian States
+  const [formUjian, setFormUjian] = useState({
+    namaUjian: '',
+    rombelId: '',
+    mataPelajaran: '',
+    program: '',
+    fase: '',
+    kelas: '',
+    sistemBelajar: '',
+    semester: '',
+    tahunAjaran: '',
+    jenisUjian: 'Ulangan Harian',
+    durasi: '60',
+    nilaiMinimum: '70',
+    acakSoal: false,
+    acakJawaban: false,
+    tampilkanNilai: true,
+    tanggalMulai: '',
+    tanggalSelesai: '',
+    soalIds: [] as string[]
+  });
+  
+  // Supported Subjects for CBT (derived dynamically from master subjects, excluding materials)
+  const subjectsList = (subjects && subjects.length > 0)
+    ? Array.from(new Set(subjects.filter(s => s.status !== 'Tidak Aktif' && !s.isMateri).map(s => s.name)))
+    : ['Bahasa Indonesia', 'Matematika Kesetaraan', 'Ilmu Pengetahuan Alam (IPA)', 'Pendidikan Pancasila (PPKn)', 'Sejarah Indonesia', 'Bahasa Inggris'];
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDaftarUjian = async () => {
+      try {
+        setIsDaftarUjianLoading(true);
+
+        const data = await api.getGuruUjianCBT();
+
+        if (!active) return;
+
+        const jenisDisplayMap: Record<string, string> = {
+          LATIHAN: 'Latihan',
+          ULANGAN_HARIAN: 'Ulangan Harian',
+          UTS: 'UTS',
+          REMEDIAL_UTS: 'Remedial UTS',
+          UAS: 'UAS',
+          REMEDIAL_UAS: 'Remedial UAS',
+          UJIAN_AKHIR: 'Ujian Akhir',
+          TRY_OUT: 'Try Out'
+        };
+
+        const statusDisplayMap: Record<string, string> = {
+          DRAFT: 'Draft',
+          TERJADWAL: 'Terjadwal',
+          AKTIF: 'Sedang Berlangsung',
+          SELESAI: 'Selesai',
+          DIBATALKAN: 'Dibatalkan'
+        };
+
+        const mapped = (Array.isArray(data) ? data : []).map(
+          (ujian: any) => ({
+            id: String(ujian.id),
+            namaUjian: ujian.nama_ujian || '',
+            mataPelajaran: ujian.mata_pelajaran_nama || '',
+            mataPelajaranId: String(ujian.mata_pelajaran || ''),
+            program: ujian.program || '',
+            fase: ujian.fase || '',
+            kelas: ujian.rombel_nama || '',
+            rombelId: String(ujian.rombel || ''),
+            sistemBelajar: ujian.sistem_belajar || '',
+            semester: ujian.semester || '',
+            tahunAjaran: ujian.tahun_ajaran || '',
+            jenisUjian:
+              jenisDisplayMap[ujian.jenis_ujian] ||
+              ujian.jenis_ujian ||
+              '',
+            jumlahSoal: ujian.jumlah_soal || 0,
+            durasi: ujian.durasi_menit || 0,
+            tanggalMulai: ujian.tanggal_mulai || '',
+            tanggalSelesai: ujian.tanggal_selesai || '',
+            status:
+              statusDisplayMap[ujian.status] ||
+              ujian.status ||
+              '',
+            jumlahPeserta: 0,
+            sudahMengerjakan: 0,
+            belumMengerjakan: 0,
+            soalIds: (ujian.soal || []).map(String),
+            nilaiRataRata: 0,
+            nilaiTertinggi: 0,
+            nilaiTerendah: 0,
+            nilaiMinimum: ujian.nilai_minimum || 0,
+            acakSoal: Boolean(ujian.acak_soal),
+            acakJawaban: Boolean(ujian.acak_jawaban),
+            tampilkanNilai: Boolean(ujian.tampilkan_nilai)
+          })
+        );
+
+        setDaftarUjian(mapped);
+      } catch (error: any) {
+        if (!active) return;
+
+        console.error('Gagal memuat Daftar Ujian CBT:', error);
+
+        showModal(
+          'Daftar Ujian Tidak Dapat Dimuat',
+          error?.message || 'Data ujian belum dapat diambil dari server.',
+          'warning'
+        );
+
+        setDaftarUjian([]);
+      } finally {
+        if (active) {
+          setIsDaftarUjianLoading(false);
+        }
+      }
+    };
+
+    loadDaftarUjian();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+
+  useEffect(() => {
+    let active = true;
+
+    const loadBankSoal = async () => {
+      setIsBankSoalLoading(true);
+
+      try {
+        const data = await api.getGuruBankSoal();
+
+        if (!active) return;
+
+        const mapped = (Array.isArray(data) ? data : []).map((soal: any) => ({
+          id: soal.id,
+          materi: soal.materi,
+          materiJudul: soal.materi_judul || '',
+          mataPelajaran: soal.mata_pelajaran_nama || '',
+          mataPelajaranId: soal.mata_pelajaran,
+          program: soal.program || '',
+          kelas: soal.rombel_nama || '',
+          rombelId: soal.rombel,
+          kompetensi: soal.kompetensi,
+          kompetensiNama: soal.kompetensi_nama || '',
+          judul: soal.judul,
+          jenisSoal:
+            soal.jenis_soal === 'PILIHAN_GANDA'
+              ? 'Pilihan Ganda'
+              : 'Essay',
+          pertanyaan: soal.pertanyaan,
+          pilihanJawaban: soal.pilihan_jawaban || [],
+          jawabanBenar: soal.jawaban_benar || '',
+          pembahasan: soal.pembahasan || '',
+          tingkatKesulitan:
+            soal.tingkat_kesulitan === 'MUDAH'
+              ? 'Mudah'
+              : soal.tingkat_kesulitan === 'SULIT'
+                ? 'Sulit'
+                : 'Sedang',
+          bobot: soal.bobot,
+          status: soal.status === 'AKTIF' ? 'Aktif' : 'Nonaktif',
+          jumlahDigunakan: soal.jumlah_digunakan || 0,
+          pembuat: soal.guru_nama || '',
+          tanggalDibuat: soal.created_at
+            ? new Date(soal.created_at).toLocaleDateString('id-ID')
+            : '-',
+        }));
+
+        setBankSoal(mapped);
+      } catch (error: any) {
+        if (!active) return;
+
+        showModal(
+          'Gagal Memuat Bank Soal',
+          error?.message || 'Data Bank Soal tidak dapat dimuat.',
+          'warning'
+        );
+      } finally {
+        if (active) {
+          setIsBankSoalLoading(false);
+        }
+      }
+    };
+
+    loadBankSoal();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Save nilai records to localStorage
+  useEffect(() => {
+    localStorage.setItem('lulus_nilai_records', JSON.stringify(savedNilaiRecords));
+  }, [savedNilaiRecords]);
+
+
+  // Form Tugas States
+  const [formTugasTitle, setFormTugasTitle] = useState('');
+  const [formTugasMateriId, setFormTugasMateriId] = useState('');
+  const [formTugasMateriJudul, setFormTugasMateriJudul] = useState('');
+  const [formTugasSubject, setFormTugasSubject] = useState('');
+  const [formTugasSubjectId, setFormTugasSubjectId] = useState('');
+  const [formTugasRombelId, setFormTugasRombelId] = useState('');
+  const [formTugasCompetencyId, setFormTugasCompetencyId] = useState('');
+  const [formTugasProgram, setFormTugasProgram] = useState('');
+  const [formTugasClass, setFormTugasClass] = useState('');
+  const [formTugasSemester, setFormTugasSemester] = useState('Ganjil');
+  const [formTugasTahunAjaran, setFormTugasTahunAjaran] = useState(activeAcademicYear?.nama || '2026/2027');
+  const [formTugasPertemuan, setFormTugasPertemuan] = useState('1');
+  const [formTugasDescription, setFormTugasDescription] = useState('');
+  const [formTugasLampiran, setFormTugasLampiran] = useState('');
+  const [formTugasLampiranFile, setFormTugasLampiranFile] = useState<File | null>(null);
+  const [formTugasVideoUrl, setFormTugasVideoUrl] = useState('');
+  const [formTugasStartDate, setFormTugasStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [formTugasDueDate, setFormTugasDueDate] = useState('');
+  const [formTugasMaxGrade, setFormTugasMaxGrade] = useState('100');
+  const [formTugasBobot, setFormTugasBobot] = useState('10');
+  const [formTugasStatus, setFormTugasStatus] = useState<'Draft' | 'Dipublikasikan' | 'Ditutup'>('Dipublikasikan');
+
+  // Search & Filter States for Kelola Materi
+  const [materiSearch, setMateriSearch] = useState('');
+  const [materiFilterSubject, setMateriFilterSubject] = useState('all');
+  const [materiFilterProgram, setMateriFilterProgram] = useState('all');
+  const [materiFilterClass, setMateriFilterClass] = useState('all');
+  const [materiFilterStatus, setMateriFilterStatus] = useState('all');
+
+  // Search & Filter States for Kelola Tugas
+  const [tugasSearch, setTugasSearch] = useState('');
+
+  // Dedicated form states for Materi
+  const [formMateriTitle, setFormMateriTitle] = useState('');
+  const [formMateriSubject, setFormMateriSubject] = useState('Bahasa Indonesia');
+  const [formMateriSubjectId, setFormMateriSubjectId] = useState('');
+  const [formMateriProgram, setFormMateriProgram] = useState('Paket C');
+  const [formMateriClass, setFormMateriClass] = useState('Kelas X - Paket C');
+  const [formMateriRombelId, setFormMateriRombelId] = useState('');
+  const [formMateriCompetencyId, setFormMateriCompetencyId] = useState('');
+  const [formMateriPertemuan, setFormMateriPertemuan] = useState('1');
+  const [formMateriTanggalPublikasi, setFormMateriTanggalPublikasi] = useState('');
+  const [formMateriIsDraft, setFormMateriIsDraft] = useState(false);
+  const [formMateriVideoUrl, setFormMateriVideoUrl] = useState('');
+  const [formMateriContent, setFormMateriContent] = useState('');
+  const [formMateriFile, setFormMateriFile] = useState<File | null>(null);
+  const [formMateriAttachment, setFormMateriAttachment] = useState<File | null>(null);
+  const [absensiTab, setAbsensiTab] = useState<'pertemuan' | 'isi' | 'verifikasi' | 'rekap'>('pertemuan');
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+  const [agendaStudents, setAgendaStudents] = useState<any[]>([]);
+  const [agendaStudentsLoading, setAgendaStudentsLoading] =
+    useState(false);
+
+  // Meeting form fields
+  const [meetDate, setMeetDate] = useState<string>('');
+  const [meetTime, setMeetTime] = useState<string>('09:00');
+  const [meetSubject, setMeetSubject] = useState<string>('Bahasa Indonesia');
+  const [meetClass, setMeetClass] = useState<string>('Kelas X - Paket C');
+  const [meetMateri, setMeetMateri] = useState<string>('');
+
+  // Editing meeting fields
+  const [editingMeetId, setEditingMeetId] = useState<string | null>(null);
+
+  // Fill attendance fields
+  const [selectedMeetId, setSelectedMeetId] = useState<string>('');
+  const [attendanceStatuses, setAttendanceStatuses] = useState<Record<string, 'Hadir' | 'Izin' | 'Sakit' | 'Alfa'>>({});
+  const [attendanceNotes, setAttendanceNotes] = useState<Record<string, string>>({});
+
+  // Leave Request verification
+  const [verifyingLeaveId, setVerifyingLeaveId] = useState<string | null>(null);
+  const [verificationNotes, setVerificationNotes] = useState<string>('');
+
+  // Filters for Rekap
+  const [rekapFilterProgram, setRekapFilterProgram] = useState<string>('all');
+  const [rekapFilterClass, setRekapFilterClass] = useState<string>('all');
+  const [rekapFilterSubject, setRekapFilterSubject] = useState<string>('all');
+  const [rekapFilterTeacher, setRekapFilterTeacher] = useState<string>('all');
+  const [rekapFilterYear, setRekapFilterYear] = useState<string>('all');
+  const [rekapFilterSemester, setRekapFilterSemester] = useState<string>('all');
+
+  // Agenda Wajib dimuat dari Django API.
+  // Kehadiran dan izin akan disambungkan pada tahap berikutnya.
+  useEffect(() => {
+    let active = true;
+
+    const loadGuruAgendaWajib = async () => {
+      try {
+        const agendaData = await api.getGuruAgendaWajib();
+
+        if (!active) return;
+
+        const mappedMeetings = (
+          Array.isArray(agendaData) ? agendaData : []
+        ).map((item: any) => {
+          const waktuMulai = String(
+            item.waktu_mulai || ''
+          ).slice(0, 5);
+
+          const waktuSelesai = String(
+            item.waktu_selesai || ''
+          ).slice(0, 5);
+
+          return {
+            id: String(item.id),
+            tanggal: item.tanggal || '',
+            waktu: waktuSelesai
+              ? `${waktuMulai} - ${waktuSelesai}`
+              : waktuMulai,
+            waktuMulai,
+            waktuSelesai,
+            mataPelajaran:
+              item.mata_pelajaran_nama || '',
+            mataPelajaranId:
+              String(item.mata_pelajaran || ''),
+            kelas: item.rombel_nama || '',
+            rombelId: String(item.rombel || ''),
+            tahunAjaranId:
+              String(item.tahun_ajaran || ''),
+            tahunAjaran:
+              item.tahun_ajaran_nama || '',
+            materiPokok: item.nama_agenda || '',
+            jenisAgenda: item.jenis_agenda || 'LAINNYA',
+            lokasiAtauLink:
+              item.lokasi_atau_link || '',
+            keterangan: item.keterangan || '',
+            status: item.status || 'TERJADWAL',
+            jumlahHadir: Number(item.jumlah_hadir || 0),
+            jumlahIzin: Number(item.jumlah_izin || 0),
+            jumlahSakit: Number(item.jumlah_sakit || 0),
+            jumlahAlfa: Number(item.jumlah_alfa || 0),
+          };
+        });
+
+        setMeetings(mappedMeetings);
+
+        setSelectedMeetId(currentId => {
+          if (
+            currentId &&
+            mappedMeetings.some(
+              (item: any) => item.id === currentId
+            )
+          ) {
+            return currentId;
+          }
+
+          return mappedMeetings[0]?.id || '';
+        });
+      } catch (error: any) {
+        if (!active) return;
+
+        console.error(
+          'Gagal memuat Agenda Wajib guru:',
+          error
+        );
+
+        setMeetings([]);
+
+        showModal(
+          'Agenda Tidak Dapat Dimuat',
+          'Data Agenda Wajib belum dapat diambil dari server.',
+          'warning'
+        );
+      }
+    };
+
+    if (currentView === 'absensi') {
+      loadGuruAgendaWajib();
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [currentView]);
+
+  // Memuat siswa sesuai rombel Agenda Wajib yang dipilih.
+  useEffect(() => {
+    let active = true;
+
+    const loadAgendaStudents = async () => {
+      if (!selectedMeetId) {
+        setAgendaStudents([]);
+        setAttendanceStatuses({});
+        setAttendanceNotes({});
+        return;
+      }
+
+      setAgendaStudentsLoading(true);
+
+      try {
+        const response =
+          await api.getGuruAgendaStudents(selectedMeetId);
+
+        if (!active) return;
+
+        const studentData = Array.isArray(response?.students)
+          ? response.students
+          : [];
+
+        const mappedStudents = studentData.map(
+          (item: any) => ({
+            id: String(item.user_id),
+            userId: Number(item.user_id),
+            registrationId:
+              String(item.registration_id || ''),
+            nama: item.nama || item.username || 'Siswa',
+            username: item.username || '',
+            nisn: item.nisn || '',
+            kelas: item.kelas || '',
+            kehadiran: item.kehadiran || null,
+          })
+        );
+
+        const initialStatuses: Record<
+          string,
+          'Hadir' | 'Izin' | 'Sakit' | 'Alfa'
+        > = {};
+
+        const initialNotes: Record<string, string> = {};
+
+        mappedStudents.forEach((student: any) => {
+          const backendStatus =
+            student.kehadiran?.status || 'HADIR';
+
+          const statusMap: Record<
+            string,
+            'Hadir' | 'Izin' | 'Sakit' | 'Alfa'
+          > = {
+            HADIR: 'Hadir',
+            IZIN: 'Izin',
+            SAKIT: 'Sakit',
+            ALFA: 'Alfa',
+          };
+
+          initialStatuses[student.id] =
+            statusMap[backendStatus] || 'Hadir';
+
+          initialNotes[student.id] =
+            student.kehadiran?.catatan_guru || '';
+        });
+
+        setAgendaStudents(mappedStudents);
+        setAttendanceStatuses(initialStatuses);
+        setAttendanceNotes(initialNotes);
+      } catch (error: any) {
+        if (!active) return;
+
+        console.error(
+          'Gagal memuat siswa Agenda Wajib:',
+          error
+        );
+
+        setAgendaStudents([]);
+        setAttendanceStatuses({});
+        setAttendanceNotes({});
+
+        showModal(
+          'Daftar Siswa Tidak Dapat Dimuat',
+          'Siswa pada rombel Agenda Wajib belum dapat diambil dari server.',
+          'warning'
+        );
+      } finally {
+        if (active) {
+          setAgendaStudentsLoading(false);
+        }
+      }
+    };
+
+    if (
+      currentView === 'absensi' &&
+      absensiTab === 'isi'
+    ) {
+      loadAgendaStudents();
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [currentView, absensiTab, selectedMeetId]);
+
+  // Sementara: kehadiran dan izin lama tetap dibaca sampai
+  // endpoint masing-masing disambungkan ke tampilan.
+  useEffect(() => {
+    try {
+      const savedAttendance = localStorage.getItem(
+        'lulus_student_attendance'
+      );
+      const savedLeave = localStorage.getItem(
+        'lulus_leave_requests'
+      );
+
+      setAttendanceRecords(
+        savedAttendance ? JSON.parse(savedAttendance) : []
+      );
+      setLeaveRequests(
+        savedLeave ? JSON.parse(savedLeave) : []
+      );
+    } catch {
+      setAttendanceRecords([]);
+      setLeaveRequests([]);
+    }
+  }, [currentView]);
+
+  useEffect(() => {
+    const firstMapel = guruMateriOptions.mapel[0];
+    const firstRombel = guruMateriOptions.rombel[0];
+
+    if (firstMapel && !formMateriSubjectId) {
+      setFormMateriSubjectId(firstMapel.id);
+      setFormMateriSubject(firstMapel.nama || '');
+      setFormMateriProgram(firstMapel.paket || '');
+    }
+
+    if (firstRombel && !formMateriRombelId) {
+      setFormMateriRombelId(firstRombel.id);
+      setFormMateriClass(firstRombel.nama_rombel || '');
+      setFormMateriProgram(firstRombel.paket || '');
+    }
+  }, [guruMateriOptions]);
+
+  const filteredMateriCompetencies = guruMateriOptions.kompetensi.filter(
+    (item: any) => item.subject === formMateriSubjectId
+  );
+
+
+  const filteredTugasCompetencies = guruMateriOptions.kompetensi.filter(
+    (item: any) => item.subject === formTugasSubjectId
+  );
+
+  useEffect(() => {
+    const firstMapel = guruMateriOptions.mapel[0];
+    const firstRombel = guruMateriOptions.rombel[0];
+
+    if (firstMapel && !formTugasSubjectId) {
+      setFormTugasSubjectId(firstMapel.id);
+      setFormTugasSubject(firstMapel.nama || '');
+      setFormTugasProgram(firstMapel.paket || '');
+    }
+
+    if (firstRombel && !formTugasRombelId) {
+      setFormTugasRombelId(firstRombel.id);
+      setFormTugasClass(firstRombel.nama_rombel || '');
+      setFormTugasProgram(firstRombel.paket || '');
+      setFormTugasSemester(firstRombel.semester || '');
+      setFormTugasTahunAjaran(
+        firstRombel.tahun_ajaran || activeAcademicYear?.nama || ''
+      );
+    }
+  }, [guruMateriOptions]);
+
+  useEffect(() => {
+    const competencyStillValid = filteredTugasCompetencies.some(
+      (item: any) => item.id === formTugasCompetencyId
+    );
+
+    if (!competencyStillValid) {
+      setFormTugasCompetencyId(
+        filteredTugasCompetencies[0]?.id || ''
+      );
+    }
+  }, [formTugasSubjectId, guruMateriOptions.kompetensi]);
+
+  useEffect(() => {
+    const competencyStillValid = filteredMateriCompetencies.some(
+      (item: any) => item.id === formMateriCompetencyId
+    );
+
+    if (!competencyStillValid) {
+      setFormMateriCompetencyId(
+        filteredMateriCompetencies[0]?.id || ''
+      );
+    }
+  }, [formMateriSubjectId, guruMateriOptions.kompetensi]);
+
+  // Form Fields
+  const [formData, setFormData] = useState({
+    materiTitle: '', materiSubject: 'Bahasa Indonesia', materiFile: 'Modul_Ajar_X.pdf', materiVideoUrl: '', materiCompetencyId: '', materiContent: '',
+    tugasTitle: '', tugasSubject: 'Bahasa Indonesia', tugasDueDate: '28 Juli 2026', tugasCompetencyId: '',
+    examTitle: '', examSubject: 'Bahasa Indonesia', examQuestions: '15', examCompetencyId: '',
+    announcementTitle: '', announcementCategory: 'PENTING', announcementDesc: ''
+  });
+
+  // Action Handlers
+  const handleCreateMateri = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const title = (formMateriTitle || formData.materiTitle).trim();
+    const content = formMateriContent || formData.materiContent;
+    const videoUrl = formMateriVideoUrl || formData.materiVideoUrl;
+    const isDraft = formMateriIsDraft;
+
+    if (!title) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Judul materi tidak boleh kosong.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!formMateriSubjectId) {
+      showModal(
+        'Mata Pelajaran Belum Dipilih',
+        'Pilih mata pelajaran yang diampu sebelum menyimpan materi.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!formMateriRombelId) {
+      showModal(
+        'Rombel Belum Dipilih',
+        'Pilih rombel yang diampu sebelum menyimpan materi.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!formMateriCompetencyId) {
+      showModal(
+        'Kompetensi Belum Dipilih',
+        'Pilih kompetensi/SKK yang sesuai dengan materi.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setGuruMateriSaving(true);
+
+      const tanggalPublikasi =
+        formMateriTanggalPublikasi ||
+        new Date().toISOString().split('T')[0];
+
+      const materiPayload = new FormData();
+
+      materiPayload.append(
+        'mata_pelajaran',
+        formMateriSubjectId
+      );
+      materiPayload.append(
+        'kompetensi',
+        formMateriCompetencyId
+      );
+      materiPayload.append(
+        'rombel',
+        formMateriRombelId
+      );
+      materiPayload.append('judul', title);
+      materiPayload.append('isi', content || '');
+      materiPayload.append(
+        'nomor_pertemuan',
+        String(Number(formMateriPertemuan) || 1)
+      );
+      materiPayload.append('video_url', videoUrl || '');
+      materiPayload.append(
+        'tanggal_publikasi',
+        tanggalPublikasi
+      );
+      materiPayload.append(
+        'status',
+        isDraft ? 'DRAFT' : 'PUBLISHED'
+      );
+
+      if (formMateriFile) {
+        materiPayload.append(
+          'file_modul',
+          formMateriFile
+        );
+      }
+
+      if (formMateriAttachment) {
+        materiPayload.append(
+          'file_lampiran',
+          formMateriAttachment
+        );
+      }
+
+      const created = await api.createGuruMateri(
+        materiPayload
+      );
+
+      setGuruMateri(prev => [created, ...prev]);
+
+      setActivities(prev => [
+        {
+          id: Date.now(),
+          type: 'materi',
+          text: `Modul "${title}" berhasil disimpan (${isDraft ? 'Draft' : 'Dipublikasikan'})`,
+          time: 'Baru saja'
+        },
+        ...prev
+      ]);
+
+      setMateriSubView('list');
+      setShowUploadModal(false);
+
+      showModal(
+        isDraft
+          ? 'Draft Berhasil Disimpan'
+          : 'Materi Berhasil Diunggah',
+        isDraft
+          ? `Modul ${title} disimpan sebagai draft.`
+          : `Modul ${title} siap dibaca siswa di rombel ${formMateriClass}.`,
+        'success'
+      );
+
+      setFormMateriTitle('');
+      setFormMateriVideoUrl('');
+      setFormMateriContent('');
+      setFormMateriFile(null);
+      setFormMateriAttachment(null);
+      setFormMateriPertemuan('1');
+      setFormMateriTanggalPublikasi('');
+      setFormMateriIsDraft(false);
+
+      setFormData(prev => ({
+        ...prev,
+        materiTitle: '',
+        materiContent: '',
+        materiVideoUrl: ''
+      }));
+    } catch (error: any) {
+      console.error('Gagal menyimpan materi:', error);
+
+      showModal(
+        'Materi Gagal Disimpan',
+        'Materi belum berhasil disimpan ke server. Periksa kembali data mapel, rombel, dan kompetensi.',
+        'warning'
+      );
+    } finally {
+      setGuruMateriSaving(false);
+    }
+  };
+
+  const handleDuplicateMateri = async (sub: Subject) => {
+    const source = sub as any;
+
+    const original = guruMateri.find(
+      item => item.id === source.id
+    );
+
+    if (!original) {
+      showModal(
+        'Materi Tidak Ditemukan',
+        'Data materi sumber tidak ditemukan di server.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setGuruMateriSaving(true);
+
+      const duplicated = await api.createGuruMateri({
+        mata_pelajaran: original.mata_pelajaran,
+        kompetensi: original.kompetensi,
+        rombel: original.rombel,
+        judul: `${original.judul} - Salinan`,
+        isi: original.isi || '',
+        nomor_pertemuan: original.nomor_pertemuan || 1,
+        video_url: original.video_url || '',
+        tanggal_publikasi: new Date().toISOString().split('T')[0],
+        status: 'DRAFT'
+      });
+
+      setGuruMateri(prev => [duplicated, ...prev]);
+
+      setActivities(prev => [
+        {
+          id: Date.now(),
+          type: 'materi',
+          text: `Materi "${sub.name}" berhasil diduplikasi sebagai draft`,
+          time: 'Baru saja'
+        },
+        ...prev
+      ]);
+
+      showModal(
+        'Materi Diduplikasi',
+        `Salinan materi "${sub.name}" berhasil dibuat sebagai draft.`,
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal menduplikasi materi:', error);
+
+      showModal(
+        'Materi Gagal Diduplikasi',
+        'Salinan materi belum berhasil dibuat di server.',
+        'warning'
+      );
+    } finally {
+      setGuruMateriSaving(false);
+    }
+  };
+
+  const handleDeleteMateri = async (sub: Subject) => {
+    try {
+      setGuruMateriSaving(true);
+
+      await api.deleteGuruMateri(sub.id);
+
+      setGuruMateri(prev =>
+        prev.filter(item => item.id !== sub.id)
+      );
+
+      setActivities(prev => [
+        {
+          id: Date.now(),
+          type: 'materi',
+          text: `Materi "${sub.name}" berhasil dihapus`,
+          time: 'Baru saja'
+        },
+        ...prev
+      ]);
+
+      setShowDeleteMateriConfirm(null);
+
+      showModal(
+        'Materi Dihapus',
+        `Materi "${sub.name}" berhasil dihapus secara permanen.`,
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal menghapus materi:', error);
+
+      showModal(
+        'Materi Gagal Dihapus',
+        'Materi belum berhasil dihapus dari server.',
+        'warning'
+      );
+    } finally {
+      setGuruMateriSaving(false);
+    }
+  };
+
+  const handleEditMateriSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedMateri) {
+      return;
+    }
+
+    const selected = selectedMateri as any;
+    const title = formMateriTitle.trim();
+
+    if (!title) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Judul materi tidak boleh kosong.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!formMateriSubjectId) {
+      showModal(
+        'Mata Pelajaran Belum Dipilih',
+        'Pilih mata pelajaran sebelum menyimpan perubahan.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!formMateriRombelId) {
+      showModal(
+        'Rombel Belum Dipilih',
+        'Pilih rombel sebelum menyimpan perubahan.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!formMateriCompetencyId) {
+      showModal(
+        'Kompetensi Belum Dipilih',
+        'Pilih kompetensi/SKK sebelum menyimpan perubahan.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setGuruMateriSaving(true);
+
+      const materiPayload = new FormData();
+
+      materiPayload.append(
+        'mata_pelajaran',
+        formMateriSubjectId
+      );
+      materiPayload.append(
+        'kompetensi',
+        formMateriCompetencyId
+      );
+      materiPayload.append(
+        'rombel',
+        formMateriRombelId
+      );
+      materiPayload.append('judul', title);
+      materiPayload.append(
+        'isi',
+        formMateriContent || ''
+      );
+      materiPayload.append(
+        'nomor_pertemuan',
+        String(Number(formMateriPertemuan) || 1)
+      );
+      materiPayload.append(
+        'video_url',
+        formMateriVideoUrl || ''
+      );
+      materiPayload.append(
+        'tanggal_publikasi',
+        formMateriTanggalPublikasi ||
+          new Date().toISOString().split('T')[0]
+      );
+      materiPayload.append(
+        'status',
+        formMateriIsDraft
+          ? 'DRAFT'
+          : 'PUBLISHED'
+      );
+
+      if (formMateriFile) {
+        materiPayload.append(
+          'file_modul',
+          formMateriFile
+        );
+      }
+
+      if (formMateriAttachment) {
+        materiPayload.append(
+          'file_lampiran',
+          formMateriAttachment
+        );
+      }
+
+      const updated = await api.updateGuruMateri(
+        selected.id,
+        materiPayload
+      );
+
+      setGuruMateri(prev =>
+        prev.map(item =>
+          item.id === updated.id
+            ? updated
+            : item
+        )
+      );
+
+      setActivities(prev => [
+        {
+          id: Date.now(),
+          type: 'materi',
+          text: `Materi "${selected.name}" berhasil diperbarui`,
+          time: 'Baru saja'
+        },
+        ...prev
+      ]);
+
+      setMateriSubView('list');
+      setSelectedMateri(null);
+
+      showModal(
+        'Materi Diperbarui',
+        `Materi "${title}" berhasil diperbarui di server.`,
+        'success'
+      );
+
+      setFormMateriTitle('');
+      setFormMateriVideoUrl('');
+      setFormMateriContent('');
+      setFormMateriFile(null);
+      setFormMateriAttachment(null);
+      setFormMateriPertemuan('1');
+      setFormMateriTanggalPublikasi('');
+      setFormMateriIsDraft(false);
+    } catch (error: any) {
+      console.error('Gagal memperbarui materi:', error);
+
+      showModal(
+        'Materi Gagal Diperbarui',
+        'Perubahan belum berhasil disimpan ke server. Periksa kembali data materi.',
+        'warning'
+      );
+    } finally {
+      setGuruMateriSaving(false);
+    }
+  };
+
+  const handleCreateExam = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.examTitle) return;
+    
+    setActivities(prev => [
+      { id: Date.now(), type: 'ujian', text: `Ujian CBT baru "${formData.examTitle}" diaktifkan`, time: 'Baru saja' },
+      ...prev
+    ]);
+    setShowExamModal(false);
+    showModal('CBT Ujian Aktif', `Ujian CBT "${formData.examTitle}" kini dapat diakses siswa.`, 'success');
+    setFormData(prev => ({ ...prev, examTitle: '' }));
+  };
+
+  const handleCreateAnnouncement = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.announcementTitle || !formData.announcementDesc) return;
+    
+    setActivities(prev => [
+      { id: Date.now(), type: 'pengumuman', text: `Mading Baru: "${formData.announcementTitle}" diunggah`, time: 'Baru saja' },
+      ...prev
+    ]);
+    setShowAnnouncementModal(false);
+    showModal('Pengumuman Diterbitkan', `Pengumuman "${formData.announcementTitle}" berhasil diterbitkan di Mading sekolah.`, 'success');
+    setFormData(prev => ({ ...prev, announcementTitle: '', announcementDesc: '' }));
+  };
+
+  const handleGradeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (
+      !selectedSubmissionForView ||
+      !selectedStudentForView ||
+      !selectedTaskForSubmissions ||
+      !inputGrade
+    ) {
+      return;
+    }
+
+    const nilai = Number(inputGrade);
+    const nilaiMaksimum =
+      Number(selectedTaskForSubmissions.maxGrade) || 100;
+
+    if (
+      !Number.isFinite(nilai) ||
+      nilai < 0 ||
+      nilai > nilaiMaksimum
+    ) {
+      showModal(
+        'Nilai Tidak Valid',
+        `Nilai harus berada antara 0 dan ${nilaiMaksimum}.`,
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      const response = await api.submitGrading(
+        selectedSubmissionForView.id,
+        nilai,
+        inputFeedback || ''
+      );
+
+      const updatedSubmission: TaskSubmission = {
+        ...selectedSubmissionForView,
+        status:
+          response?.status === 'REVISION'
+            ? 'Revisi'
+            : 'Sudah Dinilai',
+        grade:
+          response?.nilai !== null &&
+          response?.nilai !== undefined
+            ? Number(response.nilai)
+            : nilai,
+        feedback:
+          response?.feedback_guru ??
+          inputFeedback ??
+          ''
+      };
+
+      setLocalTaskSubmissions(prev =>
+        prev.map(item =>
+          item.id === updatedSubmission.id
+            ? updatedSubmission
+            : item
+        )
+      );
+
+      setActivities(prev => [
+        {
+          id: Date.now(),
+          type: 'nilai',
+          text:
+            `Menilai tugas ${selectedStudentForView.nama} ` +
+            `(${selectedTaskForSubmissions.subject}) ` +
+            `dengan skor ${nilai}`,
+          time: 'Baru saja'
+        },
+        ...prev
+      ]);
+
+      setGradingSubmission(null);
+      setSelectedStudentForView(null);
+      setSelectedSubmissionForView(null);
+      setInputGrade('');
+      setInputFeedback('');
+      setTugasSubView('submissions');
+
+      showModal(
+        'Penilaian Berhasil',
+        `Nilai ${nilai} berhasil disimpan ke database.`,
+        'success'
+      );
+    } catch (error: any) {
+      console.error(
+        'Gagal menyimpan penilaian tugas:',
+        error
+      );
+
+      showModal(
+        'Nilai Gagal Disimpan',
+        error?.message ||
+          'Penilaian tugas belum berhasil disimpan ke server.',
+        'warning'
+      );
+    }
+  };
+
+  const handleRequestRevision = async (
+    e: React.MouseEvent
+  ) => {
+    e.preventDefault();
+
+    if (!selectedSubmissionForView) {
+      return;
+    }
+
+    const feedback =
+      inputFeedback.trim() ||
+      'Butuh perbaikan pada lembar jawaban Anda.';
+
+    try {
+      const response = await api.submitGrading(
+        selectedSubmissionForView.id,
+        selectedSubmissionForView.grade ?? 0,
+        feedback,
+        'REVISION'
+      );
+
+      const updatedSubmission: TaskSubmission = {
+        ...selectedSubmissionForView,
+        status: 'Revisi',
+        grade:
+          response?.nilai !== null &&
+          response?.nilai !== undefined
+            ? Number(response.nilai)
+            : undefined,
+        feedback:
+          response?.feedback_guru ??
+          feedback
+      };
+
+      setLocalTaskSubmissions(prev =>
+        prev.map(item =>
+          item.id === updatedSubmission.id
+            ? updatedSubmission
+            : item
+        )
+      );
+
+      setActivities(prev => [
+        {
+          id: Date.now(),
+          type: 'revisi',
+          text:
+            `Meminta revisi tugas ` +
+            `${selectedStudentForView?.nama || 'siswa'} ` +
+            `(${selectedTaskForSubmissions?.subject || '-'})`,
+          time: 'Baru saja'
+        },
+        ...prev
+      ]);
+
+      setGradingSubmission(null);
+      setSelectedStudentForView(null);
+      setSelectedSubmissionForView(null);
+      setInputGrade('');
+      setInputFeedback('');
+      setTugasSubView('submissions');
+
+      showModal(
+        'Revisi Diminta',
+        'Permintaan revisi berhasil disimpan dan dikirim kepada siswa.',
+        'info'
+      );
+    } catch (error: any) {
+      console.error(
+        'Gagal meminta revisi tugas:',
+        error
+      );
+
+      showModal(
+        'Revisi Gagal Disimpan',
+        error?.message ||
+          'Permintaan revisi belum berhasil disimpan ke server.',
+        'warning'
+      );
+    }
+  };
+
+  const handleGradeSkkSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudentComp) return;
+
+    const updatedList = studentCompetencies.map(sc => {
+      if (sc.id === selectedStudentComp.id) {
+        return {
+          ...sc,
+          status: gradingSkkStatus,
+          nilai: gradingSkkScore ? Number(gradingSkkScore) : null,
+          catatan_guru: gradingSkkFeedback ? `Catatan Guru: "${gradingSkkFeedback}"` : sc.catatan_guru
+        };
+      }
+      return sc;
+    });
+
+    if (setStudentCompetencies) {
+      setStudentCompetencies(updatedList);
+    }
+
+    // Recalculate SKKReport for this student!
+    const studentId = selectedStudentComp.siswa;
+    const studentObj = students.find(s => s.id === studentId);
+    if (studentObj) {
+      const myComps = competencies.filter(c => c.program === studentObj.program);
+      const total_skk = myComps.reduce((sum, c) => sum + c.bobot_skk, 0);
+      const accomplishedSubmissions = updatedList.filter(sc => sc.siswa === studentId && sc.status === 'tercapai');
+      const skk_tercapai = myComps.filter(c => accomplishedSubmissions.some(sc => sc.kompetensi === c.id)).reduce((sum, c) => sum + c.bobot_skk, 0);
+      const persentase = total_skk > 0 ? Math.round((skk_tercapai / total_skk) * 100) : 0;
+
+      const existingReportIndex = skkReports.findIndex(rep => rep.siswa === studentId);
+      let updatedReports = [...skkReports];
+      if (existingReportIndex > -1) {
+        updatedReports[existingReportIndex] = {
+          ...updatedReports[existingReportIndex],
+          total_skk,
+          tercapai: skk_tercapai,
+          persentase
+        };
+      } else {
+        updatedReports.push({
+          id: `REP-${Date.now()}`,
+          siswa: studentId,
+          total_skk,
+          tercapai: skk_tercapai,
+          persentase
+        });
+      }
+
+      if (setSkkReports) {
+        setSkkReports(updatedReports);
+      }
+    }
+
+    setSelectedStudentComp(null);
+    setGradingSkkScore('');
+    setGradingSkkFeedback('');
+    showModal(
+      'Sertifikasi Kompetensi Sukses',
+      'Penilaian untuk siswa berhasil disimpan. Status kompetensi disinkronkan ke e-Portofolio SKK.',
+      'success'
+    );
+  };
+
+  const handleEditProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const nama = String(profileForm.nama || '').trim();
+
+    if (!nama) {
+      showModal(
+        'Nama Belum Diisi',
+        'Nama guru tidak boleh kosong.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      const payload: Record<string, any> = {
+        nama,
+        nip: profileForm.nip || '',
+        username: profileForm.username || '',
+        rekening_type: profileForm.rekeningType || 'Bank',
+        rekening_nomor: profileForm.rekeningNomor || '',
+        rekening_nama: profileForm.rekeningNama || '',
+        tanda_tangan: profileForm.tandaTangan || '',
+        qr_tanda_tangan: profileForm.qrTandaTangan || '',
+        photo: profileForm.photo || ''
+      };
+
+      // Password hanya dikirim jika guru benar-benar mengisi password baru.
+      if (profileForm.password?.trim()) {
+        payload.password = profileForm.password.trim();
+      }
+
+      const data = await api.updateGuruProfile(payload);
+
+      const updatedTeacher: Teacher = {
+        ...loggedInTeacher,
+        id: data.id,
+        nama: data.nama || '',
+        nip: data.nip || '',
+        username: data.username || '',
+        password: '',
+        status: data.status || 'Aktif',
+
+        mapels: Array.isArray(data.mapels) ? data.mapels : [],
+        mapel: Array.isArray(data.mapels)
+          ? (data.mapels[0] || '')
+          : '',
+
+        kelasList: Array.isArray(data.kelas_list)
+          ? data.kelas_list
+          : [],
+        kelas: Array.isArray(data.kelas_list)
+          ? (data.kelas_list[0] || '')
+          : '',
+
+        rekeningType: data.rekening_type || 'Bank',
+        rekeningNomor: data.rekening_nomor || '',
+        rekeningNama: data.rekening_nama || '',
+        tandaTangan: data.tanda_tangan || '',
+        qrTandaTangan: data.qr_tanda_tangan || '',
+        photo: data.photo || '',
+        isWaliKelas: Boolean(data.is_wali_kelas)
+      };
+
+      setGuruProfile(updatedTeacher);
+
+      if (setTeachers) {
+        setTeachers(prev =>
+          prev.map(t =>
+            t.id === updatedTeacher.id ? updatedTeacher : t
+          )
+        );
+      }
+
+      if (setUsername) {
+        setUsername(updatedTeacher.username || updatedTeacher.nama);
+      }
+
+      const cached = localStorage.getItem('user');
+
+      if (cached) {
+        try {
+          const userObj = JSON.parse(cached);
+          userObj.nama_lengkap = updatedTeacher.nama;
+          userObj.username = updatedTeacher.username;
+          userObj.photo = updatedTeacher.photo;
+          localStorage.setItem('user', JSON.stringify(userObj));
+        } catch (error) {
+          console.warn('Cache user tidak dapat diperbarui:', error);
+        }
+      }
+
+      setProfileForm(prev => ({
+        ...prev,
+        password: ''
+      }));
+
+      setShowEditProfileModal(false);
+
+      showModal(
+        'Profil Diperbarui',
+        'Data pribadi Anda berhasil disimpan ke server.',
+        'success'
+      );
+    } catch (error) {
+      console.error('Gagal memperbarui profil guru:', error);
+
+      showModal(
+        'Profil Gagal Disimpan',
+        'Perubahan profil belum berhasil disimpan ke server.',
+        'warning'
+      );
+    }
+  };
+
+  // Perpustakaan Digital Handlers
+  const buildLibraryPayload = () => {
+    const programMap: Record<string, string> = {
+      'Semua': 'SEMUA',
+      'Paket A': 'PAKET_A',
+      'Paket B': 'PAKET_B',
+      'Paket C': 'PAKET_C'
+    };
+
+    const fileValue = formDigitalLibraryBook.file || '';
+    const isLink =
+      fileValue.startsWith('http://') ||
+      fileValue.startsWith('https://');
+
+    return {
+      judul: formDigitalLibraryBook.title || '',
+      penulis: formDigitalLibraryBook.author || '',
+      kategori:
+        formDigitalLibraryBook.category || 'Modul Pembelajaran',
+      mata_pelajaran: formDigitalLibraryBook.subject || 'Umum',
+      program:
+        programMap[formDigitalLibraryBook.program || 'Semua'] ||
+        'SEMUA',
+      kelas: formDigitalLibraryBook.kelas || 'Semua Kelas',
+      deskripsi: formDigitalLibraryBook.description || '',
+      cover_url: formDigitalLibraryBook.cover || '',
+      source_type: isLink ? 'LINK' : 'PDF',
+      file_url: isLink ? '' : fileValue,
+      ebook_url: isLink ? fileValue : ''
+    };
+  };
+
+  const resetLibraryForm = () => {
+    setFormLibraryBook({
+      title: '',
+      description: '',
+      author: '',
+      publisher: '',
+      year: undefined,
+      isbn: '',
+      category: 'Modul Pembelajaran',
+      subject: '',
+      program: 'Semua',
+      kelas: 'Semua Kelas',
+      semester: 'Semua',
+      cover: '',
+      file: '',
+      fileType: 'pdf',
+      keywords: [],
+      status: 'Draft'
+    });
+  };
+
+  const handleCreateLibraryBookSubmit = async (
+    e: React.FormEvent
+  ) => {
+    e.preventDefault();
+
+    if (
+      !formDigitalLibraryBook.title ||
+      !formDigitalLibraryBook.description ||
+      !formDigitalLibraryBook.author
+    ) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Judul, deskripsi, dan penulis tidak boleh kosong.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!formDigitalLibraryBook.file) {
+      showModal(
+        'Sumber Buku Belum Diisi',
+        'Masukkan file PDF atau link ebook.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      await api.createLibraryBook(buildLibraryPayload());
+      await loadLibraryBooks();
+
+      resetLibraryForm();
+      setPerpustakaanSubView('list');
+
+      showModal(
+        'Menunggu Persetujuan',
+        'Buku berhasil dikirim dan menunggu persetujuan admin.',
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Menyimpan',
+        error?.message || 'Buku gagal dikirim ke server.',
+        'warning'
+      );
+    }
+  };
+
+  const handleEditLibraryBookSubmit = async (
+    e: React.FormEvent
+  ) => {
+    e.preventDefault();
+
+    if (!selectedLibraryBook) return;
+
+    try {
+      await api.updateLibraryBook(
+        selectedLibraryBook.id,
+        buildLibraryPayload()
+      );
+
+      await loadLibraryBooks();
+
+      resetLibraryForm();
+      setSelectedLibraryBook(null);
+      setPerpustakaanSubView('list');
+
+      showModal(
+        'Menunggu Persetujuan',
+        'Perubahan buku dikirim kembali untuk persetujuan admin.',
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Memperbarui',
+        error?.message || 'Buku gagal diperbarui.',
+        'warning'
+      );
+    }
+  };
+
+  const handleDeleteLibraryBook = (
+    book: DigitalLibraryBook
+  ) => {
+    setShowDeleteLibraryBookConfirm(null);
+
+    showModal(
+      'Tidak Diizinkan',
+      'Guru tidak dapat menghapus buku permanen. Hubungi admin untuk mengarsipkan atau menghapus buku.',
+      'warning'
+    );
+  };
+
+  const handleViewLibraryBook = async (
+    book: DigitalLibraryBook
+  ) => {
+    try {
+      const updated = await api.viewLibraryBook(book.id);
+      const mapped = mapLibraryBook(updated);
+
+      setSelectedLibraryBook(mapped);
+      setLibraryBooks(prev =>
+        prev.map(item =>
+          item.id === mapped.id ? mapped : item
+        )
+      );
+    } catch {
+      setSelectedLibraryBook(book);
+    }
+
+    setPerpustakaanSubView('view');
+  };
+
+  const handleReadLibraryBook = async (
+    book: DigitalLibraryBook
+  ) => {
+    await handleViewLibraryBook(book);
+    setPerpustakaanSubView('viewer');
+  };
+
+  const handleDownloadLibraryBook = async (
+    book: DigitalLibraryBook
+  ) => {
+    try {
+      const result = await api.downloadLibraryBook(book.id);
+
+      setLibraryBooks(prev =>
+        prev.map(item =>
+          item.id === book.id
+            ? {
+                ...item,
+                downloads: result.downloads_count || item.downloads
+              }
+            : item
+        )
+      );
+
+      if (result.url) {
+        window.open(result.url, '_blank', 'noopener,noreferrer');
+      }
+
+      showModal(
+        'Unduhan Dimulai',
+        'Buku dibuka dari penyimpanan perpustakaan.',
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Membuka',
+        error?.message || 'Buku tidak dapat dibuka.',
+        'warning'
+      );
+    }
+  };
+
+  // CBT Handlers
+  const mapGuruBankSoalResponse = (created: any) => ({
+    id: String(created.id),
+    materi: created.materi,
+    materiId: String(created.materi || ''),
+    materiJudul: created.materi_judul || '',
+    mataPelajaran: created.mata_pelajaran_nama || '',
+    mataPelajaranId: String(created.mata_pelajaran || ''),
+    program: created.program || '',
+    kelas: created.rombel_nama || '',
+    rombelId: String(created.rombel || ''),
+    kompetensi: created.kompetensi,
+    kompetensiNama: created.kompetensi_nama || '',
+    judul: created.judul || '',
+    jenisSoal:
+      created.jenis_soal === 'PILIHAN_GANDA'
+        ? 'Pilihan Ganda'
+        : 'Essay',
+    pertanyaan: created.pertanyaan || '',
+    pilihanJawaban: Array.isArray(created.pilihan_jawaban)
+      ? created.pilihan_jawaban
+      : [],
+    jawabanBenar: created.jawaban_benar || '',
+    pembahasan: created.pembahasan || '',
+    tingkatKesulitan:
+      created.tingkat_kesulitan === 'MUDAH'
+        ? 'Mudah'
+        : created.tingkat_kesulitan === 'SULIT'
+          ? 'Sulit'
+          : 'Sedang',
+    bobot: created.bobot || 10,
+    status: created.status === 'AKTIF' ? 'Aktif' : 'Nonaktif',
+    jumlahDigunakan: created.jumlah_digunakan || 0,
+    pembuat: created.guru_nama || loggedInTeacher.nama,
+    tanggalDibuat: created.created_at
+      ? new Date(created.created_at).toLocaleDateString('id-ID')
+      : new Date().toLocaleDateString('id-ID')
+  });
+
+  const buildGuruBankSoalPayload = (soal: any) => ({
+    materi: soal.materiId || soal.materi,
+    judul: soal.judul?.trim() || '',
+    jenis_soal:
+      soal.jenisSoal === 'Pilihan Ganda'
+        ? 'PILIHAN_GANDA'
+        : 'ESAI',
+    pertanyaan: soal.pertanyaan?.trim() || '',
+    pilihan_jawaban:
+      soal.jenisSoal === 'Pilihan Ganda'
+        ? soal.pilihanJawaban || []
+        : [],
+    jawaban_benar: soal.jawabanBenar || '',
+    pembahasan: soal.pembahasan || '',
+    tingkat_kesulitan:
+      soal.tingkatKesulitan === 'Mudah'
+        ? 'MUDAH'
+        : soal.tingkatKesulitan === 'Sulit'
+          ? 'SULIT'
+          : 'SEDANG',
+    bobot: Number(soal.bobot) || 10,
+    status: 'AKTIF'
+  });
+
+  const resetFormSoal = () => {
+    setFormSoal({
+      judul: '',
+      materiId: '',
+      mataPelajaran: 'Bahasa Indonesia',
+      program: '',
+      kelas: '',
+      bab: '',
+      tingkatKesulitan: 'Sedang',
+      jenisSoal: 'Pilihan Ganda',
+      pertanyaan: '',
+      pilihanJawaban: ['', '', '', ''],
+      jawabanBenar: '',
+      pembahasan: '',
+      bobot: '10',
+      lampiranGambar: '',
+      lampiranAudio: ''
+    });
+  };
+
+  const handleAddSoalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (
+      !formSoal.materiId ||
+      !formSoal.judul.trim() ||
+      !formSoal.pertanyaan.trim()
+    ) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Materi, judul, dan pertanyaan soal wajib diisi.',
+        'warning'
+      );
+      return;
+    }
+
+    if (
+      formSoal.jenisSoal === 'Pilihan Ganda' &&
+      (
+        formSoal.pilihanJawaban.some(
+          pilihan => !pilihan.trim()
+        ) ||
+        !['A', 'B', 'C', 'D'].includes(formSoal.jawabanBenar)
+      )
+    ) {
+      showModal(
+        'Pilihan Jawaban Belum Lengkap',
+        'Isi pilihan A–D dan pilih jawaban yang benar.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setIsBankSoalLoading(true);
+
+      const created = await api.createGuruBankSoal(
+        buildGuruBankSoalPayload(formSoal)
+      );
+
+      const mapped = mapGuruBankSoalResponse(created);
+
+      setBankSoal(prev => [mapped, ...prev]);
+      resetFormSoal();
+      setCbtSubView('list');
+
+      showModal(
+        'Soal Berhasil Ditambahkan',
+        'Soal baru berhasil disimpan ke server.',
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Menambahkan Soal',
+        error?.message ||
+          'Soal belum berhasil disimpan ke server.',
+        'warning'
+      );
+    } finally {
+      setIsBankSoalLoading(false);
+    }
+  };
+
+  const handleEditSoalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedSoal) return;
+
+    if (
+      !formSoal.materiId ||
+      !formSoal.judul.trim() ||
+      !formSoal.pertanyaan.trim()
+    ) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Materi, judul, dan pertanyaan soal wajib diisi.',
+        'warning'
+      );
+      return;
+    }
+
+    if (
+      formSoal.jenisSoal === 'Pilihan Ganda' &&
+      (
+        formSoal.pilihanJawaban.some(
+          pilihan => !pilihan.trim()
+        ) ||
+        !['A', 'B', 'C', 'D'].includes(formSoal.jawabanBenar)
+      )
+    ) {
+      showModal(
+        'Pilihan Jawaban Belum Lengkap',
+        'Isi pilihan A–D dan pilih jawaban yang benar.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setIsBankSoalLoading(true);
+
+      const updated = await api.updateGuruBankSoal(
+        String(selectedSoal.id),
+        buildGuruBankSoalPayload(formSoal)
+      );
+
+      const mapped = mapGuruBankSoalResponse(updated);
+
+      setBankSoal(prev =>
+        prev.map(soal =>
+          String(soal.id) === String(selectedSoal.id)
+            ? mapped
+            : soal
+        )
+      );
+
+      resetFormSoal();
+      setSelectedSoal(null);
+      setCbtSubView('list');
+
+      showModal(
+        'Soal Berhasil Diperbarui',
+        'Perubahan soal berhasil disimpan ke server.',
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Memperbarui Soal',
+        error?.message ||
+          'Perubahan soal belum berhasil disimpan.',
+        'warning'
+      );
+    } finally {
+      setIsBankSoalLoading(false);
+    }
+  };
+
+  const handleDeleteSoal = async (id: string | number) => {
+    try {
+      await api.deleteGuruBankSoal(String(id));
+
+      setBankSoal(prev =>
+        prev.filter(soal => String(soal.id) !== String(id))
+      );
+
+      setFormUjian(prev => ({
+        ...prev,
+        soalIds: prev.soalIds.filter(
+          soalId => String(soalId) !== String(id)
+        )
+      }));
+
+      showModal(
+        'Soal Dihapus',
+        'Soal berhasil dihapus permanen dari Bank Soal.',
+        'info'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Menghapus Soal',
+        error?.message ||
+          'Soal belum berhasil dihapus dari server.',
+        'warning'
+      );
+    }
+  };
+
+  const handleDuplicateSoal = async (soal: any) => {
+    const materiId = soal.materiId || soal.materi;
+
+    if (!materiId) {
+      showModal(
+        'Materi Tidak Ditemukan',
+        'Soal ini belum terhubung dengan materi sehingga belum dapat diduplikasi.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setIsBankSoalLoading(true);
+
+      const created = await api.createGuruBankSoal(
+        buildGuruBankSoalPayload({
+          ...soal,
+          materiId,
+          judul: `${soal.judul} (Salinan)`
+        })
+      );
+
+      const mapped = mapGuruBankSoalResponse(created);
+
+      setBankSoal(prev => [mapped, ...prev]);
+
+      showModal(
+        'Soal Diduplikasi',
+        'Salinan soal berhasil disimpan ke server.',
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Menduplikasi Soal',
+        error?.message ||
+          'Salinan soal belum berhasil disimpan.',
+        'warning'
+      );
+    } finally {
+      setIsBankSoalLoading(false);
+    }
+  };
+
+  const handleAddUjianSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (
+      !formUjian.rombelId ||
+      !formUjian.tanggalMulai ||
+      !formUjian.tanggalSelesai ||
+      formUjian.soalIds.length === 0
+    ) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Rombel, jadwal, dan minimal satu soal wajib dipilih.',
+        'warning'
+      );
+      return;
+    }
+
+    const selectedQuestions = bankSoal.filter(
+      (soal: any) => formUjian.soalIds.includes(String(soal.id))
+    );
+
+    if (selectedQuestions.length !== formUjian.soalIds.length) {
+      showModal(
+        'Soal Tidak Valid',
+        'Sebagian soal yang dipilih tidak ditemukan di Bank Soal.',
+        'warning'
+      );
+      return;
+    }
+
+    const firstQuestion = selectedQuestions[0];
+
+    const invalidRombel = selectedQuestions.some(
+      (soal: any) =>
+        String(soal.rombelId) !== String(formUjian.rombelId)
+    );
+
+    const invalidMapel = selectedQuestions.some(
+      (soal: any) =>
+        String(soal.mataPelajaranId) !==
+        String(firstQuestion.mataPelajaranId)
+    );
+
+    if (invalidRombel) {
+      showModal(
+        'Rombel Soal Tidak Sesuai',
+        'Semua soal harus berasal dari rombel yang dipilih.',
+        'warning'
+      );
+      return;
+    }
+
+    if (invalidMapel) {
+      showModal(
+        'Mata Pelajaran Berbeda',
+        'Semua soal dalam satu ujian harus berasal dari mata pelajaran yang sama.',
+        'warning'
+      );
+      return;
+    }
+
+    const jenisMap: Record<string, string> = {
+      'Latihan': 'LATIHAN',
+      'Ulangan Harian': 'ULANGAN_HARIAN',
+      'UTS': 'UTS',
+      'Remedial UTS': 'REMEDIAL_UTS',
+      'UAS': 'UAS',
+      'Remedial UAS': 'REMEDIAL_UAS',
+      'Ujian Akhir': 'UJIAN_AKHIR',
+      'Try Out': 'TRY_OUT'
+    };
+
+    const jenisDisplayMap: Record<string, string> = {
+      LATIHAN: 'Latihan',
+      ULANGAN_HARIAN: 'Ulangan Harian',
+      UTS: 'UTS',
+      REMEDIAL_UTS: 'Remedial UTS',
+      UAS: 'UAS',
+      REMEDIAL_UAS: 'Remedial UAS',
+      UJIAN_AKHIR: 'Ujian Akhir',
+      TRY_OUT: 'Try Out'
+    };
+
+    try {
+      setIsCbtLoading(true);
+
+      const created = await api.createGuruUjianCBT({
+        mata_pelajaran: String(firstQuestion.mataPelajaranId),
+        rombel: String(formUjian.rombelId),
+        nama_ujian: `${formUjian.jenisUjian} ${firstQuestion.mataPelajaran} - ${formUjian.kelas}`.trim(),
+        jenis_ujian:
+          jenisMap[formUjian.jenisUjian] || 'ULANGAN_HARIAN',
+        soal: formUjian.soalIds,
+        durasi_menit: Number(formUjian.durasi),
+        nilai_minimum: Number(formUjian.nilaiMinimum),
+        tanggal_mulai: new Date(
+          formUjian.tanggalMulai
+        ).toISOString(),
+        tanggal_selesai: new Date(
+          formUjian.tanggalSelesai
+        ).toISOString(),
+        acak_soal: formUjian.acakSoal,
+        acak_jawaban: formUjian.acakJawaban,
+        tampilkan_nilai: formUjian.tampilkanNilai,
+        status: 'TERJADWAL'
+      });
+
+      const newUjian = {
+        id: String(created.id),
+        namaUjian: created.nama_ujian || '',
+        mataPelajaran: created.mata_pelajaran_nama || '',
+        mataPelajaranId: String(created.mata_pelajaran || ''),
+        program: created.program || '',
+        fase: created.fase || '',
+        kelas: created.rombel_nama || '',
+        rombelId: String(created.rombel || ''),
+        sistemBelajar: created.sistem_belajar || '',
+        semester: created.semester || '',
+        tahunAjaran: created.tahun_ajaran || '',
+        jenisUjian:
+          jenisDisplayMap[created.jenis_ujian] ||
+          created.jenis_ujian ||
+          '',
+        jumlahSoal: created.jumlah_soal || 0,
+        durasi: created.durasi_menit || 0,
+        tanggalMulai: created.tanggal_mulai || '',
+        tanggalSelesai: created.tanggal_selesai || '',
+        status:
+          created.status === 'TERJADWAL'
+            ? 'Terjadwal'
+            : created.status,
+        jumlahPeserta: 0,
+        sudahMengerjakan: 0,
+        belumMengerjakan: 0,
+        soalIds: (created.soal || []).map(String),
+        nilaiRataRata: 0,
+        nilaiTertinggi: 0,
+        nilaiTerendah: 0,
+        nilaiMinimum: created.nilai_minimum || 0,
+        acakSoal: Boolean(created.acak_soal),
+        acakJawaban: Boolean(created.acak_jawaban),
+        tampilkanNilai: Boolean(created.tampilkan_nilai)
+      };
+
+      setDaftarUjian(prev => [newUjian, ...prev]);
+
+      setFormUjian({
+        namaUjian: '',
+        rombelId: '',
+        mataPelajaran: '',
+        program: '',
+        fase: '',
+        kelas: '',
+        sistemBelajar: '',
+        semester: '',
+        tahunAjaran: '',
+        jenisUjian: 'Ulangan Harian',
+        durasi: '60',
+        nilaiMinimum: '70',
+        acakSoal: false,
+        acakJawaban: false,
+        tampilkanNilai: true,
+        tanggalMulai: '',
+        tanggalSelesai: '',
+        soalIds: []
+      });
+
+      setCbtSubView('list');
+
+      showModal(
+        'Ujian Berhasil Dibuat',
+        'Ujian sudah tersimpan ke server.',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal membuat Ujian CBT:', error);
+
+      showModal(
+        'Ujian Gagal Disimpan',
+        error?.message || 'Data ujian belum dapat disimpan ke server.',
+        'warning'
+      );
+    } finally {
+      setIsCbtLoading(false);
+    }
+  };
+
+  const handleEditUjianSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedUjian) return;
+
+    if (
+      !formUjian.rombelId ||
+      !formUjian.tanggalMulai ||
+      !formUjian.tanggalSelesai ||
+      formUjian.soalIds.length === 0
+    ) {
+      showModal(
+        'Input Tidak Lengkap',
+        'Rombel, jadwal, dan minimal satu soal wajib dipilih.',
+        'warning'
+      );
+      return;
+    }
+
+    const selectedQuestions = bankSoal.filter(
+      (soal: any) =>
+        formUjian.soalIds.includes(String(soal.id))
+    );
+
+    if (selectedQuestions.length !== formUjian.soalIds.length) {
+      showModal(
+        'Soal Tidak Valid',
+        'Sebagian soal yang dipilih tidak ditemukan di Bank Soal.',
+        'warning'
+      );
+      return;
+    }
+
+    const firstQuestion = selectedQuestions[0];
+
+    const invalidRombel = selectedQuestions.some(
+      (soal: any) =>
+        String(soal.rombelId) !== String(formUjian.rombelId)
+    );
+
+    const invalidMapel = selectedQuestions.some(
+      (soal: any) =>
+        String(soal.mataPelajaranId) !==
+        String(firstQuestion.mataPelajaranId)
+    );
+
+    if (invalidRombel) {
+      showModal(
+        'Rombel Soal Tidak Sesuai',
+        'Semua soal harus berasal dari rombel yang dipilih.',
+        'warning'
+      );
+      return;
+    }
+
+    if (invalidMapel) {
+      showModal(
+        'Mata Pelajaran Berbeda',
+        'Semua soal dalam satu ujian harus berasal dari mata pelajaran yang sama.',
+        'warning'
+      );
+      return;
+    }
+
+    const jenisMap: Record<string, string> = {
+      'Latihan': 'LATIHAN',
+      'Ulangan Harian': 'ULANGAN_HARIAN',
+      'UTS': 'UTS',
+      'Remedial UTS': 'REMEDIAL_UTS',
+      'UAS': 'UAS',
+      'Remedial UAS': 'REMEDIAL_UAS',
+      'Ujian Akhir': 'UJIAN_AKHIR',
+      'Try Out': 'TRY_OUT'
+    };
+
+    const jenisDisplayMap: Record<string, string> = {
+      LATIHAN: 'Latihan',
+      ULANGAN_HARIAN: 'Ulangan Harian',
+      UTS: 'UTS',
+      REMEDIAL_UTS: 'Remedial UTS',
+      UAS: 'UAS',
+      REMEDIAL_UAS: 'Remedial UAS',
+      UJIAN_AKHIR: 'Ujian Akhir',
+      TRY_OUT: 'Try Out'
+    };
+
+    const statusDisplayMap: Record<string, string> = {
+      DRAFT: 'Draft',
+      TERJADWAL: 'Terjadwal',
+      AKTIF: 'Sedang Berlangsung',
+      SELESAI: 'Selesai',
+      DIBATALKAN: 'Dibatalkan'
+    };
+
+    try {
+      setIsCbtLoading(true);
+
+      const updated = await api.updateGuruUjianCBT(
+        String(selectedUjian.id),
+        {
+          mata_pelajaran: String(firstQuestion.mataPelajaranId),
+          rombel: String(formUjian.rombelId),
+          nama_ujian: `${formUjian.jenisUjian} ${firstQuestion.mataPelajaran} - ${formUjian.kelas}`.trim(),
+          jenis_ujian:
+            jenisMap[formUjian.jenisUjian] || 'ULANGAN_HARIAN',
+          soal: formUjian.soalIds,
+          durasi_menit: Number(formUjian.durasi),
+          nilai_minimum: Number(formUjian.nilaiMinimum),
+          tanggal_mulai: new Date(
+            formUjian.tanggalMulai
+          ).toISOString(),
+          tanggal_selesai: new Date(
+            formUjian.tanggalSelesai
+          ).toISOString(),
+          acak_soal: formUjian.acakSoal,
+          acak_jawaban: formUjian.acakJawaban,
+          tampilkan_nilai: formUjian.tampilkanNilai
+        }
+      );
+
+      const mappedUpdated = {
+        ...selectedUjian,
+        id: String(updated.id),
+        namaUjian: updated.nama_ujian || '',
+        mataPelajaran: updated.mata_pelajaran_nama || '',
+        mataPelajaranId: String(updated.mata_pelajaran || ''),
+        program: updated.program || '',
+        fase: updated.fase || '',
+        kelas: updated.rombel_nama || '',
+        rombelId: String(updated.rombel || ''),
+        sistemBelajar: updated.sistem_belajar || '',
+        semester: updated.semester || '',
+        tahunAjaran: updated.tahun_ajaran || '',
+        jenisUjian:
+          jenisDisplayMap[updated.jenis_ujian] ||
+          updated.jenis_ujian ||
+          '',
+        jumlahSoal: updated.jumlah_soal || 0,
+        durasi: updated.durasi_menit || 0,
+        tanggalMulai: updated.tanggal_mulai || '',
+        tanggalSelesai: updated.tanggal_selesai || '',
+        status:
+          statusDisplayMap[updated.status] ||
+          updated.status ||
+          '',
+        soalIds: (updated.soal || []).map(String),
+        nilaiMinimum: updated.nilai_minimum || 0,
+        acakSoal: Boolean(updated.acak_soal),
+        acakJawaban: Boolean(updated.acak_jawaban),
+        tampilkanNilai: Boolean(updated.tampilkan_nilai)
+      };
+
+      setDaftarUjian(prev =>
+        prev.map(ujian =>
+          String(ujian.id) === String(selectedUjian.id)
+            ? mappedUpdated
+            : ujian
+        )
+      );
+
+      setSelectedUjian(null);
+      setCbtSubView('list');
+
+      showModal(
+        'Ujian Berhasil Diperbarui',
+        'Perubahan ujian sudah tersimpan ke server.',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Gagal memperbarui Ujian CBT:', error);
+
+      showModal(
+        'Ujian Gagal Diperbarui',
+        error?.message || 'Perubahan ujian belum dapat disimpan.',
+        'warning'
+      );
+    } finally {
+      setIsCbtLoading(false);
+    }
+  };
+
+  const handleDeleteUjian = (id: number) => {
+    setDaftarUjian(prev => prev.filter(ujian => ujian.id !== id));
+    showModal('Ujian Dihapus', 'Ujian berhasil dihapus.', 'info');
+  };
+
+  const handleDuplicateUjian = (ujian: any) => {
+    const duplicated = { ...ujian, id: Date.now(), namaUjian: `${ujian.namaUjian} (Salinan)` };
+    setDaftarUjian(prev => [duplicated, ...prev]);
+    showModal('Ujian Diduplikasi', 'Salinan ujian berhasil dibuat.', 'success');
+  };
+
+  const handleToggleSoalForUjian = (id: string) => {
+    setFormUjian(prev => {
+      const isSelected = prev.soalIds.includes(id);
+      return {
+        ...prev,
+        soalIds: isSelected ? prev.soalIds.filter(soalId => soalId !== id) : [...prev.soalIds, id]
+      };
+    });
+  };
+
+  // Import Handlers
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setImportFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setImportFile(e.target.files[0]);
+    }
+  };
+
+  const handleExtractWithAi = async () => {
+    if (!importFile) {
+      showModal(
+        'File Belum Dipilih',
+        'Pilih PDF format baku Lulus.id terlebih dahulu.',
+        'warning'
+      );
+      return;
+    }
+
+    if (!importFile.name.toLowerCase().endsWith('.pdf')) {
+      showModal(
+        'Format File Belum Didukung',
+        'Saat ini import soal hanya mendukung file PDF format baku Lulus.id.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setIsExtracting(true);
+      setExtractedQuestions([]);
+
+      const result = await api.importGuruBankSoalFormat(importFile);
+      const questions = Array.isArray(result?.questions)
+        ? result.questions
+        : [];
+
+      const mappedQuestions = questions.map(
+        (soal: any, index: number) => ({
+          id: Number(soal.id || index + 1),
+          judul: soal.judul || `Soal ${index + 1}`,
+          mataPelajaran: importSubject,
+          program: '',
+          kelas: '',
+          bab: '',
+          tingkatKesulitan:
+            soal.tingkat_kesulitan === 'MUDAH'
+              ? 'Mudah'
+              : soal.tingkat_kesulitan === 'SULIT'
+                ? 'Sulit'
+                : 'Sedang',
+          jenisSoal:
+            soal.jenis_soal === 'PILIHAN_GANDA'
+              ? 'Pilihan Ganda'
+              : 'Essay',
+          pertanyaan: soal.pertanyaan || '',
+          pilihanJawaban: Array.isArray(soal.pilihan_jawaban)
+            ? soal.pilihan_jawaban
+            : [],
+          jawabanBenar: soal.jawaban_benar || '',
+          pembahasan: soal.pembahasan || '',
+          bobot: Number(soal.bobot) || 10,
+          pembuat: loggedInTeacher.nama,
+          tanggalDibuat: new Date().toLocaleDateString('id-ID'),
+          jumlahDigunakan: 0,
+          status: 'Aktif'
+        })
+      );
+
+      if (mappedQuestions.length === 0) {
+        showModal(
+          'Tidak Ada Soal',
+          'Tidak ada soal yang berhasil dikenali dari PDF.',
+          'warning'
+        );
+        return;
+      }
+
+      setExtractedQuestions(mappedQuestions);
+
+      const warningCount = Array.isArray(result?.errors)
+        ? result.errors.length
+        : 0;
+
+      showModal(
+        'PDF Berhasil Dibaca',
+        warningCount > 0
+          ? `${mappedQuestions.length} soal berhasil dibaca. ${warningCount} bagian perlu diperiksa.`
+          : `${mappedQuestions.length} soal berhasil dibaca. Silakan periksa sebelum disimpan.`,
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'PDF Gagal Dibaca',
+        error?.message ||
+          'Pastikan PDF memakai format baku Lulus.id dan teks dapat diseleksi.',
+        'warning'
+      );
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleSaveExtractedQuestions = async () => {
+    if (!importMateriId) {
+      showModal(
+        'Materi Belum Dipilih',
+        'Pilih materi terkait sebelum menyimpan hasil import.',
+        'warning'
+      );
+      return;
+    }
+
+    if (extractedQuestions.length === 0) {
+      showModal(
+        'Tidak Ada Soal',
+        'Belum ada hasil ekstraksi yang dapat disimpan.',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      setIsBankSoalLoading(true);
+
+      const createdItems = [];
+
+      for (const soal of extractedQuestions) {
+        const created = await api.createGuruBankSoal({
+          materi: importMateriId,
+          judul: soal.judul || 'Soal Hasil Import',
+          jenis_soal:
+            soal.jenisSoal === 'Pilihan Ganda'
+              ? 'PILIHAN_GANDA'
+              : 'ESAI',
+          pertanyaan: soal.pertanyaan || '',
+          pilihan_jawaban:
+            soal.jenisSoal === 'Pilihan Ganda'
+              ? soal.pilihanJawaban || []
+              : [],
+          jawaban_benar:
+            soal.jenisSoal === 'Pilihan Ganda'
+              ? (
+                  ['A', 'B', 'C', 'D'].includes(soal.jawabanBenar)
+                    ? soal.jawabanBenar
+                    : 'A'
+                )
+              : soal.jawabanBenar || '',
+          pembahasan: soal.pembahasan || '',
+          tingkat_kesulitan:
+            soal.tingkatKesulitan === 'Mudah'
+              ? 'MUDAH'
+              : soal.tingkatKesulitan === 'Sulit'
+                ? 'SULIT'
+                : 'SEDANG',
+          bobot: Number(soal.bobot) || 10,
+          status: 'AKTIF'
+        });
+
+        createdItems.push({
+          id: created.id,
+          materi: created.materi,
+          materiId: created.materi,
+          materiJudul: created.materi_judul || '',
+          mataPelajaran: created.mata_pelajaran_nama || '',
+          mataPelajaranId: created.mata_pelajaran,
+          program: created.program || '',
+          kelas: created.rombel_nama || '',
+          rombelId: created.rombel,
+          kompetensi: created.kompetensi,
+          kompetensiNama: created.kompetensi_nama || '',
+          judul: created.judul,
+          jenisSoal:
+            created.jenis_soal === 'PILIHAN_GANDA'
+              ? 'Pilihan Ganda'
+              : 'Essay',
+          pertanyaan: created.pertanyaan,
+          pilihanJawaban: created.pilihan_jawaban || [],
+          jawabanBenar: created.jawaban_benar || '',
+          pembahasan: created.pembahasan || '',
+          tingkatKesulitan:
+            created.tingkat_kesulitan === 'MUDAH'
+              ? 'Mudah'
+              : created.tingkat_kesulitan === 'SULIT'
+                ? 'Sulit'
+                : 'Sedang',
+          bobot: created.bobot,
+          status: created.status === 'AKTIF' ? 'Aktif' : 'Nonaktif',
+          jumlahDigunakan: created.jumlah_digunakan || 0,
+          pembuat: created.guru_nama || loggedInTeacher.nama,
+          tanggalDibuat: created.created_at
+            ? new Date(created.created_at).toLocaleDateString('id-ID')
+            : new Date().toLocaleDateString('id-ID')
+        });
+      }
+
+      setBankSoal(prev => [...createdItems, ...prev]);
+      setExtractedQuestions([]);
+      setImportFile(null);
+      setImportMateriId('');
+
+      showModal(
+        'Soal Disimpan',
+        `${createdItems.length} soal hasil import berhasil disimpan ke server.`,
+        'success'
+      );
+    } catch (error: any) {
+      showModal(
+        'Gagal Menyimpan Soal',
+        error?.message || 'Sebagian atau seluruh soal belum berhasil disimpan.',
+        'warning'
+      );
+    } finally {
+      setIsBankSoalLoading(false);
+    }
+  };
+
+  const handleDeleteExtractedQuestion = (id: number) => {
+    setExtractedQuestions(prev => prev.filter(q => q.id !== id));
+  };
+
+  // SVG Chart hover states
+
+  // Computations for Kelola Materi dari Django API
+  const categoryMap: Record<string, string> = {
+    'Bahasa Indonesia': 'ind',
+    'Matematika': 'mat',
+    'Matematika Kesetaraan': 'mat',
+    'Ilmu Pengetahuan Alam (IPA)': 'ipa',
+    'Ilmu Pengetahuan Alam': 'ipa',
+    'Pendidikan Pancasila (PPKn)': 'ppn',
+    'Pendidikan Pancasila': 'ppn',
+    'Sejarah Indonesia': 'sej',
+    'Bahasa Inggris': 'ing'
+  };
+
+  const enrichedSubjects = guruMateri.map((item: any) => {
+    const rombelOption = guruMateriOptions.rombel.find(
+      (rombel: any) => rombel.id === item.rombel
+    );
+
+    return {
+      id: item.id,
+      name: item.judul || '',
+      category:
+        categoryMap[item.mata_pelajaran_nama] ||
+        item.mata_pelajaran_nama ||
+        '',
+      materiCount: 1,
+      progress: 0,
+      textBody: item.isi || '',
+      videoUrl: item.video_url || undefined,
+      duration: '',
+      kkm: 0,
+      grade: 0,
+      status:
+        item.status === 'PUBLISHED'
+          ? 'Tuntas'
+          : 'Perlu Perbaikan',
+      capaianUtama: item.kompetensi_nama || '',
+      bimbinganUtama: '',
+      isMateri: true,
+
+      mataPelajaran: item.mata_pelajaran_nama || '',
+      program: rombelOption?.paket || '',
+      kelas: item.rombel_nama || '',
+      pertemuan: item.nomor_pertemuan || 1,
+      tanggalPublikasi: item.tanggal_publikasi || '',
+      isDraft: item.status === 'DRAFT',
+      viewsCount: item.views_count || 0,
+
+      fileName: item.file_modul
+        ? String(item.file_modul).split('/').pop()
+        : undefined,
+      fileUrl: item.file_modul || undefined,
+      lampiranName: item.file_lampiran
+        ? String(item.file_lampiran).split('/').pop()
+        : undefined,
+      lampiranUrl: item.file_lampiran || undefined,
+
+      // ID backend untuk proses edit, hapus, dan duplikasi
+      backendMapelId: item.mata_pelajaran,
+      backendRombelId: item.rombel,
+      backendCompetencyId: item.kompetensi,
+      kompetensiNama: item.kompetensi_nama || '',
+      bobotSkk: item.bobot_skk || 0,
+      backendStatus: item.status,
+      tahunAjaran: item.tahun_ajaran || '',
+      semester: item.semester || ''
+    };
+  });
+
+  const filteredMateri = enrichedSubjects.filter((sub: any) => {
+    const keyword = (materiSearch || '').toLowerCase();
+
+    const matchSearch =
+      (sub.name || '').toLowerCase().includes(keyword) ||
+      (sub.mataPelajaran || '').toLowerCase().includes(keyword) ||
+      (sub.kompetensiNama || '').toLowerCase().includes(keyword);
+
+    const matchSubject =
+      materiFilterSubject === 'all' ||
+      sub.mataPelajaran === materiFilterSubject;
+
+    const matchProgram =
+      materiFilterProgram === 'all' ||
+      sub.program === materiFilterProgram;
+
+    const matchClass =
+      materiFilterClass === 'all' ||
+      (sub.kelas || '')
+        .toLowerCase()
+        .includes((materiFilterClass || '').toLowerCase());
+
+    const matchStatus =
+      materiFilterStatus === 'all' ||
+      (materiFilterStatus === 'draft' && sub.isDraft) ||
+      (materiFilterStatus === 'published' && !sub.isDraft);
+
+    return (
+      matchSearch &&
+      matchSubject &&
+      matchProgram &&
+      matchClass &&
+      matchStatus
+    );
+  });
+
+  const totalMateriCount = enrichedSubjects.length;
+  const draftMateriCount = enrichedSubjects.filter(
+    (item: any) => item.isDraft
+  ).length;
+  const publishedMateriCount = enrichedSubjects.filter(
+    (item: any) => !item.isDraft
+  ).length;
+
+  // Statistik Pengajaran dihitung otomatis dari data nyata
+  const gradedSubmissionValues = localTaskSubmissions
+    .map(submission => submission.finalGrade ?? submission.grade)
+    .filter(
+      (grade): grade is number =>
+        typeof grade === 'number' && Number.isFinite(grade)
+    );
+
+  const classAverage = gradedSubmissionValues.length > 0
+    ? gradedSubmissionValues.reduce((total, grade) => total + grade, 0) /
+      gradedSubmissionValues.length
+    : 0;
+
+  const stats = {
+    totalKelas: new Set(loggedInTeacher?.kelasList || []).size,
+    totalMapel: new Set(loggedInTeacher?.mapels || []).size,
+    totalSiswa: students.length,
+    materiPublik: publishedMateriCount,
+    materiDraft: draftMateriCount,
+    tugasAktif: tasks.filter(task => task.status === 'Dipublikasikan').length,
+    ujianAktif: daftarUjian.filter(
+      ujian => ujian.status === 'Terjadwal' || ujian.status === 'Aktif'
+    ).length,
+    tugasPending: localTaskSubmissions.filter(
+      submission => submission.status === 'Menunggu Penilaian'
+    ).length,
+    rataRataKelas: classAverage
+  };
+  const totalViewsCount = enrichedSubjects.reduce((sum, s) => sum + (s.viewsCount || 0), 0);
+
+  return (
+    <div className="absolute inset-0 flex flex-col bg-slate-50 overflow-hidden z-10 font-sans">
+      
+      {/* Header Panel */}
+      <div className="px-5 pt-3 pb-3 bg-white border-b border-slate-100 flex justify-between items-center shrink-0 shadow-sm z-10">
+        <div className="flex items-center gap-3">
+          <div className="relative shrink-0">
+            <img 
+              src={loggedInTeacher.photo || `https://placehold.co/100x100/db2777/ffffff?text=${encodeURIComponent(loggedInTeacher.nama.split(',')[0].split(' ')[0])}`} 
+              alt="Profil Guru" 
+              className="w-12 h-12 rounded-full object-cover border-2 border-slate-100 shadow-sm shrink-0 aspect-square bg-slate-100"
+            />
+            <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Dashboard Guru Lulus.id</h4>
+            </div>
+            <h2 className="text-xs font-extrabold text-slate-800 leading-tight">{loggedInTeacher.nama}</h2>
+            <div className="flex flex-wrap gap-1 mt-1 items-center">
+              <span className="text-[8.5px] text-pink-600 font-bold bg-pink-50 px-2 py-0.5 rounded-full">
+                {loggedInTeacher.isWaliKelas ? 'Wali Kelas' : 'Guru Pengampu'}
+              </span>
+              <span className="text-[8.5px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-full">
+                Mapel: {loggedInTeacher.mapels?.join(', ') || loggedInTeacher.mapel}
+              </span>
+              <span className="text-[8.5px] text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded-full">
+                Kelas: {loggedInTeacher.kelasList?.join(', ') || loggedInTeacher.kelas}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="text-right flex flex-col items-end">
+          <div className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-[8px] font-extrabold flex items-center gap-1 border border-slate-200">
+            <Calendar className="w-3 h-3 text-slate-500" />
+            <span>T.A. {activeAcademicYear ? `${activeAcademicYear.nama} - ${activeAcademicYear.semester}` : '2026/2027 - Ganjil'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Scrollable Body */}
+      {activeSubTab === 'dashboardGuru' ? (
+        currentView === 'absensi' ? (
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+            {/* Header with back button */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setCurrentView('dashboard')}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <h2 className="text-sm font-extrabold text-slate-800">Monitoring Keaktifan & Agenda Wajib</h2>
+              </div>
+              <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                <button 
+                  onClick={() => setAbsensiTab('pertemuan')}
+                  className={`px-2 py-1 rounded-lg text-[8px] sm:text-[9px] font-black transition-all cursor-pointer ${absensiTab === 'pertemuan' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Agenda Wajib
+                </button>
+                <button 
+                  onClick={() => setAbsensiTab('isi')}
+                  className={`px-2 py-1 rounded-lg text-[8px] sm:text-[9px] font-black transition-all cursor-pointer ${absensiTab === 'isi' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Kelola Kehadiran
+                </button>
+                <button 
+                  onClick={() => setAbsensiTab('verifikasi')}
+                  className={`px-2 py-1 rounded-lg text-[8px] sm:text-[9px] font-black transition-all cursor-pointer relative ${absensiTab === 'verifikasi' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Verifikasi Izin & Sakit
+                  {leaveRequests.filter(r => r.status === 'Menunggu Persetujuan').length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 border border-white rounded-full"></span>
+                  )}
+                </button>
+                <button 
+                  onClick={() => setAbsensiTab('rekap')}
+                  className={`px-2 py-1 rounded-lg text-[8px] sm:text-[9px] font-black transition-all cursor-pointer ${absensiTab === 'rekap' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Laporan Keaktifan
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-tab views container */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+              <div className="p-3.5 bg-teal-50/60 border border-teal-150 rounded-2xl text-[9.5px] text-teal-900 font-semibold leading-relaxed shadow-xs space-y-1.5">
+                <span className="font-extrabold block text-teal-850">💡 FILOSOFI PENILAIAN & KEHADIRAN LULUS.ID</span>
+                <p>
+                  Sesuai konsep fleksibilitas PKBM Lulus.id, modul ini terbagi menjadi dua komponen utama:
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-1 pt-1 border-t border-teal-100/50">
+                  <div>
+                    <strong className="text-teal-800 block">1. Nilai Akademik Utama</strong>
+                    Berasal dari pengerjaan tugas, pengerjaan kuis CBT, ujian, asesmen modul, dan penilaian guru secara langsung.
+                  </div>
+                  <div>
+                    <strong className="text-indigo-800 block">2. Keaktifan Belajar (Pendukung)</strong>
+                    Dicatat otomatis dari aktivitas siswa (buka modul, tonton video, dsb.). Digunakan sebagai indikator proses dalam pembinaan dan deskripsi kemajuan belajar, bukan penentu kelulusan utama.
+                  </div>
+                  <div>
+                    <strong className="text-amber-800 block">3. Agenda Wajib</strong>
+                    Mencatat kehadiran fisik/sinkronus siswa (Hadir, Sakit, Izin, Alfa) pada kegiatan tertentu saja (UTS, UAS, Zoom Wajib, Tutorial Tatap Muka, atau Praktik).
+                  </div>
+                </div>
+              </div>
+              {absensiTab === 'pertemuan' && (
+                <div className="space-y-4">
+                  {/* Create Meeting Form */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3.5">
+                    <h3 className="text-xs font-black text-slate-800 flex items-center gap-1.5 pb-2 border-b border-slate-100">
+                      <Plus className="w-4 h-4 text-teal-600" /> Daftarkan Agenda Wajib Baru
+                    </h3>
+                    
+                    <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl text-[9.5px] text-amber-800 font-semibold leading-relaxed">
+                      <span className="font-extrabold block mb-0.5 text-amber-700">💡 INFORMASI KONSEP LULUS.ID</span>
+                      Agenda Wajib hanya digunakan untuk kegiatan wajib yang membutuhkan kehadiran fisik atau sinkronus siswa (seperti <strong>UTS, UAS, CBT Terjadwal, Tutorial Tatap Muka, Praktik, Pembinaan, atau Zoom Wajib</strong>). Aktivitas belajar harian (membuka materi, membaca modul, menonton video, mengerjakan tugas) sudah otomatis direkam dan dihitung oleh sistem sebagai <strong>Keaktifan Belajar</strong>.
+                    </div>
+                    
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+
+                      if (!meetDate || !meetMateri.trim()) {
+                        showModal(
+                          'Input Tidak Lengkap',
+                          'Silakan isi tanggal dan nama Agenda Wajib.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      const selectedMapel =
+                        guruMateriOptions.mapel.find(
+                          (item: any) =>
+                            item.nama === meetSubject
+                        );
+
+                      const selectedRombel =
+                        guruMateriOptions.rombel.find(
+                          (item: any) =>
+                            item.nama_rombel === meetClass
+                        );
+
+                      if (!selectedMapel || !selectedRombel) {
+                        showModal(
+                          'Data Penugasan Tidak Ditemukan',
+                          'Mata pelajaran atau rombel belum sesuai dengan penugasan guru.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      const timeParts = meetTime
+                        .split('-')
+                        .map((item: string) => item.trim())
+                        .filter(Boolean);
+
+                      const waktuMulai =
+                        timeParts[0] || '09:00';
+
+                      const waktuSelesai =
+                        timeParts[1] || null;
+
+                      try {
+                        const created =
+                          await api.createGuruAgendaWajib({
+                            mata_pelajaran:
+                              selectedMapel.id,
+                            rombel:
+                              selectedRombel.id,
+                            tahun_ajaran:
+                              selectedRombel.tahun_ajaran_id,
+                            nama_agenda:
+                              meetMateri.trim(),
+                            jenis_agenda:
+                              'LAINNYA',
+                            tanggal:
+                              meetDate,
+                            waktu_mulai:
+                              waktuMulai,
+                            waktu_selesai:
+                              waktuSelesai,
+                            lokasi_atau_link:
+                              '',
+                            keterangan:
+                              '',
+                            status:
+                              'TERJADWAL',
+                          });
+
+                        const createdMeeting = {
+                          id: String(created.id),
+                          tanggal:
+                            created.tanggal || meetDate,
+                          waktuMulai: String(
+                            created.waktu_mulai ||
+                            waktuMulai
+                          ).slice(0, 5),
+                          waktuSelesai: String(
+                            created.waktu_selesai ||
+                            waktuSelesai ||
+                            ''
+                          ).slice(0, 5),
+                          waktu: created.waktu_selesai
+                            ? `${String(
+                                created.waktu_mulai
+                              ).slice(0, 5)} - ${String(
+                                created.waktu_selesai
+                              ).slice(0, 5)}`
+                            : String(
+                                created.waktu_mulai ||
+                                waktuMulai
+                              ).slice(0, 5),
+                          mataPelajaran:
+                            created.mata_pelajaran_nama ||
+                            meetSubject,
+                          mataPelajaranId:
+                            String(
+                              created.mata_pelajaran ||
+                              selectedMapel.id
+                            ),
+                          kelas:
+                            created.rombel_nama ||
+                            meetClass,
+                          rombelId:
+                            String(
+                              created.rombel ||
+                              selectedRombel.id
+                            ),
+                          tahunAjaranId:
+                            String(
+                              created.tahun_ajaran ||
+                              selectedRombel.tahun_ajaran_id
+                            ),
+                          tahunAjaran:
+                            created.tahun_ajaran_nama ||
+                            selectedRombel.tahun_ajaran ||
+                            '',
+                          materiPokok:
+                            created.nama_agenda ||
+                            meetMateri.trim(),
+                          jenisAgenda:
+                            created.jenis_agenda ||
+                            'LAINNYA',
+                          lokasiAtauLink:
+                            created.lokasi_atau_link || '',
+                          keterangan:
+                            created.keterangan || '',
+                          status:
+                            created.status ||
+                            'TERJADWAL',
+                          jumlahHadir: 0,
+                          jumlahIzin: 0,
+                          jumlahSakit: 0,
+                          jumlahAlfa: 0,
+                        };
+
+                        setMeetings(prev => [
+                          createdMeeting,
+                          ...prev,
+                        ]);
+
+                        setSelectedMeetId(
+                          createdMeeting.id
+                        );
+
+                        setMeetMateri('');
+
+                        showModal(
+                          'Agenda Wajib Dibuat',
+                          'Agenda Wajib berhasil disimpan ke server.',
+                          'success'
+                        );
+                      } catch (error: any) {
+                        console.error(
+                          'Gagal membuat Agenda Wajib:',
+                          error
+                        );
+
+                        showModal(
+                          'Agenda Gagal Dibuat',
+                          'Periksa tanggal, waktu, mata pelajaran, dan rombel lalu coba kembali.',
+                          'warning'
+                        );
+                      }
+                    }} className="space-y-3 text-[10px] font-bold text-slate-500">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label>Tanggal Pelaksanaan</label>
+                          <input 
+                            type="date" 
+                            required
+                            value={meetDate}
+                            onChange={(e) => setMeetDate(e.target.value)}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-teal-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label>Waktu (WIB)</label>
+                          <input 
+                            type="text" 
+                            required
+                            placeholder="Contoh: 09:00 - 10:30"
+                            value={meetTime}
+                            onChange={(e) => setMeetTime(e.target.value)}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-teal-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label>Mata Pelajaran</label>
+                          <select 
+                            value={meetSubject}
+                            onChange={(e) => setMeetSubject(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
+                          >
+                            {(loggedInTeacher.mapels || ['Bahasa Indonesia']).map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label>Kelas Rombel</label>
+                          <select 
+                            value={meetClass}
+                            onChange={(e) => setMeetClass(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
+                          >
+                            {(loggedInTeacher.kelasList || ['Kelas X - Paket C']).map(k => (
+                              <option key={k} value={k}>{k}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label>Jenis Kegiatan / Nama Agenda Wajib</label>
+                        <input 
+                          type="text" 
+                          required
+                          placeholder="Misal: UAS Semester Ganjil, Pembinaan Karakter, Tutorial Tatap Muka"
+                          value={meetMateri}
+                          onChange={(e) => setMeetMateri(e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-teal-500"
+                        />
+                      </div>
+
+                      <button type="submit" className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow transition-colors cursor-pointer">
+                        Buat Agenda Wajib Baru
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Meetings List */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+                    <h3 className="text-xs font-extrabold text-slate-800">Daftar Agenda Wajib Terjadwal</h3>
+                    {meetings.length === 0 ? (
+                      <p className="text-[9.5px] text-slate-400 font-bold text-center py-6">Belum ada agenda wajib terdaftar.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {meetings.map((m) => (
+                          <div key={m.id} className="p-3 bg-slate-50 rounded-xl border border-slate-150 flex justify-between items-center">
+                            <div>
+                              <div className="flex gap-1 items-center flex-wrap">
+                                <span className="text-[7.5px] font-black bg-pink-50 text-pink-600 px-1.5 py-0.5 rounded uppercase">{m.mataPelajaran}</span>
+                                <span className="text-[7.5px] font-black bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded uppercase">{m.kelas}</span>
+                              </div>
+                              <h4 className="text-[10px] font-black text-slate-800 mt-1">{m.materiPokok}</h4>
+                              <p className="text-[8.5px] text-slate-400 font-bold mt-0.5">{m.tanggal} • {m.waktu} WIB</p>
+                            </div>
+                            <div className="flex gap-1.5 shrink-0 pl-2">
+                              <button 
+                                onClick={() => {
+                                  setSelectedMeetId(m.id);
+                                  setAbsensiTab('isi');
+                                }}
+                                className="px-2.5 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-600 rounded-lg text-[8.5px] font-black border border-teal-100 cursor-pointer"
+                              >
+                                Monitoring Kehadiran
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await api.deleteGuruAgendaWajib(
+                                      String(m.id)
+                                    );
+
+                                    setMeetings(prev =>
+                                      prev.filter(
+                                        item => item.id !== m.id
+                                      )
+                                    );
+
+                                    setAttendanceRecords(prev =>
+                                      prev.filter(
+                                        item =>
+                                          item.meetingId !== m.id
+                                      )
+                                    );
+
+                                    setSelectedMeetId(currentId => {
+                                      if (currentId !== m.id) {
+                                        return currentId;
+                                      }
+
+                                      const remaining =
+                                        meetings.filter(
+                                          item => item.id !== m.id
+                                        );
+
+                                      return remaining[0]?.id || '';
+                                    });
+
+                                    showModal(
+                                      'Agenda Wajib Dihapus',
+                                      'Agenda dan seluruh catatan kehadiran terkait berhasil dihapus dari server.',
+                                      'success'
+                                    );
+                                  } catch (error: any) {
+                                    console.error(
+                                      'Gagal menghapus Agenda Wajib:',
+                                      error
+                                    );
+
+                                    showModal(
+                                      'Agenda Gagal Dihapus',
+                                      'Data Agenda Wajib belum dapat dihapus dari server.',
+                                      'warning'
+                                    );
+                                  }
+                                }}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-lg text-[8.5px] font-black border border-rose-100 cursor-pointer"
+                              >
+                                Hapus
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {absensiTab === 'isi' && (
+                <div className="space-y-4">
+                  {meetings.length === 0 ? (
+                    <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center space-y-2">
+                      <Calendar className="w-10 h-10 text-slate-400 mx-auto animate-bounce" />
+                      <h4 className="text-xs font-black text-slate-700 font-sans">Belum Ada Agenda Wajib</h4>
+                      <p className="text-[9px] text-slate-400 font-medium">
+                        Silakan daftarkan agenda wajib terlebih dahulu di tab <strong>Agenda Wajib</strong>.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Selection Header */}
+                      <div className="bg-white p-3.5 rounded-2xl border border-slate-150 shadow-sm space-y-2.5">
+                        <label className="text-[8.5px] font-black text-slate-400 uppercase block tracking-wider">Pilih Agenda Wajib</label>
+                        <select 
+                          value={selectedMeetId} 
+                          onChange={(e) => setSelectedMeetId(e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                        >
+                          {meetings.map(m => (
+                            <option key={m.id} value={m.id}>{m.tanggal} ({m.waktu}) - {m.materiPokok} ({m.kelas})</option>
+                          ))}
+                        </select>
+                        
+                        {(() => {
+                          const activeMeetObj = meetings.find(m => m.id === selectedMeetId);
+                          if (!activeMeetObj) return null;
+                          return (
+                            <div className="p-2.5 bg-teal-50/40 border border-teal-100 rounded-xl text-[9px] text-teal-800 font-semibold leading-relaxed">
+                              <p><strong className="font-extrabold uppercase text-[7.5px] text-teal-600 block">Detail Agenda Wajib Aktif</strong></p>
+                              <p className="mt-1">Mapel: <strong className="font-black">{activeMeetObj.mataPelajaran}</strong> ({activeMeetObj.kelas})</p>
+                              <p>Jenis Agenda / Pokok: <strong className="font-black">"{activeMeetObj.materiPokok}"</strong></p>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Student Attendance List */}
+                      <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3.5">
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                          <h3 className="text-xs font-black text-slate-850">Daftar Kehadiran Agenda Wajib</h3>
+                          <span className="text-[8px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded-full uppercase">SINKRON DATA AKADEMIK</span>
+                        </div>
+
+                        {(() => {
+                          const activeMeetObj = meetings.find(
+                            m => m.id === selectedMeetId
+                          );
+
+                          const activeClass =
+                            activeMeetObj?.kelas || '';
+
+                          if (agendaStudentsLoading) {
+                            return (
+                              <p className="text-[9.5px] text-slate-400 font-bold text-center py-6">
+                                Memuat siswa dari database...
+                              </p>
+                            );
+                          }
+
+                          const studentsInClass = agendaStudents;
+
+                          if (studentsInClass.length === 0) {
+                            return (
+                              <p className="text-[9.5px] text-slate-400 font-bold text-center py-4">
+                                Tidak ada siswa aktif yang terdaftar pada rombel agenda ini.
+                              </p>
+                            );
+                          }
+
+                          return (
+                            <div className="space-y-4 divide-y divide-slate-100">
+                              {studentsInClass.map((s, idx) => {
+                                const currentStatus = attendanceStatuses[s.id] || 'Hadir';
+                                const currentNote = attendanceNotes[s.id] || '';
+
+                                return (
+                                  <div key={s.id} className={`pt-3.5 first:pt-0 space-y-2`}>
+                                    <div className="flex justify-between items-start">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-700 font-bold text-xs uppercase shadow-xs">
+                                          {s.nama.substring(0, 2)}
+                                        </div>
+                                        <div>
+                                          <h4 className="text-[10px] font-black text-slate-800">{s.nama}</h4>
+                                          <p className="text-[8px] text-slate-400 font-bold">{s.kelas || activeClass}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Segmented Button status options */}
+                                    <div className="flex gap-1 text-[9.5px] font-extrabold select-none">
+                                      {(['Hadir', 'Izin', 'Sakit', 'Alfa'] as const).map((status) => {
+                                        const isSelected = currentStatus === status;
+                                        const colorClasses = {
+                                          Hadir: isSelected ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200',
+                                          Izin: isSelected ? 'bg-blue-500 text-white shadow-sm' : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200',
+                                          Sakit: isSelected ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200',
+                                          Alfa: isSelected ? 'bg-rose-500 text-white shadow-sm' : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200',
+                                        };
+
+                                        return (
+                                          <button
+                                            key={status}
+                                            type="button"
+                                            onClick={() => {
+                                              setAttendanceStatuses(prev => ({ ...prev, [s.id]: status }));
+                                            }}
+                                            className={`flex-1 py-1 px-1.5 rounded-lg text-center font-black transition-all cursor-pointer text-[8px] sm:text-[9.5px] ${colorClasses[status]}`}
+                                          >
+                                            {status}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {/* Note input field */}
+                                    <input 
+                                      type="text" 
+                                      placeholder="Keterangan singkat / catatan (opsional)"
+                                      value={currentNote}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setAttendanceNotes(prev => ({ ...prev, [s.id]: val }));
+                                      }}
+                                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[9px] font-semibold text-slate-800 focus:outline-none focus:border-teal-500"
+                                    />
+                                  </div>
+                                );
+                              })}
+
+                              <div className="pt-4 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!selectedMeetId) {
+                                      showModal(
+                                        'Agenda Belum Dipilih',
+                                        'Pilih Agenda Wajib terlebih dahulu.',
+                                        'warning'
+                                      );
+                                      return;
+                                    }
+
+                                    const statusMap: Record<
+                                      'Hadir' | 'Izin' | 'Sakit' | 'Alfa',
+                                      'HADIR' | 'IZIN' | 'SAKIT' | 'ALFA'
+                                    > = {
+                                      Hadir: 'HADIR',
+                                      Izin: 'IZIN',
+                                      Sakit: 'SAKIT',
+                                      Alfa: 'ALFA',
+                                    };
+
+                                    const records = studentsInClass.map(
+                                      (student: any) => {
+                                        const localStatus =
+                                          attendanceStatuses[
+                                            student.id
+                                          ] || 'Hadir';
+
+                                        return {
+                                          siswa: Number(
+                                            student.userId ||
+                                            student.id
+                                          ),
+                                          status:
+                                            statusMap[localStatus],
+                                          catatan_guru:
+                                            attendanceNotes[
+                                              student.id
+                                            ] || '',
+                                        };
+                                      }
+                                    );
+
+                                    try {
+                                      const response =
+                                        await api.saveGuruAgendaAttendance(
+                                          selectedMeetId,
+                                          records
+                                        );
+
+                                      const savedRecords =
+                                        Array.isArray(
+                                          response?.records
+                                        )
+                                          ? response.records
+                                          : [];
+
+                                      const mappedRecords =
+                                        savedRecords.map(
+                                          (item: any) => ({
+                                            id: String(item.id),
+                                            meetingId:
+                                              String(
+                                                item.agenda
+                                              ),
+                                            studentId:
+                                              String(
+                                                item.siswa
+                                              ),
+                                            status:
+                                              item.status ===
+                                              'HADIR'
+                                                ? 'Hadir'
+                                                : item.status ===
+                                                  'IZIN'
+                                                ? 'Izin'
+                                                : item.status ===
+                                                  'SAKIT'
+                                                ? 'Sakit'
+                                                : 'Alfa',
+                                            catatan:
+                                              item.catatan_guru ||
+                                              '',
+                                          })
+                                        );
+
+                                      setAttendanceRecords(prev => {
+                                        const withoutCurrent =
+                                          prev.filter(
+                                            item =>
+                                              item.meetingId !==
+                                              selectedMeetId
+                                          );
+
+                                        return [
+                                          ...withoutCurrent,
+                                          ...mappedRecords,
+                                        ];
+                                      });
+
+                                      setAgendaStudents(prev =>
+                                        prev.map(
+                                          (student: any) => {
+                                            const saved =
+                                              savedRecords.find(
+                                                (item: any) =>
+                                                  String(
+                                                    item.siswa
+                                                  ) ===
+                                                  String(
+                                                    student.userId
+                                                  )
+                                              );
+
+                                            return saved
+                                              ? {
+                                                  ...student,
+                                                  kehadiran:
+                                                    saved,
+                                                }
+                                              : student;
+                                          }
+                                        )
+                                      );
+
+                                      showModal(
+                                        'Kehadiran Disimpan',
+                                        `Catatan kehadiran untuk ${studentsInClass.length} siswa berhasil disimpan ke server.`,
+                                        'success'
+                                      );
+                                    } catch (error: any) {
+                                      console.error(
+                                        'Gagal menyimpan kehadiran:',
+                                        error
+                                      );
+
+                                      showModal(
+                                        'Kehadiran Gagal Disimpan',
+                                        'Periksa data siswa dan status kehadiran, lalu coba kembali.',
+                                        'warning'
+                                      );
+                                    }
+                                  }}
+                                  className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black shadow-sm cursor-pointer"
+                                >
+                                  Simpan Kehadiran Agenda Wajib
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {absensiTab === 'verifikasi' && (
+                <div className="space-y-4">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+                    <h3 className="text-xs font-extrabold text-slate-800">Verifikasi Surat Sakit / Izin Siswa</h3>
+                    
+                    {leaveRequests.length === 0 ? (
+                      <p className="text-[9.5px] text-slate-400 font-bold text-center py-6">Tidak ada pengajuan izin dari siswa.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {leaveRequests.map((req) => (
+                          <div key={req.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 hover:border-teal-400 transition-colors">
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 text-xs font-extrabold">
+                                  {req.studentName.substring(0, 2)}
+                                </div>
+                                <div>
+                                  <h4 className="text-[10px] font-black text-slate-800">{req.studentName}</h4>
+                                  <p className="text-[8px] text-slate-400 font-bold">{req.kelas} ({req.program})</p>
+                                </div>
+                              </div>
+                              <span className={`px-2 py-0.5 text-[7.5px] font-black rounded-full uppercase ${
+                                req.status === 'Disetujui' ? 'bg-emerald-100 text-emerald-600' :
+                                req.status === 'Ditolak' ? 'bg-rose-100 text-rose-600' :
+                                'bg-amber-100 text-amber-600'
+                              }`}>
+                                {req.status}
+                              </span>
+                            </div>
+
+                            <div className="p-2 bg-white rounded-xl border border-slate-100 text-[9px] text-slate-600 space-y-1 font-semibold leading-relaxed">
+                              <p>Jenis Pengajuan: <strong className="text-slate-800">{req.jenis}</strong></p>
+                              <p>Periode Tanggal: <strong className="text-slate-800">{req.tanggalMulai} s/d {req.tanggalSelesai}</strong></p>
+                              <p>Alasan Keterangan: <strong className="text-slate-800">"{req.alasan}"</strong></p>
+                              {req.buktiPendukung && (
+                                <p className="text-blue-600 font-mono text-[8px] truncate mt-1 pt-1 border-t border-slate-50 flex items-center gap-1">
+                                  <FileDown className="w-3.5 h-3.5" /> Lampiran: {req.buktiPendukung}
+                                </p>
+                              )}
+                              {req.catatanGuru && (
+                                <p className="p-1 bg-yellow-50 rounded text-[8px] border border-yellow-100 text-amber-700">
+                                  Catatan Guru: {req.catatanGuru}
+                                </p>
+                              )}
+                            </div>
+
+                            {req.status === 'Menunggu Persetujuan' && (
+                              <div className="space-y-2">
+                                <textarea 
+                                  placeholder="Beri catatan verifikasi guru (Contoh: Surat dokter sah, izin disahkan)"
+                                  value={verifyingLeaveId === req.id ? verificationNotes : ''}
+                                  onChange={(e) => {
+                                    setVerifyingLeaveId(req.id);
+                                    setVerificationNotes(e.target.value);
+                                  }}
+                                  className="w-full p-2 bg-white border border-slate-200 rounded-lg text-[9px] font-semibold text-slate-800 focus:outline-none"
+                                  rows={2}
+                                />
+                                <div className="flex gap-2 justify-end">
+                                  <button
+                                    onClick={() => {
+                                      const updated = leaveRequests.map(item => {
+                                        if (item.id === req.id) {
+                                          return {
+                                            ...item,
+                                            status: 'Ditolak',
+                                            catatanGuru: (verifyingLeaveId === req.id ? verificationNotes : '') || 'Izin ditolak.'
+                                          };
+                                        }
+                                        return item;
+                                      });
+                                      setLeaveRequests(updated);
+                                      localStorage.setItem('lulus_leave_requests', JSON.stringify(updated));
+                                      setVerifyingLeaveId(null);
+                                      setVerificationNotes('');
+                                      showModal('Pengajuan Ditolak', 'Status izin telah disetel Ditolak.', 'warning');
+                                    }}
+                                    className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[8.5px] font-black border border-rose-100 cursor-pointer"
+                                  >
+                                    Tolak Izin
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const noteText = (verifyingLeaveId === req.id ? verificationNotes : '') || 'Izin disetujui oleh wali kelas.';
+                                      const updated = leaveRequests.map(item => {
+                                        if (item.id === req.id) {
+                                          return {
+                                            ...item,
+                                            status: 'Disetujui',
+                                            catatanGuru: noteText
+                                          };
+                                        }
+                                        return item;
+                                      });
+                                      setLeaveRequests(updated);
+                                      localStorage.setItem('lulus_leave_requests', JSON.stringify(updated));
+
+                                      // Automatically record attendance as 'Izin' or 'Sakit' for matching meetings
+                                      const startDate = new Date(req.tanggalMulai);
+                                      const endDate = new Date(req.tanggalSelesai);
+                                      const matchingMeetings = meetings.filter(m => {
+                                        const mDate = new Date(m.tanggal);
+                                        return m.kelas === req.kelas && mDate >= startDate && mDate <= endDate;
+                                      });
+
+                                      if (matchingMeetings.length > 0) {
+                                        let updatedAtt = [...attendanceRecords];
+                                        matchingMeetings.forEach(meet => {
+                                          const existingIndex = updatedAtt.findIndex(r => r.meetingId === meet.id && r.studentId === req.studentId);
+                                          const attRecord = {
+                                            id: existingIndex > -1 ? updatedAtt[existingIndex].id : `ATT-${Date.now()}-${meet.id}-${req.studentId}`,
+                                            meetingId: meet.id,
+                                            studentId: req.studentId,
+                                            status: req.jenis,
+                                            catatan: `Izin terverifikasi: ${req.alasan}`
+                                          };
+
+                                          if (existingIndex > -1) {
+                                            updatedAtt[existingIndex] = attRecord;
+                                          } else {
+                                            updatedAtt.push(attRecord);
+                                          }
+                                        });
+                                        setAttendanceRecords(updatedAtt);
+                                        localStorage.setItem('lulus_student_attendance', JSON.stringify(updatedAtt));
+                                      }
+
+                                      setVerifyingLeaveId(null);
+                                      setVerificationNotes('');
+                                      showModal('Izin Disetujui', 'Izin siswa telah diverifikasi sah dan catatan kehadiran otomatis diperbarui.', 'success');
+                                    }}
+                                    className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-[8.5px] font-black cursor-pointer shadow-sm"
+                                  >
+                                    Setujui & Sahkan
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {absensiTab === 'rekap' && (
+                <div className="space-y-4">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                      <h3 className="text-xs font-extrabold text-slate-800">Laporan Keaktifan & Agenda Wajib Kelas</h3>
+                      <span className="text-[7.5px] bg-teal-50 border border-teal-100 text-teal-600 font-extrabold px-1.5 py-0.5 rounded-full uppercase">SINKRONISASI AKTIF</span>
+                    </div>
+
+                    {/* Filter for Class */}
+                    <div className="space-y-1">
+                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Pilih Kelas Rombel</label>
+                      <select 
+                        value={rekapFilterClass} 
+                        onChange={(e) => setRekapFilterClass(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                      >
+                        <option value="all">Semua Rombel Diampu</option>
+                        <option value="Kelas X">Kelas X Paket C</option>
+                        <option value="Kelas XI">Kelas XI Paket C</option>
+                        <option value="Kelas XII">Kelas XII Paket C</option>
+                      </select>
+                    </div>
+
+                    {/* Table displaying student stats */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-[9px] font-semibold text-slate-600">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50 text-[7.5px] font-black text-slate-400 uppercase tracking-wider">
+                            <th className="py-2 px-1">Nama Siswa</th>
+                            <th className="py-2 px-1 text-center">Progres Belajar</th>
+                            <th className="py-2 px-1 text-center">Keaktifan Belajar</th>
+                            <th className="py-2 px-1 text-center">Agenda Wajib (H/S/I/A)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {(() => {
+                            const studentListToRender = students.length > 0 ? students : [
+                              { id: 'std-001', nama: 'Fajar Pratama', program: 'Paket C', kelas: 'Kelas X - Paket C' },
+                              { id: 'std-002', nama: 'Budi Santoso', program: 'Paket C', kelas: 'Kelas XI - Paket C' },
+                              { id: 'std-003', nama: 'Siti Aminah', program: 'Paket C', kelas: 'Kelas XII - Paket C' }
+                            ];
+
+                            const filtered = studentListToRender.filter(s => {
+                              if (rekapFilterClass !== 'all') {
+                                const sKelas = s.kelas || 'Kelas X - Paket C';
+                                return sKelas.toLowerCase().includes(rekapFilterClass.toLowerCase());
+                              }
+                              return true;
+                            });
+
+                            if (filtered.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={4} className="text-center py-4 text-slate-400 font-bold">Tidak ada siswa yang sesuai kriteria.</td>
+                                </tr>
+                              );
+                            }
+
+                            return filtered.map((s) => {
+                              const sAtt = attendanceRecords.filter(r => r.studentId === s.id);
+                              const hCount = sAtt.filter(r => r.status === 'Hadir').length;
+                              const sCount = sAtt.filter(r => r.status === 'Sakit').length;
+                              const iCount = sAtt.filter(r => r.status === 'Izin').length;
+                              const aCount = sAtt.filter(r => r.status === 'Alfa').length;
+                              
+                              // Calculate keaktifan score from student learning activity logs
+                              let keaktifanScore = 85; // Fallback default
+                              try {
+                                const savedActs = localStorage.getItem('lulus_learning_activities');
+                                const parsedActs = savedActs ? JSON.parse(savedActs) : [];
+                                const studentActs = parsedActs.filter((a: any) => a.studentId === s.id || a.studentName?.toLowerCase() === s.nama?.toLowerCase());
+                                const pointsSum = studentActs.reduce((sum: number, act: any) => sum + (act.points || 0), 0);
+                                keaktifanScore = pointsSum > 0 ? Math.min(100, pointsSum) : (s.id === 'SIS-1001' ? 65 : s.id === 'SIS-1002' ? 55 : s.id === 'SIS-1003' ? 85 : 45);
+                              } catch (e) {
+                                keaktifanScore = s.id === 'SIS-1001' ? 65 : s.id === 'SIS-1002' ? 55 : 85;
+                              }
+
+                              const progressBelajar = s.id === 'SIS-1001' ? 72 : s.id === 'SIS-1002' ? 64 : s.id === 'SIS-1003' ? 100 : s.id === 'SIS-1004' ? 48 : 0;
+
+                              return (
+                                <tr key={s.id} className="hover:bg-slate-50/50 text-[9.5px]">
+                                  <td className="py-2 px-1 font-bold text-slate-800">
+                                    <div>{s.nama}</div>
+                                    <div className="text-[7.5px] text-slate-400 font-bold">{s.kelas || 'Paket C'}</div>
+                                  </td>
+                                  <td className="py-2 px-1 text-center font-black text-indigo-600">
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="font-extrabold">{progressBelajar}%</span>
+                                      <div className="w-12 bg-slate-100 h-1 rounded-full overflow-hidden">
+                                        <div className="bg-indigo-500 h-full" style={{ width: `${progressBelajar}%` }}></div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="py-2 px-1 text-center font-black text-emerald-600">
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="font-extrabold">{keaktifanScore}%</span>
+                                      <div className="w-12 bg-slate-100 h-1 rounded-full overflow-hidden">
+                                        <div className="bg-emerald-500 h-full" style={{ width: `${keaktifanScore}%` }}></div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="py-2 px-1 text-center">
+                                    <span className="px-1.5 py-0.5 rounded-full text-[8.5px] font-black bg-slate-100 text-slate-700">
+                                      {hCount}H / {sCount}S / {iCount}I / {aCount}A
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : currentView === 'materi' ? (
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+            {/* 1. Header Area */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    setCurrentView('dashboard');
+                    setMateriSubView('list');
+                  }}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-sm font-extrabold text-slate-800">Kelola Materi</h2>
+                  <p className="text-[9px] text-slate-400 font-medium">Manajemen Modul Ajar, Ringkasan, dan Video Pembelajaran</p>
+                </div>
+              </div>
+              
+              {materiSubView === 'list' && (
+                <button 
+                  onClick={() => {
+                    const firstMapel = guruMateriOptions.mapel[0];
+                    const firstRombel = guruMateriOptions.rombel[0];
+
+                    const firstCompetency = guruMateriOptions.kompetensi.find(
+                      (item: any) => item.subject === firstMapel?.id
+                    );
+
+                    setMateriSubView('add');
+                    setSelectedMateri(null);
+
+                    setFormMateriTitle('');
+
+                    setFormMateriSubjectId(firstMapel?.id || '');
+                    setFormMateriSubject(firstMapel?.nama || '');
+
+                    setFormMateriRombelId(firstRombel?.id || '');
+                    setFormMateriClass(firstRombel?.nama_rombel || '');
+
+                    setFormMateriProgram(
+                      firstRombel?.paket ||
+                      firstMapel?.paket ||
+                      ''
+                    );
+
+                    setFormMateriCompetencyId(
+                      firstCompetency?.id || ''
+                    );
+
+                    setFormMateriPertemuan('1');
+                    setFormMateriTanggalPublikasi(
+                      new Date().toISOString().split('T')[0]
+                    );
+                    setFormMateriIsDraft(false);
+                    setFormMateriVideoUrl('');
+                    setFormMateriContent('');
+                    setFormMateriFile(null);
+                    setFormMateriAttachment(null);
+                  }}
+                  className="px-3.5 py-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-[9px] font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                  type="button"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Tambah Materi
+                </button>
+              )}
+            </div>
+
+            {/* Sub-Views */}
+            {materiSubView === 'list' ? (
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                
+                {/* Statistics panel */}
+                <div className="grid grid-cols-4 gap-2 text-center shrink-0">
+                  <div className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm">
+                    <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-tight block">Total Materi</span>
+                    <p className="text-lg font-black text-slate-800 mt-0.5">{totalMateriCount}</p>
+                    <span className="text-[6.5px] font-bold text-slate-400">Modul Ajar</span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm">
+                    <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-tight block">Draft</span>
+                    <p className="text-lg font-black text-amber-600 mt-0.5">{draftMateriCount}</p>
+                    <span className="text-[6.5px] font-bold text-slate-400">Belum Terbit</span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm">
+                    <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-tight block">Dipublikasikan</span>
+                    <p className="text-lg font-black text-emerald-600 mt-0.5">{publishedMateriCount}</p>
+                    <span className="text-[6.5px] font-bold text-slate-400">Aktif Diakses</span>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm">
+                    <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-tight block">Total Dilihat</span>
+                    <p className="text-lg font-black text-indigo-600 mt-0.5">{totalViewsCount}</p>
+                    <span className="text-[6.5px] font-bold text-slate-400">Kali Dilihat Siswa</span>
+                  </div>
+                </div>
+
+                {/* Filter and search block */}
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-150 shadow-sm space-y-2.5">
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
+                    <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input 
+                      type="text" 
+                      placeholder="Cari judul materi..." 
+                      value={materiSearch}
+                      onChange={(e) => setMateriSearch(e.target.value)}
+                      className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none placeholder-slate-400"
+                    />
+                    {materiSearch && (
+                      <button onClick={() => setMateriSearch('')} className="text-slate-400 hover:text-slate-600 text-xs font-black">✕</button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {/* Subject Filter */}
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-black text-slate-400 uppercase block ml-0.5">Mata Pelajaran</span>
+                      <select 
+                        value={materiFilterSubject}
+                        onChange={(e) => setMateriFilterSubject(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none"
+                      >
+                        <option value="all">Semua Mapel</option>
+                        <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                        <option value="Matematika">Matematika</option>
+                        <option value="Ilmu Pengetahuan Alam (IPA)">IPA</option>
+                        <option value="Pendidikan Pancasila (PPKn)">PPKn</option>
+                        <option value="Sejarah Indonesia">Sejarah Indonesia</option>
+                        <option value="Bahasa Inggris">Bahasa Inggris</option>
+                      </select>
+                    </div>
+
+                    {/* Program Filter */}
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-black text-slate-400 uppercase block ml-0.5">Program</span>
+                      <select 
+                        value={materiFilterProgram}
+                        onChange={(e) => setMateriFilterProgram(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none"
+                      >
+                        <option value="all">Semua Program</option>
+                        <option value="Paket A">Paket A</option>
+                        <option value="Paket B">Paket B</option>
+                        <option value="Paket C">Paket C</option>
+                      </select>
+                    </div>
+
+                    {/* Class Filter */}
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-black text-slate-400 uppercase block ml-0.5">Kelas</span>
+                      <select 
+                        value={materiFilterClass}
+                        onChange={(e) => setMateriFilterClass(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none"
+                      >
+                        <option value="all">Semua Kelas</option>
+                        <option value="Kelas X">Kelas X</option>
+                        <option value="Kelas XI">Kelas XI</option>
+                        <option value="Kelas XII">Kelas XII</option>
+                      </select>
+                    </div>
+
+                    {/* Status Filter */}
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-black text-slate-400 uppercase block ml-0.5">Status</span>
+                      <select 
+                        value={materiFilterStatus}
+                        onChange={(e) => setMateriFilterStatus(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold text-slate-700 focus:outline-none"
+                      >
+                        <option value="all">Semua Status</option>
+                        <option value="published">Dipublikasikan</option>
+                        <option value="draft">Draft</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Materials List Table */}
+                <div className="bg-white rounded-2xl border border-slate-150 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-slate-500 text-[10px] font-semibold">
+                      <thead className="bg-slate-50 border-b border-slate-150 text-[8.5px] font-black uppercase text-slate-400 tracking-wider">
+                        <tr>
+                          <th className="px-4 py-3">Materi / Modul</th>
+                          <th className="px-3 py-3">Mata Pelajaran</th>
+                          <th className="px-3 py-3 font-bold">Prog. / Kelas</th>
+                          <th className="px-3 py-3 text-center">Pertem.</th>
+                          <th className="px-3 py-3">Tanggal Terbit</th>
+                          <th className="px-3 py-3 text-center">Status</th>
+                          <th className="px-3 py-3 text-center">Dilihat</th>
+                          <th className="px-4 py-3 text-right">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700 text-[10px]">
+                        {filteredMateri.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="text-center py-8 text-slate-400 font-medium space-y-1.5">
+                              <BookOpen className="w-8 h-8 mx-auto text-slate-300" />
+                              <p className="font-bold text-[11px]">Tidak Ada Materi Ditemukan</p>
+                              <p className="text-[9px]">Coba ubah filter pencarian Anda atau buat materi baru.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredMateri.map((sub) => {
+                            const subNameMap: Record<string, string> = {
+                              'ind': 'Bahasa Indonesia',
+                              'mat': 'Matematika',
+                              'ipa': 'Ilmu Pengetahuan Alam',
+                              'ppn': 'Pendidikan Pancasila',
+                              'sej': 'Sejarah Indonesia',
+                              'ing': 'Bahasa Inggris'
+                            };
+                            const mapelName = subNameMap[sub.category] || sub.category || 'IPA';
+                            
+                            return (
+                              <tr key={sub.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-4 py-3">
+                                  <div className="max-w-[180px]">
+                                    <p className="font-extrabold text-slate-800 leading-tight truncate">{sub.name}</p>
+                                    <span className="text-[7.5px] font-bold text-slate-400 block mt-0.5">ID: {sub.id}</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span className="px-2 py-0.5 bg-pink-50 text-pink-600 border border-pink-100 rounded-full text-[8.5px] font-extrabold">
+                                    {mapelName}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3 font-bold text-slate-600">
+                                  <p className="text-[9px] font-black">{sub.program}</p>
+                                  <p className="text-[8px] text-slate-400">{sub.kelas}</p>
+                                </td>
+                                <td className="px-3 py-3 text-center font-bold text-slate-800">
+                                  Ke-{sub.pertemuan}
+                                </td>
+                                <td className="px-3 py-3 font-mono text-[9px] text-slate-500">
+                                  {sub.tanggalPublikasi}
+                                </td>
+                                <td className="px-3 py-3 text-center">
+                                  {sub.isDraft ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-[8px] font-black uppercase tracking-tight">
+                                      Draft
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 text-[8px] font-black uppercase tracking-tight">
+                                      Terbit
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 text-center font-mono text-[9.5px] font-bold text-slate-600">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <User className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>{sub.viewsCount}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Lihat */}
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedMateri(sub);
+                                        setMateriSubView('view');
+                                      }}
+                                      title="Lihat Pratinjau Siswa"
+                                      className="p-1 text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100 rounded-lg transition-all cursor-pointer"
+                                      type="button"
+                                    >
+                                      <Play className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {/* Edit */}
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedMateri(sub);
+                                        setFormMateriTitle(sub.name);
+                                        setFormMateriSubject(sub.mataPelajaran || (mapelName === 'Ilmu Pengetahuan Alam' ? 'Ilmu Pengetahuan Alam (IPA)' : mapelName === 'Pendidikan Pancasila' ? 'Pendidikan Pancasila (PPKn)' : mapelName));
+                                        setFormMateriProgram(sub.program || 'Paket C');
+                                        setFormMateriClass(sub.kelas || 'Kelas X - Paket C');
+                                        setFormMateriPertemuan(String(sub.pertemuan || 1));
+                                        const materiBackend = sub as any;
+
+                                        setFormMateriSubjectId(
+                                          materiBackend.backendMapelId || ''
+                                        );
+                                        setFormMateriSubject(
+                                          materiBackend.mataPelajaran || ''
+                                        );
+
+                                        setFormMateriRombelId(
+                                          materiBackend.backendRombelId || ''
+                                        );
+                                        setFormMateriCompetencyId(
+                                          materiBackend.backendCompetencyId || ''
+                                        );
+
+                                        setFormMateriTanggalPublikasi(
+                                          sub.tanggalPublikasi ||
+                                          new Date().toISOString().split('T')[0]
+                                        );
+                                        setFormMateriIsDraft(!!sub.isDraft);
+                                        setFormMateriVideoUrl(sub.videoUrl || '');
+                                        setFormMateriContent(sub.textBody || '');
+
+                                        // File lama tetap tersimpan di backend.
+                                        // File hanya diganti bila guru memilih file baru.
+                                        setFormMateriFile(null);
+                                        setFormMateriAttachment(null);
+
+                                        setMateriSubView('edit');
+                                      }}
+                                      title="Edit Materi"
+                                      className="p-1 text-pink-600 hover:bg-pink-50 border border-transparent hover:border-pink-100 rounded-lg transition-all cursor-pointer"
+                                      type="button"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {/* Duplikat */}
+                                    <button 
+                                      onClick={() => handleDuplicateMateri(sub)}
+                                      title="Duplikat Materi"
+                                      className="p-1 text-amber-600 hover:bg-amber-50 border border-transparent hover:border-amber-100 rounded-lg transition-all cursor-pointer"
+                                      type="button"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {/* Hapus */}
+                                    <button 
+                                      onClick={() => setShowDeleteMateriConfirm(sub)}
+                                      title="Hapus Materi"
+                                      className="p-1 text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-all cursor-pointer"
+                                      type="button"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            ) : materiSubView === 'add' || materiSubView === 'edit' ? (
+              <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
+                <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 border border-slate-150 shadow-sm space-y-5">
+                  
+                  {/* Info banner */}
+                  <div className="bg-gradient-to-r from-pink-50 to-indigo-50 p-3.5 rounded-2xl border border-pink-100/50 flex gap-3 items-start">
+                    <Sparkles className="w-5 h-5 text-pink-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h4 className="text-[10px] font-black text-slate-800">
+                        {materiSubView === 'add' ? 'Formulir Unggah Modul Ajar' : 'Formulir Perbarui Modul Ajar'}
+                      </h4>
+                      <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
+                        Isi parameter materi ajar secara rinci. Modul ajar yang lengkap dengan teks manual dan tautan video akan sangat mempermudah pemahaman mandiri siswa kesetaraan.
+                      </p>
+                    </div>
+                  </div>
+
+                  <form 
+                    onSubmit={materiSubView === 'add' ? handleCreateMateri : handleEditMateriSubmit} 
+                    className="space-y-4 text-xs font-semibold text-slate-500"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Mapel */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Mata Pelajaran (Dropdown Wajib)</label>
+                        <select
+                          value={formMateriSubjectId}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const selectedMapel = guruMateriOptions.mapel.find(
+                              (item: any) => item.id === selectedId
+                            );
+
+                            setFormMateriSubjectId(selectedId);
+                            setFormMateriSubject(selectedMapel?.nama || '');
+                            setFormMateriProgram(selectedMapel?.paket || '');
+                          }}
+                          disabled={guruMateriLoading || guruMateriOptions.mapel.length === 0}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all disabled:opacity-60"
+                        >
+                          {guruMateriOptions.mapel.length === 0 ? (
+                            <option value="">Tidak ada mapel yang diampu</option>
+                          ) : (
+                            guruMateriOptions.mapel.map((item: any) => (
+                              <option key={item.id} value={item.id}>
+                                {item.nama}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+
+                      {/* Judul */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Judul Materi (Bebas)</label>
+                        <input 
+                          type="text" 
+                          required
+                          placeholder="Misal: Struktur Organ Hewan Mamalia"
+                          value={formMateriTitle}
+                          onChange={(e) => setFormMateriTitle(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Program */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Program Kesetaraan
+                        </label>
+                        <input
+                          type="text"
+                          value={formMateriProgram}
+                          readOnly
+                          placeholder="Mengikuti rombel"
+                          className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 cursor-not-allowed"
+                        />
+                      </div>
+
+                      {/* Kelas */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Rombel Kelas</label>
+                        <select
+                          value={formMateriRombelId}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const selectedRombel = guruMateriOptions.rombel.find(
+                              (item: any) => item.id === selectedId
+                            );
+
+                            setFormMateriRombelId(selectedId);
+                            setFormMateriClass(selectedRombel?.nama_rombel || '');
+                            setFormMateriProgram(selectedRombel?.paket || '');
+                          }}
+                          disabled={guruMateriLoading || guruMateriOptions.rombel.length === 0}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none disabled:opacity-60"
+                        >
+                          {guruMateriOptions.rombel.length === 0 ? (
+                            <option value="">Tidak ada rombel yang diampu</option>
+                          ) : (
+                            guruMateriOptions.rombel.map((item: any) => (
+                              <option key={item.id} value={item.id}>
+                                {item.nama_rombel}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">
+                        Kompetensi / SKK
+                      </label>
+                      <select
+                        value={formMateriCompetencyId}
+                        onChange={(e) => setFormMateriCompetencyId(e.target.value)}
+                        disabled={
+                          guruMateriLoading ||
+                          filteredMateriCompetencies.length === 0
+                        }
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none disabled:opacity-60"
+                      >
+                        {filteredMateriCompetencies.length === 0 ? (
+                          <option value="">Belum ada kompetensi untuk mapel ini</option>
+                        ) : (
+                          filteredMateriCompetencies.map((item: any) => (
+                            <option key={item.id} value={item.id}>
+                              {item.nama_kompetensi} ({item.bobot_skk} SKK)
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Pertemuan */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Pertemuan Ke-</label>
+                        <input 
+                          type="number" 
+                          min="1"
+                          required
+                          value={formMateriPertemuan}
+                          onChange={(e) => setFormMateriPertemuan(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Tanggal Publikasi */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Tanggal Publikasi</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={formMateriTanggalPublikasi}
+                          onChange={(e) => setFormMateriTanggalPublikasi(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-850 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Status */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Status Publikasi</label>
+                      <div className="flex gap-4 p-3 bg-slate-50/50 border border-slate-200 rounded-xl">
+                        <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="materi_status"
+                            checked={!formMateriIsDraft}
+                            onChange={() => setFormMateriIsDraft(false)}
+                            className="text-pink-600 focus:ring-pink-500 cursor-pointer"
+                          />
+                          <span>Segera Publikasikan</span>
+                        </label>
+                        <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="materi_status"
+                            checked={formMateriIsDraft}
+                            onChange={() => setFormMateriIsDraft(true)}
+                            className="text-pink-600 focus:ring-pink-500 cursor-pointer"
+                          />
+                          <span>Simpan Sebagai Draft</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Video URL */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Tautan Video Pembelajaran (YouTube/Lainnya)</label>
+                      <input 
+                        type="text" 
+                        placeholder="Contoh: https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                        value={formMateriVideoUrl}
+                        onChange={(e) => setFormMateriVideoUrl(e.target.value)}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* File Utama */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          File Modul Utama
+                        </label>
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx"
+                          onChange={(e) =>
+                            setFormMateriFile(e.target.files?.[0] || null)
+                          }
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                        <p className="text-[8px] text-slate-400">
+                          Format: PDF, DOC, atau DOCX.
+                        </p>
+                      </div>
+
+                      {/* Lampiran */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Lampiran Tambahan
+                        </label>
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png"
+                          onChange={(e) =>
+                            setFormMateriAttachment(e.target.files?.[0] || null)
+                          }
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                        <p className="text-[8px] text-slate-400">
+                          Opsional: dokumen, gambar, atau lembar kerja.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Text manual content */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Materi Manual / Rangkuman Bacaan</label>
+                      <textarea 
+                        placeholder="Tulis ringkasan pokok-pokok kajian materi pembelajaran di sini agar siswa langsung bisa membacanya di dasbor..."
+                        value={formMateriContent}
+                        onChange={(e) => setFormMateriContent(e.target.value)}
+                        rows={8}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all resize-none font-sans"
+                      />
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-150 flex gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setMateriSubView('list');
+                          setSelectedMateri(null);
+                        }}
+                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer text-center"
+                      >
+                        Kembali ke Daftar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={guruMateriSaving}
+                        className="flex-1 py-3 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black shadow-md shadow-pink-500/10 transition-all cursor-pointer text-center flex items-center justify-center gap-2"
+                      >
+                        {guruMateriSaving && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        {guruMateriSaving
+                          ? 'Menyimpan...'
+                          : materiSubView === 'add'
+                            ? 'Publikasikan Modul'
+                            : 'Simpan Perubahan'}
+                      </button>
+                    </div>
+
+                  </form>
+                </div>
+              </div>
+            ) : materiSubView === 'view' && selectedMateri ? (
+              // LIHAT MATERI: EXACT STUDENT EXPERIENCE
+              <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+                
+                {/* Preview Banner */}
+                <div className="bg-indigo-900 text-indigo-100 px-5 py-2 text-[10px] font-black flex items-center justify-between shrink-0 select-none border-b border-indigo-950">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                    <span>Mode Pratinjau Guru: Anda melihat halaman materi persis seperti yang tampil di layar siswa.</span>
+                  </span>
+                  <button 
+                    onClick={() => {
+                      setMateriSubView('list');
+                      setSelectedMateri(null);
+                    }}
+                    className="px-2 py-0.5 bg-indigo-800 hover:bg-indigo-700 text-white rounded font-bold transition-all cursor-pointer text-[8.5px]"
+                    type="button"
+                  >
+                    Tutup Pratinjau
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                  
+                  {/* Subject Header card */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100">
+                        <BookOpen className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-[10px] text-slate-400 uppercase font-black">
+                          {selectedMateri.name}
+                        </h3>
+                        <h4 className="text-xs font-extrabold text-slate-800">Topik Pembelajaran Mandiri</h4>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tabs identical to student */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="space-y-3">
+                      <h5 className="font-extrabold text-xs text-slate-850">Kajian Materi Mandiri</h5>
+                      <p className="font-serif text-xs leading-relaxed text-slate-600 whitespace-pre-wrap">
+                        {selectedMateri.textBody}
+                      </p>
+                      
+                      <div className="pt-3 border-t border-slate-100 space-y-2">
+                        {selectedMateri.fileUrl ? (
+                          <div className="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                            <div className="min-w-0">
+                              <p className="text-[8px] font-black text-slate-400 uppercase">
+                                Modul Utama
+                              </p>
+                              <p className="text-[9px] font-bold text-slate-700 truncate">
+                                {selectedMateri.fileName || 'File materi'}
+                              </p>
+                            </div>
+
+                            <a
+                              href={selectedMateri.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download
+                              className="shrink-0 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-lg text-[8px] font-black flex items-center gap-1 transition-colors"
+                            >
+                              <FileDown className="w-3.5 h-3.5" />
+                              Unduh Materi
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[9px] text-slate-400 font-bold">
+                            File modul belum diunggah.
+                          </div>
+                        )}
+
+                        {selectedMateri.lampiranUrl && (
+                          <div className="flex items-center justify-between gap-3 p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+                            <div className="min-w-0">
+                              <p className="text-[8px] font-black text-indigo-400 uppercase">
+                                Lampiran Tambahan
+                              </p>
+                              <p className="text-[9px] font-bold text-indigo-700 truncate">
+                                {selectedMateri.lampiranName || 'Lampiran materi'}
+                              </p>
+                            </div>
+
+                            <a
+                              href={selectedMateri.lampiranUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download
+                              className="shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[8px] font-black flex items-center gap-1 transition-colors"
+                            >
+                              <FileDown className="w-3.5 h-3.5" />
+                              Unduh Lampiran
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedMateri.videoUrl && (() => {
+                        const videoUrl = selectedMateri.videoUrl.trim();
+
+                        let youtubeVideoId = '';
+
+                        try {
+                          const parsedUrl = new URL(videoUrl);
+
+                          if (
+                            parsedUrl.hostname.includes('youtube.com')
+                          ) {
+                            youtubeVideoId =
+                              parsedUrl.searchParams.get('v') ||
+                              parsedUrl.pathname
+                                .split('/')
+                                .filter(Boolean)
+                                .pop() ||
+                              '';
+                          } else if (
+                            parsedUrl.hostname.includes('youtu.be')
+                          ) {
+                            youtubeVideoId =
+                              parsedUrl.pathname
+                                .split('/')
+                                .filter(Boolean)
+                                .pop() ||
+                              '';
+                          }
+                        } catch {
+                          youtubeVideoId = '';
+                        }
+
+                        return (
+                          <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                            <h5 className="font-extrabold text-xs text-slate-850">
+                              Video Pembelajaran
+                            </h5>
+
+                            {youtubeVideoId ? (
+                              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm">
+                                <div className="aspect-video">
+                                  <iframe
+                                    src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                                    title={`Video pembelajaran ${selectedMateri.name}`}
+                                    className="w-full h-full"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                    allowFullScreen
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <a
+                                href={videoUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl border border-indigo-100 text-[9px] text-indigo-600 font-bold flex items-center justify-between transition-colors"
+                              >
+                                <span className="truncate max-w-[300px]">
+                                  {videoUrl}
+                                </span>
+                                <span className="px-2 py-1 bg-white border border-indigo-200 rounded-lg font-black text-[8px] uppercase">
+                                  Buka Video
+                                </span>
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            ) : null}
+
+          </div>
+        ) : currentView === 'tugas' ? (
+          /* FULL-PAGE TUGAS VIEW */
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 text-[10.5px]">
+            {/* 1. Header Area */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    setCurrentView('dashboard');
+                    setTugasSubView('list');
+                  }}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-sm font-extrabold text-slate-800">Kelola Tugas Pembelajaran</h2>
+                  <p className="text-[9px] text-slate-400 font-medium">Buat tugas baru, pantau pengumpulan siswa, dan lakukan penilaian</p>
+                </div>
+              </div>
+              
+              {tugasSubView === 'list' && (
+                <button 
+                  onClick={() => {
+                    const firstMapel = guruMateriOptions.mapel[0];
+                    const firstRombel = guruMateriOptions.rombel[0];
+                    const firstCompetency =
+                      guruMateriOptions.kompetensi.find(
+                        (item: any) =>
+                          item.subject === firstMapel?.id
+                      );
+
+                    setTugasSubView('add');
+                    setSelectedTaskForEdit(null);
+
+                    setFormTugasTitle('');
+                    setFormTugasSubjectId(firstMapel?.id || '');
+                    setFormTugasSubject(firstMapel?.nama || '');
+
+                    setFormTugasRombelId(firstRombel?.id || '');
+                    setFormTugasClass(
+                      firstRombel?.nama_rombel || ''
+                    );
+
+                    setFormTugasCompetencyId(
+                      firstCompetency?.id || ''
+                    );
+
+                    setFormTugasProgram(
+                      firstRombel?.paket ||
+                      firstMapel?.paket ||
+                      ''
+                    );
+                    setFormTugasSemester(
+                      firstRombel?.semester || ''
+                    );
+                    setFormTugasTahunAjaran(
+                      firstRombel?.tahun_ajaran ||
+                      activeAcademicYear?.nama ||
+                      ''
+                    );
+
+                    setFormTugasPertemuan('1');
+                    setFormTugasDescription('');
+                    setFormTugasLampiran('');
+                    setFormTugasLampiranFile(null);
+                    setFormTugasVideoUrl('');
+                    setFormTugasStartDate(
+                      new Date().toISOString().split('T')[0]
+                    );
+                    setFormTugasDueDate('');
+                    setFormTugasMaxGrade('100');
+                    setFormTugasBobot('10');
+                    setFormTugasStatus('Dipublikasikan');
+                  }}
+                  className="px-3.5 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-black shadow-md shadow-pink-500/15 flex items-center gap-1.5 transition-all cursor-pointer"
+                  type="button"
+                >
+                  <Plus className="w-4 h-4" /> Tambah Tugas
+                </button>
+              )}
+            </div>
+
+            {tugasSubView === 'list' && (
+              /* SUBVIEW: LIST OF ALL TASKS */
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 no-scrollbar">
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-150 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-650">
+                    <span className="font-extrabold text-xs">Daftar Tugas Mandiri Anda ({guruTugas.length})</span>
+                  </div>
+                  <span className="text-[9px] text-pink-600 font-bold bg-pink-50 px-2.5 py-1 rounded-full uppercase tracking-wider font-mono">T.A. {activeAcademicYear?.nama} • Semester {activeAcademicYear?.semester}</span>
+                </div>
+
+                {/* Kolom Pencarian Realtime */}
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-150 shadow-sm">
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
+                    <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input 
+                      type="text" 
+                      placeholder="Cari tugas berdasarkan judul, mapel, guru, atau deskripsi..." 
+                      value={tugasSearch}
+                      onChange={(e) => setTugasSearch(e.target.value)}
+                      className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none placeholder-slate-400"
+                    />
+                    {tugasSearch && (
+                      <button onClick={() => setTugasSearch('')} className="text-slate-400 hover:text-slate-600 text-xs font-black">✕</button>
+                    )}
+                  </div>
+                </div>
+
+                {(() => {
+                  const filteredTasks = guruTugas.filter(task => {
+                    if (!tugasSearch.trim()) return true;
+                    const query = tugasSearch.toLowerCase();
+                    const taskTeacher = (teachers || []).find(t => t.id === task.teacherId);
+                    const teacherName = taskTeacher ? taskTeacher.nama : (loggedInTeacher?.nama || '');
+                    return (
+                      (task.title || '').toLowerCase().includes(query) ||
+                      (task.subject || '').toLowerCase().includes(query) ||
+                      teacherName.toLowerCase().includes(query) ||
+                      (task.description || '').toLowerCase().includes(query)
+                    );
+                  });
+
+                  if (guruTugas.length === 0) {
+                    return (
+                      <div className="bg-white rounded-3xl border border-slate-150 p-12 text-center shadow-sm">
+                        <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3 animate-pulse" />
+                        <h4 className="text-xs font-black text-slate-800">Belum Ada Tugas yang Dibuat</h4>
+                        <p className="text-[9.5px] text-slate-400 font-medium max-w-xs mx-auto mt-1">Buat tugas mandiri pertama Anda dengan mengeklik tombol "+ Tambah Tugas" di pojok kanan atas.</p>
+                      </div>
+                    );
+                  }
+
+                  if (filteredTasks.length === 0) {
+                    return (
+                      <div className="py-12 text-center bg-white border border-dashed border-slate-200 rounded-3xl">
+                        <Search className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="text-xs font-bold text-slate-500">Tugas tidak ditemukan.</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Coba ubah kata kunci pencarian Anda.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredTasks.map((task) => {
+                        const taskSubs = (localTaskSubmissions || []).filter(sub => sub.taskId === task.id && sub.status !== 'Draft');
+                        const submittedCount = taskSubs.length;
+                        const matchingStudents = students.filter(s => {
+                          const sClass = s.kelas || '';
+                          const sProg = s.program || '';
+                          return sClass.toLowerCase() === task.kelas.toLowerCase() || sProg.toLowerCase() === task.program.toLowerCase();
+                        });
+                        const classTotalStudents = matchingStudents.length > 0 ? matchingStudents.length : 15;
+                        const unsubmittedCount = Math.max(0, classTotalStudents - submittedCount);
+
+                        return (
+                          <div 
+                            key={task.id} 
+                            className="bg-white p-4 rounded-3xl border border-slate-150 shadow-sm hover:shadow-md transition-all flex flex-col gap-3 group relative"
+                          >
+                            <div className="flex justify-between items-start gap-2">
+                              <div className="flex items-start gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-50 to-indigo-50 flex items-center justify-center text-pink-600 shrink-0 border border-pink-100">
+                                  <FileText className="w-4 h-4" />
+                                </div>
+                                <div className="space-y-0.5">
+                                  <h4 className="font-extrabold text-xs text-slate-850 group-hover:text-pink-600 transition-colors line-clamp-1">{task.title}</h4>
+                                  <span className="inline-block text-[8.5px] font-black text-slate-450">{task.subject} • Pertemuan {task.pertemuan || 1}</span>
+                                </div>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase ${
+                                task.status === 'Dipublikasikan' ? 'bg-emerald-100 text-emerald-700' :
+                                task.status === 'Draft' ? 'bg-amber-100 text-amber-700' : 'bg-slate-150 text-slate-600'
+                              }`}>
+                                {task.status}
+                              </span>
+                            </div>
+
+                            <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100 grid grid-cols-2 gap-y-1.5 gap-x-2 text-[8.5px] font-semibold text-slate-500">
+                              <div>Program: <span className="text-slate-800 font-black">{task.program}</span></div>
+                              <div>Kelas: <span className="text-slate-800 font-black">{task.kelas}</span></div>
+                              <div>Semester: <span className="text-slate-800 font-black">{task.semester}</span></div>
+                              <div>Tahun Ajaran: <span className="text-slate-800 font-black">{task.tahunAjaran}</span></div>
+                            </div>
+
+                            <div className="pt-1.5 flex justify-between items-center text-[8.5px] font-bold text-slate-400">
+                              <div>
+                                Dibuat: <span className="text-slate-650 font-black">{task.createdDate || '-'}</span>
+                              </div>
+                              <div className="text-rose-600 font-black flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-rose-500" /> Batas: {task.dueDate}
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                              <div className="bg-emerald-50/50 p-2 rounded-xl text-center border border-emerald-100/50">
+                                <div className="text-xs font-black text-emerald-700">{submittedCount} Siswa</div>
+                                <div className="text-[7.5px] text-emerald-500 font-bold uppercase mt-0.5">Sudah Mengumpulkan</div>
+                              </div>
+                              <div className="bg-rose-50/30 p-2 rounded-xl text-center border border-rose-100/30">
+                                <div className="text-xs font-black text-rose-700">{unsubmittedCount} Siswa</div>
+                                <div className="text-[7.5px] text-rose-500 font-bold uppercase mt-0.5">Belum Mengumpulkan</div>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-1.5 pt-2 border-t border-slate-100">
+                              <button 
+                                onClick={() => {
+                                  setSelectedTaskForSubmissions(task);
+                                  setTugasSubView('submissions');
+                                }}
+                                className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-black transition-all cursor-pointer flex items-center justify-center gap-1"
+                                type="button"
+                              >
+                                <Award className="w-3 h-3" /> Lihat Pengumpulan
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  const backendTask = task as any;
+
+                                  setSelectedTaskForEdit(task);
+                                  setFormTugasTitle(task.title);
+
+                                  setFormTugasSubjectId(
+                                    backendTask.backendMapelId || ''
+                                  );
+                                  setFormTugasSubject(
+                                    task.subject || ''
+                                  );
+
+                                  setFormTugasRombelId(
+                                    backendTask.backendRombelId || ''
+                                  );
+                                  setFormTugasClass(
+                                    task.kelas || ''
+                                  );
+
+                                  setFormTugasCompetencyId(
+                                    backendTask.backendCompetencyId || ''
+                                  );
+
+                                  setFormTugasProgram(
+                                    task.program || ''
+                                  );
+                                  setFormTugasSemester(
+                                    task.semester || ''
+                                  );
+                                  setFormTugasTahunAjaran(
+                                    task.tahunAjaran || ''
+                                  );
+                                  setFormTugasPertemuan(
+                                    task.pertemuan?.toString() || '1'
+                                  );
+                                  setFormTugasDescription(
+                                    task.description || ''
+                                  );
+
+                                  // Nama file lama hanya untuk informasi.
+                                  // File backend tidak berubah kecuali guru memilih file baru.
+                                  setFormTugasLampiran(
+                                    task.lampiran
+                                      ? String(task.lampiran)
+                                          .split('/')
+                                          .pop() || ''
+                                      : ''
+                                  );
+                                  setFormTugasLampiranFile(null);
+
+                                  setFormTugasVideoUrl(
+                                    task.videoUrl || ''
+                                  );
+                                  setFormTugasStartDate(
+                                    task.startDate ||
+                                    new Date()
+                                      .toISOString()
+                                      .split('T')[0]
+                                  );
+                                  setFormTugasDueDate(
+                                    task.dueDate || ''
+                                  );
+                                  setFormTugasMaxGrade(
+                                    task.maxGrade?.toString() || '100'
+                                  );
+                                  setFormTugasBobot(
+                                    task.bobotNilai?.toString() || '10'
+                                  );
+                                  setFormTugasStatus(task.status);
+                                  setTugasSubView('edit');
+                                }}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black transition-all cursor-pointer"
+                                title="Edit Tugas"
+                                type="button"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (
+                                    !confirm(
+                                      'Apakah Anda yakin ingin menghapus tugas ini?'
+                                    )
+                                  ) {
+                                    return;
+                                  }
+
+                                  try {
+                                    await api.deleteGuruTugas(task.id);
+
+                                    setGuruTugas(prev =>
+                                      prev.filter(item => item.id !== task.id)
+                                    );
+
+                                    showModal(
+                                      'Tugas Dihapus',
+                                      `Tugas "${task.title}" berhasil dihapus.`,
+                                      'info'
+                                    );
+                                  } catch (error) {
+                                    console.error(
+                                      'Gagal menghapus tugas:',
+                                      error
+                                    );
+
+                                    showModal(
+                                      'Tugas Gagal Dihapus',
+                                      'Tugas belum dapat dihapus dari server.',
+                                      'warning'
+                                    );
+                                  }
+                                }}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[9px] font-black transition-all cursor-pointer"
+                                title="Hapus Tugas"
+                                type="button"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* SUBVIEW: ADD TUGAS FORM */}
+            {tugasSubView === 'add' && (
+              <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
+                <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 border border-slate-150 shadow-sm space-y-5">
+                  <div className="bg-gradient-to-r from-pink-50 to-indigo-50 p-3.5 rounded-2xl border border-pink-100/50 flex gap-3 items-start">
+                    <Sparkles className="w-5 h-5 text-pink-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h4 className="text-[10px] font-black text-slate-800">Panduan Membuat Tugas Baru</h4>
+                      <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
+                        Tentukan target kelas dan program akademik secara presisi. Tugas yang sudah dipublikasikan akan langsung muncul di Dashboard Siswa dan siap dikerjakan sesuai tenggat waktu.
+                      </p>
+                    </div>
+                  </div>
+
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+
+                      if (!formTugasMateriId) {
+                        showModal(
+                          'Materi Belum Dipilih',
+                          'Pilih materi yang akan diberi tugas.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      if (!formTugasTitle.trim()) {
+                        showModal(
+                          'Input Tidak Lengkap',
+                          'Judul tugas tidak boleh kosong.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      if (!formTugasStartDate || !formTugasDueDate) {
+                        showModal(
+                          'Tanggal Belum Lengkap',
+                          'Tanggal mulai dan batas pengumpulan harus diisi.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      if (formTugasDueDate < formTugasStartDate) {
+                        showModal(
+                          'Tanggal Tidak Valid',
+                          'Deadline tidak boleh sebelum tanggal mulai.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      try {
+                        setGuruTugasSaving(true);
+
+                        const payload = new FormData();
+
+                        payload.append('materi', formTugasMateriId);
+                        payload.append('judul', formTugasTitle.trim());
+                        payload.append(
+                          'deskripsi',
+                          formTugasDescription || ''
+                        );
+                        payload.append(
+                          'nomor_pertemuan',
+                          String(parseInt(formTugasPertemuan) || 1)
+                        );
+                        payload.append(
+                          'video_url',
+                          formTugasVideoUrl || ''
+                        );
+                        payload.append(
+                          'tanggal_mulai',
+                          formTugasStartDate
+                        );
+                        payload.append(
+                          'batas_pengumpulan',
+                          formTugasDueDate
+                        );
+                        payload.append(
+                          'nilai_maksimum',
+                          String(parseInt(formTugasMaxGrade) || 100)
+                        );
+                        payload.append(
+                          'bobot_nilai',
+                          String(parseInt(formTugasBobot) || 10)
+                        );
+                        payload.append(
+                          'status',
+                          formTugasStatus === 'Dipublikasikan'
+                            ? 'PUBLISHED'
+                            : formTugasStatus === 'Ditutup'
+                              ? 'CLOSED'
+                              : 'DRAFT'
+                        );
+
+                        if (formTugasLampiranFile) {
+                          payload.append(
+                            'file_lampiran',
+                            formTugasLampiranFile
+                          );
+                        }
+
+                        const created =
+                          await api.createGuruTugas(payload);
+
+                        const mappedTask: Task = {
+                          id: String(created.id),
+                          title: created.judul || '',
+                          subject:
+                            created.mata_pelajaran_nama || '',
+                          program: created.program || '',
+                          kelas: created.rombel_nama || '',
+                          semester: created.semester || '',
+                          tahunAjaran:
+                            created.tahun_ajaran || '',
+                          pertemuan:
+                            created.nomor_pertemuan || 1,
+                          description:
+                            created.deskripsi || '',
+                          lampiran:
+                            created.file_lampiran || '',
+                          videoUrl:
+                            created.video_url || '',
+                          startDate:
+                            created.tanggal_mulai || '',
+                          dueDate:
+                            created.batas_pengumpulan || '',
+                          maxGrade:
+                            created.nilai_maksimum || 100,
+                          bobotNilai:
+                            created.bobot_nilai || 10,
+                          status:
+                            created.status === 'PUBLISHED'
+                              ? 'Dipublikasikan'
+                              : created.status === 'CLOSED'
+                                ? 'Ditutup'
+                                : 'Draft',
+                          createdDate: created.created_at
+                            ? new Date(
+                                created.created_at
+                              ).toLocaleDateString('id-ID')
+                            : '',
+                          teacherId: created.guru || '',
+                          backendMapelId:
+                            created.mata_pelajaran || '',
+                          backendRombelId:
+                            created.rombel || '',
+                          backendCompetencyId:
+                            created.kompetensi || '',
+                          backendMateriId:
+                            created.materi || '',
+                          materiJudul:
+                            created.materi_judul || '',
+                          lampiranUrl:
+                            created.file_lampiran || ''
+                        } as Task;
+
+                        setGuruTugas(prev => [
+                          mappedTask,
+                          ...prev
+                        ]);
+
+                        showModal(
+                          'Tugas Berhasil Dibuat',
+                          `Tugas "${formTugasTitle}" telah disimpan.`,
+                          'success'
+                        );
+
+                        setTugasSubView('list');
+                      } catch (error) {
+                        console.error(
+                          'Gagal menyimpan tugas:',
+                          error
+                        );
+
+                        showModal(
+                          'Tugas Gagal Disimpan',
+                          'Tugas belum dapat disimpan ke server.',
+                          'warning'
+                        );
+                      } finally {
+                        setGuruTugasSaving(false);
+                      }
+                    }}
+                    className="space-y-4 text-slate-500"
+                  >
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">
+                        Materi Terkait
+                      </label>
+                      <select
+                        value={formTugasMateriId}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          const selectedMateri = guruMateri.find(
+                            (item: any) => item.id === selectedId
+                          ) as any;
+
+                          setFormTugasMateriId(selectedId);
+                          setFormTugasMateriJudul(
+                            selectedMateri?.title ||
+                            selectedMateri?.judul ||
+                            ''
+                          );
+
+                          if (!selectedMateri) return;
+
+                          setFormTugasSubjectId(
+                            selectedMateri.backendMapelId ||
+                            selectedMateri.mata_pelajaran ||
+                            ''
+                          );
+                          setFormTugasSubject(
+                            selectedMateri.subject ||
+                            selectedMateri.mata_pelajaran_nama ||
+                            ''
+                          );
+                          setFormTugasRombelId(
+                            selectedMateri.backendRombelId ||
+                            selectedMateri.rombel ||
+                            ''
+                          );
+                          setFormTugasClass(
+                            selectedMateri.kelas ||
+                            selectedMateri.rombel_nama ||
+                            ''
+                          );
+                          setFormTugasCompetencyId(
+                            selectedMateri.backendCompetencyId ||
+                            selectedMateri.kompetensi ||
+                            ''
+                          );
+                          setFormTugasProgram(
+                            selectedMateri.program || ''
+                          );
+                          setFormTugasSemester(
+                            selectedMateri.semester || ''
+                          );
+                          setFormTugasTahunAjaran(
+                            selectedMateri.tahunAjaran ||
+                            selectedMateri.tahun_ajaran ||
+                            activeAcademicYear?.nama ||
+                            ''
+                          );
+                          setFormTugasPertemuan(
+                            String(
+                              selectedMateri.pertemuan ||
+                              selectedMateri.nomor_pertemuan ||
+                              1
+                            )
+                          );
+                        }}
+                        disabled={
+                          guruMateriLoading ||
+                          guruMateri.length === 0
+                        }
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all disabled:opacity-60"
+                      >
+                        <option value="">
+                          Pilih materi yang akan diberi tugas
+                        </option>
+                        {guruMateri.map((item: any) => (
+                          <option key={item.id} value={item.id}>
+                            {item.title || item.judul}
+                          </option>
+                        ))}
+                      </select>
+
+                      {guruMateri.length === 0 && !guruMateriLoading && (
+                        <p className="text-[9px] font-bold text-orange-600">
+                          Buat materi terlebih dahulu sebelum membuat tugas.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Judul Tugas Mandiri</label>
+                      <input 
+                        type="text" 
+                        required
+                        placeholder="Misal: Menyusun Teks Eksplanasi Fenomena Alam"
+                        value={formTugasTitle}
+                        onChange={(e) => setFormTugasTitle(e.target.value)}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Mata Pelajaran
+                        </label>
+                        <select
+                          value={formTugasSubjectId}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const selectedMapel =
+                              guruMateriOptions.mapel.find(
+                                (item: any) =>
+                                  item.id === selectedId
+                              );
+
+                            setFormTugasSubjectId(selectedId);
+                            setFormTugasSubject(
+                              selectedMapel?.nama || ''
+                            );
+                            setFormTugasProgram(
+                              selectedMapel?.paket || ''
+                            );
+                          }}
+                          disabled={
+                            guruMateriLoading ||
+                            guruMateriOptions.mapel.length === 0
+                          }
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all disabled:opacity-60"
+                        >
+                          {guruMateriOptions.mapel.length === 0 ? (
+                            <option value="">
+                              Tidak ada mapel yang diampu
+                            </option>
+                          ) : (
+                            guruMateriOptions.mapel.map(
+                              (item: any) => (
+                                <option
+                                  key={item.id}
+                                  value={item.id}
+                                >
+                                  {item.nama}
+                                </option>
+                              )
+                            )
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Program Pendidikan
+                        </label>
+                        <input
+                          type="text"
+                          value={formTugasProgram}
+                          disabled
+                          className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Kelas/Rombel Sasaran
+                        </label>
+                        <select
+                          value={formTugasRombelId}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const selectedRombel =
+                              guruMateriOptions.rombel.find(
+                                (item: any) =>
+                                  item.id === selectedId
+                              );
+
+                            setFormTugasRombelId(selectedId);
+                            setFormTugasClass(
+                              selectedRombel?.nama_rombel || ''
+                            );
+                            setFormTugasProgram(
+                              selectedRombel?.paket || ''
+                            );
+                            setFormTugasSemester(
+                              selectedRombel?.semester || ''
+                            );
+                            setFormTugasTahunAjaran(
+                              selectedRombel?.tahun_ajaran ||
+                              activeAcademicYear?.nama ||
+                              ''
+                            );
+                          }}
+                          disabled={
+                            guruMateriLoading ||
+                            guruMateriOptions.rombel.length === 0
+                          }
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all disabled:opacity-60"
+                        >
+                          {guruMateriOptions.rombel.length === 0 ? (
+                            <option value="">
+                              Tidak ada rombel yang diampu
+                            </option>
+                          ) : (
+                            guruMateriOptions.rombel.map(
+                              (item: any) => (
+                                <option
+                                  key={item.id}
+                                  value={item.id}
+                                >
+                                  {item.nama_rombel}
+                                </option>
+                              )
+                            )
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Pertemuan Ke-</label>
+                        <input 
+                          type="number" 
+                          required
+                          value={formTugasPertemuan}
+                          onChange={(e) => setFormTugasPertemuan(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">
+                        Kompetensi / SKK
+                      </label>
+                      <select
+                        value={formTugasCompetencyId}
+                        onChange={(e) =>
+                          setFormTugasCompetencyId(e.target.value)
+                        }
+                        disabled={
+                          guruMateriLoading ||
+                          filteredTugasCompetencies.length === 0
+                        }
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all disabled:opacity-60"
+                      >
+                        {filteredTugasCompetencies.length === 0 ? (
+                          <option value="">
+                            Belum ada kompetensi untuk mapel ini
+                          </option>
+                        ) : (
+                          filteredTugasCompetencies.map(
+                            (item: any) => (
+                              <option
+                                key={item.id}
+                                value={item.id}
+                              >
+                                {item.nama_kompetensi} ({item.bobot_skk} SKK)
+                              </option>
+                            )
+                          )
+                        )}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Petunjuk / Deskripsi Soal</label>
+                      <textarea 
+                        required
+                        placeholder="Tuliskan petunjuk pengerjaan tugas secara rinci..."
+                        value={formTugasDescription}
+                        onChange={(e) => setFormTugasDescription(e.target.value)}
+                        rows={5}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all resize-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Lampiran Berkas Soal</label>
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png"
+                          onChange={(e) => {
+                            const file =
+                              e.target.files?.[0] || null;
+
+                            setFormTugasLampiranFile(file);
+                            setFormTugasLampiran(
+                              file?.name || ''
+                            );
+                          }}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Link Video Pendukung (Opsional)</label>
+                        <input 
+                          type="text" 
+                          placeholder="Misal: https://youtube.com/..."
+                          value={formTugasVideoUrl}
+                          onChange={(e) => setFormTugasVideoUrl(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Tanggal Mulai Pengerjaan</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={formTugasStartDate}
+                          onChange={(e) => setFormTugasStartDate(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Batas Pengumpulan (Deadline)</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={formTugasDueDate}
+                          onChange={(e) => setFormTugasDueDate(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Nilai Maksimal</label>
+                        <input 
+                          type="number" 
+                          required
+                          value={formTugasMaxGrade}
+                          onChange={(e) => setFormTugasMaxGrade(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Bobot Nilai (%)</label>
+                        <input 
+                          type="number" 
+                          required
+                          value={formTugasBobot}
+                          onChange={(e) => setFormTugasBobot(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Status Tugas</label>
+                        <select 
+                          value={formTugasStatus}
+                          onChange={(e) => setFormTugasStatus(e.target.value as any)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        >
+                          <option value="Dipublikasikan">Dipublikasikan</option>
+                          <option value="Draft">Draft</option>
+                          <option value="Ditutup">Ditutup</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-150 flex gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => setTugasSubView('list')}
+                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer text-center"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={guruTugasSaving}
+                        className="flex-1 py-3 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black shadow-md shadow-pink-500/10 transition-all cursor-pointer text-center flex items-center justify-center gap-2"
+                      >
+                        {guruTugasSaving && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        {guruTugasSaving
+                          ? 'Menyimpan...'
+                          : formTugasStatus === 'Draft'
+                            ? 'Simpan Sebagai Draft'
+                            : formTugasStatus === 'Ditutup'
+                              ? 'Simpan Tugas'
+                              : 'Simpan & Publikasikan Tugas'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* SUBVIEW: EDIT TUGAS FORM */}
+            {tugasSubView === 'edit' && selectedTaskForEdit && (
+              <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
+                <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 border border-slate-150 shadow-sm space-y-5">
+                  <h3 className="text-xs font-extrabold text-slate-800">Edit Tugas: {selectedTaskForEdit.title}</h3>
+
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+
+                      if (!formTugasTitle.trim()) {
+                        showModal(
+                          'Input Tidak Lengkap',
+                          'Judul tugas tidak boleh kosong.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      if (
+                        !formTugasSubjectId ||
+                        !formTugasRombelId ||
+                        !formTugasCompetencyId
+                      ) {
+                        showModal(
+                          'Data Akademik Belum Lengkap',
+                          'Pilih mapel, rombel, dan kompetensi tugas.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      if (!formTugasStartDate || !formTugasDueDate) {
+                        showModal(
+                          'Tanggal Belum Lengkap',
+                          'Tanggal mulai dan batas pengumpulan harus diisi.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      if (formTugasDueDate < formTugasStartDate) {
+                        showModal(
+                          'Tanggal Tidak Valid',
+                          'Batas pengumpulan tidak boleh sebelum tanggal mulai.',
+                          'warning'
+                        );
+                        return;
+                      }
+
+                      try {
+                        setGuruTugasSaving(true);
+
+                        const payload = new FormData();
+
+                        payload.append(
+                          'mata_pelajaran',
+                          formTugasSubjectId
+                        );
+                        payload.append(
+                          'kompetensi',
+                          formTugasCompetencyId
+                        );
+                        payload.append(
+                          'rombel',
+                          formTugasRombelId
+                        );
+                        payload.append(
+                          'judul',
+                          formTugasTitle.trim()
+                        );
+                        payload.append(
+                          'deskripsi',
+                          formTugasDescription || ''
+                        );
+                        payload.append(
+                          'nomor_pertemuan',
+                          String(
+                            parseInt(formTugasPertemuan) || 1
+                          )
+                        );
+                        payload.append(
+                          'video_url',
+                          formTugasVideoUrl || ''
+                        );
+                        payload.append(
+                          'tanggal_mulai',
+                          formTugasStartDate
+                        );
+                        payload.append(
+                          'batas_pengumpulan',
+                          formTugasDueDate
+                        );
+                        payload.append(
+                          'nilai_maksimum',
+                          String(
+                            parseInt(formTugasMaxGrade) || 100
+                          )
+                        );
+                        payload.append(
+                          'bobot_nilai',
+                          String(
+                            parseInt(formTugasBobot) || 10
+                          )
+                        );
+                        payload.append(
+                          'status',
+                          formTugasStatus === 'Dipublikasikan'
+                            ? 'PUBLISHED'
+                            : formTugasStatus === 'Ditutup'
+                              ? 'CLOSED'
+                              : 'DRAFT'
+                        );
+
+                        if (formTugasLampiranFile) {
+                          payload.append(
+                            'file_lampiran',
+                            formTugasLampiranFile
+                          );
+                        }
+
+                        const updated =
+                          await api.updateGuruTugas(
+                            selectedTaskForEdit.id,
+                            payload
+                          );
+
+                        const mappedTask: Task = {
+                          id: String(updated.id),
+                          subject:
+                            updated.mata_pelajaran_nama || '',
+                          title: updated.judul || '',
+                          dueDate:
+                            updated.batas_pengumpulan || '',
+                          startDate:
+                            updated.tanggal_mulai || '',
+                          status:
+                            updated.status === 'PUBLISHED'
+                              ? 'Dipublikasikan'
+                              : updated.status === 'CLOSED'
+                                ? 'Ditutup'
+                                : 'Draft',
+                          description:
+                            updated.deskripsi || '',
+                          program: updated.program || '',
+                          kelas: updated.rombel_nama || '',
+                          semester: updated.semester || '',
+                          tahunAjaran:
+                            updated.tahun_ajaran || '',
+                          pertemuan:
+                            updated.nomor_pertemuan || 1,
+                          lampiran:
+                            updated.file_lampiran || '',
+                          videoUrl:
+                            updated.video_url || '',
+                          maxGrade:
+                            updated.nilai_maksimum || 100,
+                          bobotNilai:
+                            updated.bobot_nilai || 10,
+                          createdDate: updated.created_at
+                            ? new Date(
+                                updated.created_at
+                              ).toLocaleDateString('id-ID')
+                            : selectedTaskForEdit.createdDate,
+                          teacherId: updated.guru || '',
+                          backendMapelId:
+                            updated.mata_pelajaran || '',
+                          backendRombelId:
+                            updated.rombel || '',
+                          backendCompetencyId:
+                            updated.kompetensi || '',
+                          lampiranUrl:
+                            updated.file_lampiran || ''
+                        } as Task;
+
+                        setGuruTugas(prev =>
+                          prev.map(item =>
+                            item.id === mappedTask.id
+                              ? mappedTask
+                              : item
+                          )
+                        );
+
+                        showModal(
+                          'Tugas Berhasil Diperbarui',
+                          `Tugas "${formTugasTitle}" telah disimpan.`,
+                          'success'
+                        );
+
+                        setTugasSubView('list');
+                        setSelectedTaskForEdit(null);
+                        setFormTugasLampiranFile(null);
+                      } catch (error) {
+                        console.error(
+                          'Gagal memperbarui tugas:',
+                          error
+                        );
+
+                        showModal(
+                          'Tugas Gagal Diperbarui',
+                          'Perubahan tugas belum dapat disimpan ke server.',
+                          'warning'
+                        );
+                      } finally {
+                        setGuruTugasSaving(false);
+                      }
+                    }}
+                    className="space-y-4 text-slate-500"
+                  >
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Judul Tugas Mandiri</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={formTugasTitle}
+                        onChange={(e) => setFormTugasTitle(e.target.value)}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Mata Pelajaran
+                        </label>
+                        <select
+                          value={formTugasSubjectId}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const selectedMapel =
+                              guruMateriOptions.mapel.find(
+                                (item: any) =>
+                                  item.id === selectedId
+                              );
+
+                            setFormTugasSubjectId(selectedId);
+                            setFormTugasSubject(
+                              selectedMapel?.nama || ''
+                            );
+                            setFormTugasProgram(
+                              selectedMapel?.paket || ''
+                            );
+                          }}
+                          disabled={
+                            guruMateriLoading ||
+                            guruMateriOptions.mapel.length === 0
+                          }
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all disabled:opacity-60"
+                        >
+                          {guruMateriOptions.mapel.length === 0 ? (
+                            <option value="">
+                              Tidak ada mapel yang diampu
+                            </option>
+                          ) : (
+                            guruMateriOptions.mapel.map(
+                              (item: any) => (
+                                <option
+                                  key={item.id}
+                                  value={item.id}
+                                >
+                                  {item.nama}
+                                </option>
+                              )
+                            )
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Program Pendidikan
+                        </label>
+                        <input
+                          type="text"
+                          value={formTugasProgram}
+                          disabled
+                          className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">
+                          Kelas/Rombel Sasaran
+                        </label>
+                        <select
+                          value={formTugasRombelId}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const selectedRombel =
+                              guruMateriOptions.rombel.find(
+                                (item: any) =>
+                                  item.id === selectedId
+                              );
+
+                            setFormTugasRombelId(selectedId);
+                            setFormTugasClass(
+                              selectedRombel?.nama_rombel || ''
+                            );
+                            setFormTugasProgram(
+                              selectedRombel?.paket || ''
+                            );
+                            setFormTugasSemester(
+                              selectedRombel?.semester || ''
+                            );
+                            setFormTugasTahunAjaran(
+                              selectedRombel?.tahun_ajaran ||
+                              activeAcademicYear?.nama ||
+                              ''
+                            );
+                          }}
+                          disabled={
+                            guruMateriLoading ||
+                            guruMateriOptions.rombel.length === 0
+                          }
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all disabled:opacity-60"
+                        >
+                          {guruMateriOptions.rombel.length === 0 ? (
+                            <option value="">
+                              Tidak ada rombel yang diampu
+                            </option>
+                          ) : (
+                            guruMateriOptions.rombel.map(
+                              (item: any) => (
+                                <option
+                                  key={item.id}
+                                  value={item.id}
+                                >
+                                  {item.nama_rombel}
+                                </option>
+                              )
+                            )
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Pertemuan Ke-</label>
+                        <input 
+                          type="number" 
+                          required
+                          value={formTugasPertemuan}
+                          onChange={(e) => setFormTugasPertemuan(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Semester</label>
+                        <select 
+                          value={formTugasSemester}
+                          onChange={(e) => setFormTugasSemester(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        >
+                          <option value="Ganjil">Ganjil</option>
+                          <option value="Genap">Genap</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Tahun Ajaran Aktif</label>
+                        <input 
+                          type="text" 
+                          disabled
+                          value={formTugasTahunAjaran}
+                          className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-400 cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Petunjuk / Deskripsi Soal</label>
+                      <textarea 
+                        required
+                        value={formTugasDescription}
+                        onChange={(e) => setFormTugasDescription(e.target.value)}
+                        rows={5}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all resize-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Lampiran Berkas Soal</label>
+                        {formTugasLampiran && (
+                          <p className="text-[8px] font-bold text-slate-500">
+                            File saat ini: {formTugasLampiran}
+                          </p>
+                        )}
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png"
+                          onChange={(e) => {
+                            const file =
+                              e.target.files?.[0] || null;
+
+                            setFormTugasLampiranFile(file);
+
+                            if (file) {
+                              setFormTugasLampiran(file.name);
+                            }
+                          }}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Link Video Pendukung (Opsional)</label>
+                        <input 
+                          type="text" 
+                          value={formTugasVideoUrl}
+                          onChange={(e) => setFormTugasVideoUrl(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Tanggal Mulai Pengerjaan</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={formTugasStartDate}
+                          onChange={(e) => setFormTugasStartDate(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Batas Pengumpulan (Deadline)</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={formTugasDueDate}
+                          onChange={(e) => setFormTugasDueDate(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Nilai Maksimal</label>
+                        <input 
+                          type="number" 
+                          required
+                          value={formTugasMaxGrade}
+                          onChange={(e) => setFormTugasMaxGrade(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Bobot Nilai (%)</label>
+                        <input 
+                          type="number" 
+                          required
+                          value={formTugasBobot}
+                          onChange={(e) => setFormTugasBobot(e.target.value)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Status Tugas</label>
+                        <select 
+                          value={formTugasStatus}
+                          onChange={(e) => setFormTugasStatus(e.target.value as any)}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                        >
+                          <option value="Dipublikasikan">Dipublikasikan</option>
+                          <option value="Draft">Draft</option>
+                          <option value="Ditutup">Ditutup</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-150 flex gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setTugasSubView('list');
+                          setSelectedTaskForEdit(null);
+                        }}
+                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer text-center"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={guruTugasSaving}
+                        className="flex-1 py-3 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black shadow-md shadow-pink-500/10 transition-all cursor-pointer text-center flex items-center justify-center gap-2"
+                      >
+                        {guruTugasSaving && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        {guruTugasSaving
+                          ? 'Menyimpan...'
+                          : 'Simpan Perubahan'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* SUBVIEW: VIEW SUBMISSIONS & GRADING FOR A SPECIFIC TASK */}
+            {tugasSubView === 'submissions' && selectedTaskForSubmissions && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="px-5 py-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0 font-sans">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setTugasSubView('list');
+                        setSelectedTaskForSubmissions(null);
+                      }}
+                      className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                      type="button"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <div>
+                      <h3 className="font-extrabold text-xs text-slate-800">Daftar Pengumpulan Tugas</h3>
+                      <p className="text-[9px] text-slate-400 font-medium">Tugas: {selectedTaskForSubmissions.title}</p>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[8.5px] font-black rounded uppercase">Target: {selectedTaskForSubmissions.kelas}</span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                  {/* Students Listing for this Task Target Class */}
+                  {(() => {
+                    const classStudents = students.filter(s => {
+                      const sClass = s.kelas || '';
+                      const sProg = s.program || '';
+                      return sClass.toLowerCase() === selectedTaskForSubmissions.kelas.toLowerCase() || sProg.toLowerCase() === selectedTaskForSubmissions.program.toLowerCase();
+                    });
+
+                    const displayStudentsList = classStudents.length > 0 ? classStudents : students.slice(0, 5);
+
+                    return (
+                      <div className="space-y-3">
+                        {displayStudentsList.map((student) => {
+                          const submission = (localTaskSubmissions || []).find(
+                            sub =>
+                              sub.taskId === selectedTaskForSubmissions.id &&
+                              String(sub.studentId) ===
+                                String(student.userId || student.id)
+                          );
+                          const isGraded = submission?.status === 'Sudah Dinilai';
+                          const isRevision = submission?.status === 'Revisi';
+                          const isSubmitted = submission?.status === 'Menunggu Penilaian';
+                          const isDraft = submission?.status === 'Draft';
+
+                          return (
+                            <div 
+                              key={student.id} 
+                              className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm flex flex-col gap-3 font-sans text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden shrink-0 flex items-center justify-center font-black text-xs text-slate-600 border border-slate-100">
+                                    {student.nama ? student.nama.charAt(0) : 'S'}
+                                  </div>
+                                  <div>
+                                    <h4 className="font-black text-slate-800 text-xs">{student.nama || 'Siswa'}</h4>
+                                    <span className="text-[8.5px] text-slate-400 font-bold">NIS: {student.nis || student.id} • {student.kelas}</span>
+                                  </div>
+                                </div>
+
+                                <span className={`px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase ${
+                                  isGraded ? 'bg-emerald-100 text-emerald-700' :
+                                  isRevision ? 'bg-rose-100 text-rose-700' :
+                                  isSubmitted ? 'bg-amber-100 text-amber-700' :
+                                  isDraft ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {isGraded ? `Dinilai: ${submission?.grade}` :
+                                   isRevision ? 'Butuh Revisi' :
+                                   isSubmitted ? 'Menunggu Penilaian' :
+                                   isDraft ? 'Draft (Sedang Mengerjakan)' : 'Belum Mengumpulkan'}
+                                </span>
+                              </div>
+
+                              {submission && (isSubmitted || isGraded || isRevision || isDraft) ? (
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-150 space-y-2 text-[9px] font-bold text-slate-650 leading-relaxed">
+                                  {submission.submissionText && (
+                                    <div className="space-y-1">
+                                      <span className="text-[7.5px] text-slate-400 uppercase tracking-wider block">Teks Jawaban Siswa:</span>
+                                      <div className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold leading-relaxed whitespace-pre-wrap">{submission.submissionText}</div>
+                                    </div>
+                                  )}
+
+                                  {submission.submissionFiles && submission.submissionFiles.length > 0 && (
+                                    <div className="space-y-1">
+                                      <span className="text-[7.5px] text-slate-400 uppercase tracking-wider block">File Lampiran Siswa:</span>
+                                      <div className="grid grid-cols-1 gap-1.5">
+                                        {submission.submissionFiles.map((f, fi) => (
+                                          <div key={fi} className="p-2 bg-white border border-slate-200 rounded-lg flex items-center justify-between text-slate-700 font-semibold">
+                                            <span>📄 {f.name} ({f.size})</span>
+                                            <span className="text-[8px] text-indigo-600 font-black">Unduh Berkas</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {(submission.feedback || submission.grade !== undefined) && (
+                                    <div className="pt-2 border-t border-slate-200 space-y-1">
+                                      <span className="text-[7.5px] text-slate-400 uppercase tracking-wider block">Catatan Penilaian Guru:</span>
+                                      <div className="bg-gradient-to-r from-emerald-50/50 to-indigo-50/50 p-2.5 rounded-lg border border-indigo-100/30 flex justify-between items-center text-slate-700 font-medium">
+                                        <div>
+                                          {submission.feedback && <p className="font-semibold text-slate-600"><strong className="text-slate-800">Umpan Balik:</strong> {submission.feedback}</p>}
+                                        </div>
+                                        {submission.grade !== undefined && (
+                                          <div className="text-right shrink-0 ml-2">
+                                            <span className="text-[7.5px] text-indigo-500 uppercase font-black tracking-wider block">Skor</span>
+                                            <span className="text-sm font-black text-indigo-700">{submission.grade} / {selectedTaskForSubmissions.maxGrade || 100}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="p-2 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-slate-400 font-semibold text-[8.5px]">
+                                  Siswa ini belum mengirimkan jawaban tugas.
+                                </div>
+                              )}
+
+                              <div className="flex gap-2 justify-end">
+                                {submission && (isSubmitted || isGraded || isRevision || isDraft) && (
+                                  <>
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedStudentForView(student);
+                                        setSelectedSubmissionForView(submission);
+                                        setTugasSubView('view_submission');
+                                      }}
+                                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[8.5px]"
+                                      type="button"
+                                    >
+                                      <FileText className="w-3 h-3" /> Lihat Detail
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedStudentForView(student);
+                                        setSelectedSubmissionForView(submission);
+                                        setInputGrade(submission.grade?.toString() || '');
+                                        setInputFeedback(submission.feedback || '');
+                                        setTugasSubView('grading');
+                                      }}
+                                      className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[8.5px]"
+                                      type="button"
+                                    >
+                                      <Award className="w-3 h-3" /> {isGraded ? 'Koreksi Ulang' : 'Beri Nilai & Komentar'}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* SUBVIEW: VIEW INDIVIDUAL STUDENT SUBMISSION (FULL SCREEN) */}
+            {tugasSubView === 'view_submission' && selectedTaskForSubmissions && selectedStudentForView && selectedSubmissionForView && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="px-5 py-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0 font-sans">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setTugasSubView('submissions')}
+                      className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                      type="button"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <div>
+                      <h3 className="font-extrabold text-xs text-slate-800">Detail Pengumpulan Tugas</h3>
+                      <p className="text-[9px] text-slate-400 font-medium">
+                        {selectedStudentForView.nama} • {selectedTaskForSubmissions.title}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                  {/* Task Info Header */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <p className="text-[7.5px] uppercase tracking-wider text-slate-400 font-bold">Nama Siswa</p>
+                        <p className="text-xs font-black text-slate-800">{selectedStudentForView.nama}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[7.5px] uppercase tracking-wider text-slate-400 font-bold">Tanggal Upload</p>
+                        <p className="text-xs font-bold text-slate-700">{selectedSubmissionForView.submissionDate || 'N/A'}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[7.5px] uppercase tracking-wider text-slate-400 font-bold">Kelas</p>
+                        <p className="text-xs font-bold text-slate-700">{selectedStudentForView.kelas}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[7.5px] uppercase tracking-wider text-slate-400 font-bold">Status</p>
+                        <span className={`px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase ${
+                          selectedSubmissionForView.status === 'Sudah Dinilai' ? 'bg-emerald-100 text-emerald-700' :
+                          selectedSubmissionForView.status === 'Revisi' ? 'bg-rose-100 text-rose-700' :
+                          selectedSubmissionForView.status === 'Menunggu Penilaian' ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>
+                          {selectedSubmissionForView.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Jawaban Teks */}
+                  {selectedSubmissionForView.submissionText && (
+                    <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-2">
+                      <p className="text-[7.5px] uppercase tracking-wider text-slate-400 font-bold">Jawaban Teks</p>
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {selectedSubmissionForView.submissionText}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Lampiran Preview */}
+                  {selectedSubmissionForView.submissionFiles && selectedSubmissionForView.submissionFiles.length > 0 && (
+                    <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+                      <p className="text-[7.5px] uppercase tracking-wider text-slate-400 font-bold">Lampiran</p>
+                      <div className="space-y-3">
+                        {selectedSubmissionForView.submissionFiles.map((file: any, idx: number) => {
+                          const fileName = file.name.toLowerCase();
+                          const isPDF = fileName.endsWith('.pdf');
+                          const isImage = fileName.endsWith('.png') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || fileName.endsWith('.gif') || fileName.endsWith('.webp');
+                          const isVideo = fileName.endsWith('.mp4') || fileName.endsWith('.webm') || fileName.endsWith('.ogg');
+                          const isYouTube = file.url?.includes('youtube.com') || file.url?.includes('youtu.be');
+                          const isDrive = file.url?.includes('drive.google.com');
+                          const isZip = fileName.endsWith('.zip') || fileName.endsWith('.rar');
+                          const isDoc = fileName.endsWith('.doc') || fileName.endsWith('.docx');
+
+                          return (
+                            <div key={idx} className="space-y-2">
+                              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                                <span className="text-xs font-bold text-slate-700">
+                                  {isPDF ? '📄' : isImage ? '🖼️' : isVideo ? '🎥' : isZip ? '📦' : isDoc ? '📝' : '📎'} {file.name} ({file.size})
+                                </span>
+                                {!isPDF && !isImage && !isVideo && !isYouTube && (
+                                  <button 
+                                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[8.5px] font-black rounded-lg transition-all cursor-pointer"
+                                    type="button"
+                                  >
+                                    Unduh
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* PDF Preview */}
+                              {isPDF && (
+                                <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                                  <iframe 
+                                    src={file.url || '#'} 
+                                    className="w-full h-96" 
+                                    title={`Preview ${file.name}`}
+                                  />
+                                </div>
+                              )}
+
+                              {/* Image Preview */}
+                              {isImage && (
+                                <div className="border border-slate-200 rounded-xl overflow-hidden bg-white flex items-center justify-center p-4">
+                                  <img 
+                                    src={file.url || 'https://placehold.co/400x300'} 
+                                    alt={file.name} 
+                                    className="max-h-96 rounded-lg"
+                                  />
+                                </div>
+                              )}
+
+                              {/* Video Preview */}
+                              {isVideo && (
+                                <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                                  <video 
+                                    src={file.url} 
+                                    controls 
+                                    className="w-full"
+                                    style={{ maxHeight: '400px' }}
+                                  />
+                                </div>
+                              )}
+
+                              {/* YouTube Embed */}
+                              {isYouTube && (() => {
+                                let videoId = '';
+                                if (file.url.includes('youtu.be/')) {
+                                  videoId = file.url.split('youtu.be/')[1].split('?')[0];
+                                } else if (file.url.includes('watch?v=')) {
+                                  videoId = file.url.split('watch?v=')[1].split('&')[0];
+                                }
+                                return (
+                                  <div className="border border-slate-200 rounded-xl overflow-hidden bg-white aspect-video">
+                                    <iframe 
+                                      src={`https://www.youtube.com/embed/${videoId}`} 
+                                      className="w-full h-full" 
+                                      title="YouTube video player"
+                                      frameBorder="0"
+                                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                      referrerPolicy="strict-origin-when-cross-origin"
+                                      allowFullScreen
+                                    />
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Google Drive Link */}
+                              {isDrive && (
+                                <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-center text-[9px] font-semibold text-blue-700">
+                                  <a 
+                                    href={file.url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="underline hover:text-blue-800"
+                                  >
+                                    Buka di Google Drive →
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Komentar Guru & Nilai */}
+                  {(selectedSubmissionForView.feedback || selectedSubmissionForView.grade !== undefined) && (
+                    <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+                      <p className="text-[7.5px] uppercase tracking-wider text-slate-400 font-bold">Komentar & Nilai Guru</p>
+                      {selectedSubmissionForView.feedback && (
+                        <div className="p-3 bg-gradient-to-r from-emerald-50/50 to-indigo-50/50 rounded-lg border border-indigo-100/30">
+                          <p className="text-xs font-semibold text-slate-600">
+                            <strong className="text-slate-800">Umpan Balik:</strong> {selectedSubmissionForView.feedback}
+                          </p>
+                        </div>
+                      )}
+                      {selectedSubmissionForView.grade !== undefined && (
+                        <div className="text-center">
+                          <span className="text-[7.5px] text-indigo-500 uppercase font-black tracking-wider">Skor</span>
+                          <p className="text-2xl font-black text-indigo-700">{selectedSubmissionForView.grade} / {selectedTaskForSubmissions.maxGrade || 100}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SUBVIEW: GRADING PAGE (FULL SCREEN) */}
+            {tugasSubView === 'grading' && selectedTaskForSubmissions && selectedStudentForView && selectedSubmissionForView && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="px-5 py-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0 font-sans">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setTugasSubView('submissions')}
+                      className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                      type="button"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <div>
+                      <h3 className="font-extrabold text-xs text-slate-800">Penilaian Tugas</h3>
+                      <p className="text-[9px] text-slate-400 font-medium">
+                        {selectedStudentForView.nama} • {selectedTaskForSubmissions.title}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                  {/* Form Penilaian */}
+                  <form onSubmit={handleGradeSubmit} className="bg-white p-5 rounded-3xl border border-slate-150 shadow-sm space-y-4">
+                    {/* Informasi Siswa */}
+                    <div className="p-4 bg-gradient-to-r from-pink-50 to-indigo-50 rounded-2xl border border-pink-100/50 space-y-1">
+                      <p className="text-xs font-extrabold text-slate-800">{selectedStudentForView.nama}</p>
+                      <p className="text-[9px] font-medium text-slate-500">
+                        {selectedStudentForView.kelas} • {selectedTaskForSubmissions.subject}
+                      </p>
+                    </div>
+
+                    {/* Input Nilai */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold text-xs">Nilai</label>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        max={selectedTaskForSubmissions.maxGrade || 100}
+                        value={inputGrade}
+                        onChange={(e) => setInputGrade(e.target.value)}
+                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                      />
+                      <p className="text-[8.5px] text-slate-400 font-medium">Maksimal: {selectedTaskForSubmissions.maxGrade || 100}</p>
+                    </div>
+
+                    {/* Komentar Guru */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold text-xs">Komentar Guru</label>
+                      <textarea 
+                        value={inputFeedback}
+                        onChange={(e) => setInputFeedback(e.target.value)}
+                        rows={4}
+                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all resize-none"
+                        placeholder="Berikan komentar, umpan balik, atau catatan perbaikan untuk siswa..."
+                      />
+                    </div>
+
+                    {/* Buttons */}
+                    <div className="pt-2 border-t border-slate-150 flex gap-3">
+                      <button 
+                        type="button"
+                        onClick={handleRequestRevision}
+                        className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer text-center"
+                      >
+                        Minta Revisi
+                      </button>
+                      <button 
+                        type="submit" 
+                        className="flex-1 py-3 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-black shadow-md shadow-pink-500/10 transition-all cursor-pointer text-center"
+                      >
+                        Simpan Nilai
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : currentView === 'cbt' ? (
+          /* FULL-PAGE CBT VIEW */
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 text-[10.5px]">
+            {/* 1. Header Area with Tabs */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    setCurrentView('dashboard');
+                    setCbtActiveTab('bankSoal');
+                    setCbtSubView('list');
+                  }}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-sm font-extrabold text-slate-800">Kelola CBT</h2>
+                  <p className="text-[9px] text-slate-400 font-medium">Bank Soal, Import Soal, Ujian & Hasil</p>
+                </div>
+              </div>
+              
+              {/* Tabs for CBT sections */}
+              <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                {[
+                  { id: 'bankSoal', label: 'Bank Soal' },
+                  { id: 'importSoal', label: 'Import Soal' },
+                  { id: 'daftarUjian', label: 'Daftar Ujian' },
+                  { id: 'hasilUjian', label: 'Hasil Ujian' },
+                ].map((tab) => (
+                  <button 
+                    key={tab.id}
+                    onClick={() => {
+                      setCbtActiveTab(tab.id as any);
+                      setCbtSubView('list');
+                      setIsCbtLoading(true);
+                      setTimeout(() => {
+                        setIsCbtLoading(false);
+                      }, 300);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black transition-all cursor-pointer ${
+                      cbtActiveTab === tab.id
+                        ? 'bg-teal-600 text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    type="button"
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. Main Content Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+              {/* ========== BANK SOAL ========== */}
+              {cbtActiveTab === 'bankSoal' && (
+                <div>
+                  {cbtSubView === 'list' ? (
+                    isCbtLoading ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between animate-pulse">
+                          <div className="h-4 bg-slate-200 rounded w-24"></div>
+                          <div className="h-8 bg-slate-200 rounded w-32"></div>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl border border-slate-150 shadow-sm animate-pulse space-y-4">
+                          <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-6 gap-4">
+                              <div className="h-3 bg-slate-200 rounded col-span-2"></div>
+                              <div className="h-3 bg-slate-200 rounded col-span-1"></div>
+                              <div className="h-3 bg-slate-200 rounded col-span-1"></div>
+                              <div className="h-3 bg-slate-200 rounded col-span-1"></div>
+                              <div className="h-3 bg-slate-200 rounded col-span-1"></div>
+                            </div>
+                            <div className="border-t border-slate-100 my-2"></div>
+                            {[1, 2, 3].map((i) => (
+                              <div key={i} className="grid grid-cols-6 gap-4 pt-2">
+                                <div className="h-3 bg-slate-100 rounded col-span-2"></div>
+                                <div className="h-3 bg-slate-100 rounded col-span-1"></div>
+                                <div className="h-3 bg-slate-100 rounded col-span-1"></div>
+                                <div className="h-3 bg-slate-100 rounded col-span-1"></div>
+                                <div className="h-3 bg-slate-100 rounded col-span-1"></div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : bankSoal.length === 0 ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-extrabold text-slate-800">Bank Soal</h3>
+                        </div>
+                        <div className="text-center py-12 bg-white rounded-2xl border border-slate-150 shadow-sm p-6 space-y-3 max-w-md mx-auto my-8">
+                          <div className="w-12 h-12 bg-teal-50 rounded-full flex items-center justify-center mx-auto text-teal-600">
+                            <Award className="w-6 h-6" />
+                          </div>
+                          <h4 className="text-sm font-black text-slate-800">Belum ada Bank Soal</h4>
+                          <p className="text-[10px] text-slate-500 leading-relaxed max-w-xs mx-auto">
+                            Anda belum menambahkan butir soal dalam bank soal ujian CBT. Silakan buat soal baru sekarang.
+                          </p>
+                          <button 
+                            onClick={() => {
+                              setFormSoal({
+                                judul: '',
+                                mataPelajaran: 'Bahasa Indonesia',
+                                program: 'Paket C',
+                                kelas: 'Kelas X',
+                                bab: '',
+                                tingkatKesulitan: 'Sedang',
+                                jenisSoal: 'Pilihan Ganda',
+                                pertanyaan: '',
+                                pilihanJawaban: ['', '', '', ''],
+                                jawabanBenar: '',
+                                pembahasan: '',
+                                bobot: '10',
+                                lampiranGambar: '',
+                                lampiranAudio: ''
+                              });
+                              setSelectedSoal(null);
+                              setCbtSubView('addSoal');
+                            }}
+                            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5"
+                            type="button"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Buat Bank Soal
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-extrabold text-slate-800">Bank Soal</h3>
+                          <button 
+                            onClick={() => {
+                              setFormSoal({
+                                judul: '',
+                                mataPelajaran: 'Bahasa Indonesia',
+                                program: 'Paket C',
+                                kelas: 'Kelas X',
+                                bab: '',
+                                tingkatKesulitan: 'Sedang',
+                                jenisSoal: 'Pilihan Ganda',
+                                pertanyaan: '',
+                                pilihanJawaban: ['', '', '', ''],
+                                jawabanBenar: '',
+                                pembahasan: '',
+                                bobot: '10',
+                                lampiranGambar: '',
+                                lampiranAudio: ''
+                              });
+                              setSelectedSoal(null);
+                              setCbtSubView('addSoal');
+                            }}
+                            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer flex items-center gap-1"
+                            type="button"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Tambah Soal
+                          </button>
+                        </div>
+                        <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs font-semibold">
+                              <thead>
+                                <tr className="border-b border-slate-200 text-slate-500">
+                                  <th className="py-2 px-2 text-left">Judul Soal</th>
+                                  <th className="py-2 px-2 text-left">Mata Pelajaran</th>
+                                  <th className="py-2 px-2 text-left">Program</th>
+                                  <th className="py-2 px-2 text-left">Kelas</th>
+                                  <th className="py-2 px-2 text-left">Bab</th>
+                                  <th className="py-2 px-2 text-left">Tingkat Kesulitan</th>
+                                  <th className="py-2 px-2 text-left">Jenis Soal</th>
+                                  <th className="py-2 px-2 text-left">Pembuat</th>
+                                  <th className="py-2 px-2 text-left">Tanggal Dibuat</th>
+                                  <th className="py-2 px-2 text-left">Jumlah Digunakan</th>
+                                  <th className="py-2 px-2 text-left">Aksi</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {bankSoal.map((soal) => (
+                                  <tr key={soal.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                    <td className="py-2 px-2 text-slate-800">{soal.judul}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.mataPelajaran}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.program}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.kelas}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.bab || '-'}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.tingkatKesulitan}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.jenisSoal}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.pembuat}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.tanggalDibuat}</td>
+                                    <td className="py-2 px-2 text-slate-700">{soal.jumlahDigunakan}</td>
+                                    <td className="py-2 px-2">
+                                      <div className="flex gap-1">
+                                        <button 
+                                          onClick={() => { setSelectedSoal(soal); setCbtSubView('viewSoal'); }}
+                                          className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                          type="button"
+                                        >
+                                          Lihat
+                                        </button>
+                                        <button 
+                                          onClick={() => { setSelectedSoal(soal); setFormSoal({...soal, bobot: soal.bobot.toString()}); setCbtSubView('editSoal'); }}
+                                          className="px-2 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                          type="button"
+                                        >
+                                          Edit
+                                        </button>
+                                        <button 
+                                          onClick={() => handleDuplicateSoal(soal)}
+                                          className="px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                          type="button"
+                                        >
+                                          <Copy className="w-3 h-3" />
+                                        </button>
+                                        <button 
+                                          onClick={() => handleDeleteSoal(soal.id)}
+                                          className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                          type="button"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  ) : cbtSubView === 'addSoal' || cbtSubView === 'editSoal' ? (
+                    <div className="max-w-3xl mx-auto">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+                        <h3 className="text-sm font-extrabold text-slate-800">{cbtSubView === 'addSoal' ? 'Tambah Soal Baru' : 'Edit Soal'}</h3>
+                        <form onSubmit={cbtSubView === 'addSoal' ? handleAddSoalSubmit : handleEditSoalSubmit} className="space-y-4">
+                          <div className="space-y-1.5">
+                            <label className="text-slate-700 font-bold">
+                              Materi Terkait
+                            </label>
+                            <select
+                              required
+                              value={formSoal.materiId}
+                              onChange={(e) => {
+                                const materiId = e.target.value;
+                                const materi = guruMateri.find(
+                                  (item: any) => String(item.id) === materiId
+                                );
+
+                                setFormSoal(prev => ({
+                                  ...prev,
+                                  materiId,
+                                  mataPelajaran:
+                                    materi?.mata_pelajaran_nama ||
+                                    materi?.mataPelajaran ||
+                                    prev.mataPelajaran,
+                                  program:
+                                    materi?.program ||
+                                    materi?.program_paket ||
+                                    prev.program,
+                                  kelas:
+                                    materi?.rombel_nama ||
+                                    materi?.kelas ||
+                                    prev.kelas,
+                                  bab:
+                                    materi?.judul ||
+                                    prev.bab
+                                }));
+                              }}
+                              className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                            >
+                              <option value="">Pilih materi pembelajaran</option>
+                              {guruMateri.map((materi: any) => (
+                                <option key={materi.id} value={materi.id}>
+                                  {materi.judul}
+                                  {materi.mata_pelajaran_nama
+                                    ? ` — ${materi.mata_pelajaran_nama}`
+                                    : ''}
+                                  {materi.rombel_nama
+                                    ? ` — ${materi.rombel_nama}`
+                                    : ''}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-[9px] text-slate-400">
+                              Mata pelajaran, program, rombel, fase, dan kompetensi mengikuti materi yang dipilih.
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Judul Soal</label>
+                              <input 
+                                type="text" required
+                                value={formSoal.judul}
+                                onChange={(e) => setFormSoal({...formSoal, judul: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Mata Pelajaran</label>
+                              <select 
+                                value={formSoal.mataPelajaran}
+                                onChange={(e) => setFormSoal({...formSoal, mataPelajaran: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              >
+                                {subjectsList.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">
+                                Program
+                              </label>
+                              <input
+                                type="text"
+                                readOnly
+                                value={formSoal.program || '-'}
+                                className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">
+                                Rombel
+                              </label>
+                              <input
+                                type="text"
+                                readOnly
+                                value={formSoal.kelas || '-'}
+                                className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">
+                                Fase
+                              </label>
+                              <input
+                                type="text"
+                                readOnly
+                                value={(() => {
+                                  const materi = guruMateri.find(
+                                    (item: any) =>
+                                      String(item.id) ===
+                                      String(formSoal.materiId)
+                                  );
+
+                                  const rombel = guruMateriOptions.rombel.find(
+                                    (item: any) =>
+                                      String(item.id) ===
+                                      String(
+                                        materi?.rombel ||
+                                        materi?.rombel_id ||
+                                        ''
+                                      )
+                                  );
+
+                                  return (
+                                    rombel?.fase_nama ||
+                                    rombel?.fase ||
+                                    materi?.fase_nama ||
+                                    materi?.fase ||
+                                    '-'
+                                  );
+                                })()}
+                                className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">
+                                Tingkat Kesulitan
+                              </label>
+                              <select
+                                value={formSoal.tingkatKesulitan}
+                                onChange={(e) =>
+                                  setFormSoal({
+                                    ...formSoal,
+                                    tingkatKesulitan: e.target.value
+                                  })
+                                }
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              >
+                                <option value="Mudah">Mudah</option>
+                                <option value="Sedang">Sedang</option>
+                                <option value="Sulit">Sulit</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-slate-700 font-bold">Jenis Soal</label>
+                            <select 
+                              value={formSoal.jenisSoal}
+                              onChange={(e) => setFormSoal({...formSoal, jenisSoal: e.target.value})}
+                              className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                            >
+                              <option value="Pilihan Ganda">Pilihan Ganda</option>
+                              <option value="Essay">Essay</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-slate-700 font-bold">Pertanyaan</label>
+                            <textarea 
+                              required rows={3}
+                              value={formSoal.pertanyaan}
+                              onChange={(e) => setFormSoal({...formSoal, pertanyaan: e.target.value})}
+                              className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 resize-none"
+                            />
+                          </div>
+                          {formSoal.jenisSoal === 'Pilihan Ganda' && (
+                            <div className="space-y-2">
+                              <label className="text-slate-700 font-bold block">Pilihan Jawaban</label>
+                              {['A', 'B', 'C', 'D'].map((opt, i) => (
+                                <div key={i} className="flex gap-2 items-center">
+                                  <span className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-700">{opt}</span>
+                                  <input 
+                                    type="text" required
+                                    placeholder={`Opsi ${opt}`}
+                                    value={formSoal.pilihanJawaban[i]}
+                                    onChange={(e) => {
+                                      const newOptions = [...formSoal.pilihanJawaban];
+                                      newOptions[i] = e.target.value;
+                                      setFormSoal({...formSoal, pilihanJawaban: newOptions});
+                                    }}
+                                    className="flex-1 p-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                                  />
+                                </div>
+                              ))}
+                              <div className="space-y-1.5">
+                                <label className="text-slate-700 font-bold">Jawaban Benar</label>
+                                <select 
+                                  value={formSoal.jawabanBenar}
+                                  onChange={(e) => setFormSoal({...formSoal, jawabanBenar: e.target.value})}
+                                  className="w-full p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800"
+                                >
+                                  <option value="">Pilih Jawaban Benar</option>
+                                  {['A', 'B', 'C', 'D'].map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                          {formSoal.jenisSoal === 'Essay' && (
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Kunci Jawaban / Panduan</label>
+                              <textarea 
+                                required rows={3}
+                                value={formSoal.jawabanBenar}
+                                onChange={(e) => setFormSoal({...formSoal, jawabanBenar: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 resize-none"
+                              />
+                            </div>
+                          )}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Bobot Nilai</label>
+                              <input 
+                                type="number" required min="1"
+                                value={formSoal.bobot}
+                                onChange={(e) => setFormSoal({...formSoal, bobot: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Bab / Materi (Opsional)</label>
+                              <input 
+                                type="text"
+                                value={formSoal.bab}
+                                onChange={(e) => setFormSoal({...formSoal, bab: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-slate-700 font-bold">Pembahasan (Opsional)</label>
+                            <textarea 
+                              rows={2}
+                              value={formSoal.pembahasan}
+                              onChange={(e) => setFormSoal({...formSoal, pembahasan: e.target.value})}
+                              className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 resize-none"
+                            />
+                          </div>
+                          <div className="pt-4 border-t border-slate-150 flex gap-3">
+                            <button 
+                              type="button"
+                              onClick={() => { setCbtSubView('list'); setSelectedSoal(null); }}
+                              className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black cursor-pointer"
+                            >
+                              Batal
+                            </button>
+                            <button 
+                              type="submit"
+                              className="flex-1 py-3 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-black cursor-pointer"
+                            >
+                              {cbtSubView === 'addSoal' ? 'Simpan Soal' : 'Perbarui Soal'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  ) : cbtSubView === 'viewSoal' && selectedSoal ? (
+                    <div className="max-w-3xl mx-auto">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+                        <div className="flex justify-between items-start">
+                          <h3 className="text-sm font-extrabold text-slate-800">{selectedSoal.judul}</h3>
+                          <button 
+                            onClick={() => setCbtSubView('list')}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Kembali
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[10px]">
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Mata Pelajaran</span>
+                            <p className="text-slate-800 font-semibold">{selectedSoal.mataPelajaran}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Program</span>
+                            <p className="text-slate-800 font-semibold">{selectedSoal.program}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Kelas</span>
+                            <p className="text-slate-800 font-semibold">{selectedSoal.kelas}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Tingkat Kesulitan</span>
+                            <p className="text-slate-800 font-semibold">{selectedSoal.tingkatKesulitan}</p>
+                          </div>
+                        </div>
+                        <div className="pt-4 border-t border-slate-150">
+                          <h4 className="text-xs font-bold text-slate-700 mb-2">Pertanyaan</h4>
+                          <p className="text-[11px] text-slate-800 leading-relaxed">{selectedSoal.pertanyaan}</p>
+                        </div>
+                        {selectedSoal.jenisSoal === 'Pilihan Ganda' && (
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-bold text-slate-700">Pilihan Jawaban</h4>
+                            {selectedSoal.pilihanJawaban.map((opt, i) => (
+                              <div 
+                                key={i}
+                                className={`p-3 rounded-xl border ${opt.startsWith(selectedSoal.jawabanBenar) ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}
+                              >
+                                <p className="text-[10px] text-slate-800">{opt}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {selectedSoal.pembahasan && (
+                          <div className="pt-4 border-t border-slate-150">
+                            <h4 className="text-xs font-bold text-slate-700 mb-2">Pembahasan</h4>
+                            <p className="text-[10px] text-slate-600 leading-relaxed">{selectedSoal.pembahasan}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {/* ========== IMPORT SOAL ========== */}
+              {cbtActiveTab === 'importSoal' && (
+                <div className="max-w-4xl mx-auto space-y-4">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm space-y-5">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-800 mb-1">Import Soal dari Dokumen</h3>
+                      <p className="text-[9px] text-slate-400">
+                        Upload dokumen yang sudah mengikuti format baku soal Lulus.id
+                      </p>
+                    </div>
+
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-xl space-y-2">
+                      <p className="text-xs font-extrabold text-yellow-800">
+                        Perhatian: file wajib mengikuti format soal Lulus.id
+                      </p>
+
+                      <p className="text-[10px] font-semibold text-yellow-700 leading-relaxed">
+                        Sistem tidak dapat membaca dokumen soal biasa. Gunakan format dan penanda
+                        yang sudah ditentukan agar setiap soal dapat dikenali dengan benar.
+                      </p>
+
+                      <div className="p-3 bg-white/70 border border-yellow-200 rounded-lg">
+                        <p className="text-[9px] font-black text-yellow-800 mb-1">
+                          Penanda yang wajib digunakan:
+                        </p>
+                        <p className="text-[9px] font-semibold text-yellow-700 leading-relaxed break-words">
+                          [JENIS], [JUDUL], [PERTANYAAN], [PILIHAN], [JAWABAN],
+                          [PEMBAHASAN], [BOBOT], dan [KESULITAN]
+                        </p>
+                      </div>
+
+                      <p className="text-[9px] font-bold text-yellow-800">
+                        Periksa kembali hasil import sebelum menyimpan soal ke Bank Soal.
+                      </p>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-fit">
+                        <span className="px-3 py-1.5 bg-white text-pink-600 shadow-sm rounded-lg text-[9px] font-black">
+                          PDF
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-slate-700 font-bold text-[10px]">
+                            Materi Terkait
+                          </label>
+                          <select
+                            value={importMateriId}
+                            onChange={(e) => {
+                              const materiId = e.target.value;
+                              const materi = guruMateri.find(
+                                (item: any) => String(item.id) === materiId
+                              );
+
+                              setImportMateriId(materiId);
+                              setImportSubject(
+                                materi?.mata_pelajaran_nama ||
+                                'Bahasa Indonesia'
+                              );
+                            }}
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                          >
+                            <option value="">Pilih materi pembelajaran</option>
+                            {guruMateri.map((materi: any) => (
+                              <option key={materi.id} value={materi.id}>
+                                {materi.judul}
+                                {materi.mata_pelajaran_nama
+                                  ? ` — ${materi.mata_pelajaran_nama}`
+                                  : ''}
+                                {materi.rombel_nama
+                                  ? ` — ${materi.rombel_nama}`
+                                  : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-slate-700 font-bold text-[10px]">Format Ekstraksi</label>
+                          <select 
+                            value={importFormat}
+                            onChange={(e) => setImportFormat(e.target.value as any)}
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                          >
+                            <option value="campuran">Pilihan Ganda & Essay</option>
+                            <option value="pilihan_ganda">Hanya Pilihan Ganda</option>
+                            <option value="essay">Hanya Essay</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div
+                        onDragEnter={handleDrag}
+                        onDragOver={handleDrag}
+                        onDragLeave={handleDrag}
+                        onDrop={handleDrop}
+                        onClick={() => document.getElementById('import-file-input')?.click()}
+                        className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
+                          dragActive ? 'border-pink-500 bg-pink-50' : 'border-slate-200 hover:border-slate-300 bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          id="import-file-input"
+                          type="file"
+                          accept=".pdf"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                        {importFile ? (
+                          <div className="space-y-2">
+                            <FileText className="w-12 h-12 text-pink-500 mx-auto" />
+                            <p className="text-xs font-bold text-slate-800">{importFile.name}</p>
+                            <p className="text-[9px] text-slate-400">{(importFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <Upload className="w-12 h-12 text-slate-400 mx-auto" />
+                            <p className="text-xs font-bold text-slate-700">Tarik file ke sini atau klik untuk memilih</p>
+                            <p className="text-[9px] text-slate-400">Dukungan: PDF format baku Lulus.id (maksimal 15 MB)</p>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        disabled={!importFile || isExtracting}
+                        onClick={handleExtractWithAi}
+                        className="w-full py-3 bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-700 hover:to-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
+                        type="button"
+                      >
+                        {isExtracting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Mengekstrak...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            Baca Format Soal
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  {extractedQuestions.length > 0 && (
+                    <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-sm font-extrabold text-slate-800">Soal yang Diekstrak ({extractedQuestions.length})</h3>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setExtractedQuestions([])}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Hapus Semua
+                          </button>
+                          <button
+                            onClick={handleSaveExtractedQuestions}
+                            className="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Simpan ke Bank Soal
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        {extractedQuestions.map((soal, i) => (
+                          <div key={soal.id} className="p-4 border border-slate-150 rounded-xl bg-slate-50">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded text-[8px] font-black uppercase">
+                                {soal.jenisSoal}
+                              </span>
+                              <button
+                                onClick={() => handleDeleteExtractedQuestion(soal.id)}
+                                className="text-red-500 hover:text-red-700"
+                                type="button"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <p className="text-xs font-semibold text-slate-800 mb-2">{soal.pertanyaan}</p>
+                            {soal.jenisSoal === 'Pilihan Ganda' && soal.pilihanJawaban?.length > 0 && (
+                              <div className="space-y-1 mb-2">
+                                {soal.pilihanJawaban.map((opt, j) => (
+                                  <p key={j} className="text-[9px] text-slate-600">{opt}</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ========== DAFTAR UJIAN ========== */}
+              {cbtActiveTab === 'daftarUjian' && (
+                <div>
+                  {cbtSubView === 'list' ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-extrabold text-slate-800">Daftar Ujian CBT</h3>
+                        <button 
+                          onClick={() => {
+                            setFormUjian({
+                              namaUjian: '',
+                              mataPelajaran: 'Bahasa Indonesia',
+                              program: 'Paket C',
+                              kelas: 'Kelas X',
+                              semester: 'Ganjil',
+                              tahunAjaran: '2026/2027',
+                              jenisUjian: 'Ulangan Harian',
+                              durasi: '60',
+                              nilaiMinimum: '70',
+                              acakSoal: false,
+                              acakJawaban: false,
+                              tampilkanNilai: true,
+                              tanggalMulai: '',
+                              tanggalSelesai: '',
+                              soalIds: []
+                            });
+                            setSelectedUjian(null);
+                            setCbtSubView('addUjian');
+                          }}
+                          className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer flex items-center gap-1"
+                          type="button"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Buat Ujian
+                        </button>
+                      </div>
+                      <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs font-semibold">
+                            <thead>
+                              <tr className="border-b border-slate-200 text-slate-500">
+                                <th className="py-2 px-2 text-left">Nama Ujian</th>
+                                <th className="py-2 px-2 text-left">Mata Pelajaran</th>
+                                <th className="py-2 px-2 text-left">Jenis Ujian</th>
+                                <th className="py-2 px-2 text-left">Durasi</th>
+                                <th className="py-2 px-2 text-left">Jumlah Soal</th>
+                                <th className="py-2 px-2 text-left">Jumlah Peserta</th>
+                                <th className="py-2 px-2 text-left">Sudah Mengerjakan</th>
+                                <th className="py-2 px-2 text-left">Status</th>
+                                <th className="py-2 px-2 text-left">Aksi</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {daftarUjian.map((ujian) => (
+                                <tr key={ujian.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                  <td className="py-2 px-2 text-slate-800 font-bold">{ujian.namaUjian}</td>
+                                  <td className="py-2 px-2 text-slate-700">{ujian.mataPelajaran}</td>
+                                  <td className="py-2 px-2 text-slate-700">{ujian.jenisUjian}</td>
+                                  <td className="py-2 px-2 text-slate-700">{ujian.durasi} menit</td>
+                                  <td className="py-2 px-2 text-slate-700">{ujian.jumlahSoal}</td>
+                                  <td className="py-2 px-2 text-slate-700">{ujian.jumlahPeserta}</td>
+                                  <td className="py-2 px-2 text-slate-700">{ujian.sudahMengerjakan}</td>
+                                  <td className="py-2 px-2">
+                                    <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${
+                                      ujian.status === 'Selesai' ? 'bg-blue-100 text-blue-700' :
+                                      ujian.status === 'Sedang Berlangsung' ? 'bg-emerald-100 text-emerald-700 animate-pulse' :
+                                      ujian.status === 'Terjadwal' ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-slate-100 text-slate-500'
+                                    }`}>
+                                      {ujian.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <div className="flex gap-1 flex-wrap">
+                                      <button 
+                                        onClick={() => { setSelectedUjian(ujian); setCbtSubView('viewUjian'); }}
+                                        className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                        type="button"
+                                      >
+                                        Lihat
+                                      </button>
+                                      <button 
+                                        onClick={() => {
+                                          const toDateTimeLocal = (value: string) => {
+                                            if (!value) return '';
+                                            const date = new Date(value);
+                                            if (Number.isNaN(date.getTime())) return value;
+                                            const offset = date.getTimezoneOffset();
+                                            return new Date(
+                                              date.getTime() - offset * 60000
+                                            ).toISOString().slice(0, 16);
+                                          };
+
+                                          setSelectedUjian(ujian);
+                                          setFormUjian({
+                                            namaUjian: ujian.namaUjian || '',
+                                            rombelId: ujian.rombelId || '',
+                                            mataPelajaran: ujian.mataPelajaran || '',
+                                            program: ujian.program || '',
+                                            fase: ujian.fase || '',
+                                            kelas: ujian.kelas || '',
+                                            sistemBelajar: ujian.sistemBelajar || '',
+                                            semester: ujian.semester || '',
+                                            tahunAjaran: ujian.tahunAjaran || '',
+                                            jenisUjian: ujian.jenisUjian || 'Ulangan Harian',
+                                            durasi: String(ujian.durasi || 60),
+                                            nilaiMinimum: String(ujian.nilaiMinimum ?? 70),
+                                            acakSoal: Boolean(ujian.acakSoal),
+                                            acakJawaban: Boolean(ujian.acakJawaban),
+                                            tampilkanNilai: Boolean(ujian.tampilkanNilai),
+                                            tanggalMulai: toDateTimeLocal(ujian.tanggalMulai),
+                                            tanggalSelesai: toDateTimeLocal(ujian.tanggalSelesai),
+                                            soalIds: (ujian.soalIds || []).map(String)
+                                          });
+                                          setCbtSubView('editUjian');
+                                        }}
+                                        className="px-2 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                        type="button"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button 
+                                        onClick={() => { setSelectedUjian(ujian); setFormUjian({...ujian, durasi: ujian.durasi.toString(), nilaiMinimum: ujian.nilaiMinimum.toString()}); setCbtSubView('kelolaSoalUjian'); }}
+                                        className="px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                        type="button"
+                                      >
+                                        Kelola Soal
+                                      </button>
+                                      <button 
+                                        onClick={() => { setSelectedUjian(ujian); setCbtActiveTab('hasilUjian'); setCbtSubView('viewUjianHasil'); }}
+                                        className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                        type="button"
+                                      >
+                                        Hasil
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDuplicateUjian(ujian)}
+                                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                        type="button"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeleteUjian(ujian.id)}
+                                        className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                        type="button"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ) : cbtSubView === 'addUjian' || cbtSubView === 'editUjian' ? (
+                    <div className="max-w-4xl mx-auto">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+                        <h3 className="text-sm font-extrabold text-slate-800">{cbtSubView === 'addUjian' ? 'Buat Ujian Baru' : 'Edit Ujian'}</h3>
+                        <form onSubmit={cbtSubView === 'addUjian' ? handleAddUjianSubmit : handleEditUjianSubmit} className="space-y-4">
+                          <div className="space-y-1.5">
+                            <label className="text-slate-700 font-bold">
+                              Mata Pelajaran
+                            </label>
+                            <input
+                              type="text"
+                              value={formUjian.mataPelajaran}
+                              readOnly
+                              placeholder="Otomatis mengikuti soal yang dipilih"
+                              className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 cursor-not-allowed"
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">
+                                Rombel
+                              </label>
+                              <select
+                                required
+                                value={formUjian.rombelId}
+                                onChange={(e) => {
+                                  const rombel = guruMateriOptions.rombel.find(
+                                    (item: any) => String(item.id) === e.target.value
+                                  );
+
+                                  setFormUjian({
+                                    ...formUjian,
+                                    rombelId: e.target.value,
+                                    program: rombel?.paket || '',
+                                    fase: rombel?.fase || '',
+                                    kelas: rombel?.nama_rombel || '',
+                                    sistemBelajar: rombel?.sistem_belajar || '',
+                                    semester: rombel?.semester || '',
+                                    tahunAjaran: rombel?.tahun_ajaran || '',
+                                    soalIds: []
+                                  });
+                                }}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              >
+                                <option value="">Pilih rombel</option>
+                                {guruMateriOptions.rombel.map((rombel: any) => (
+                                  <option
+                                    key={rombel.id}
+                                    value={String(rombel.id)}
+                                  >
+                                    {rombel.nama_rombel} — {rombel.fase}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">
+                                Jenis Ujian
+                              </label>
+                              <select
+                                value={formUjian.jenisUjian}
+                                onChange={(e) =>
+                                  setFormUjian({
+                                    ...formUjian,
+                                    jenisUjian: e.target.value
+                                  })
+                                }
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              >
+                                <option value="Latihan">Latihan</option>
+                                <option value="Ulangan Harian">Ulangan Harian</option>
+                                <option value="UTS">Ujian Tengah Semester</option>
+                                <option value="Remedial UTS">Remedial UTS</option>
+                                <option value="UAS">Ujian Akhir Semester</option>
+                                <option value="Remedial UAS">Remedial UAS</option>
+                                <option value="Ujian Akhir">Ujian Akhir</option>
+                                <option value="Try Out">Try Out</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {formUjian.rombelId && (
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4 bg-teal-50 border border-teal-100 rounded-xl">
+                              <div>
+                                <p className="text-[9px] font-bold text-slate-400">
+                                  Program
+                                </p>
+                                <p className="text-xs font-extrabold text-slate-700">
+                                  {formUjian.program || '-'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] font-bold text-slate-400">
+                                  Fase
+                                </p>
+                                <p className="text-xs font-extrabold text-slate-700">
+                                  {formUjian.fase || '-'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] font-bold text-slate-400">
+                                  Sistem Belajar
+                                </p>
+                                <p className="text-xs font-extrabold text-slate-700">
+                                  {formUjian.sistemBelajar || '-'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] font-bold text-slate-400">
+                                  Semester
+                                </p>
+                                <p className="text-xs font-extrabold text-slate-700">
+                                  {formUjian.semester || '-'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] font-bold text-slate-400">
+                                  Tahun Ajaran
+                                </p>
+                                <p className="text-xs font-extrabold text-slate-700">
+                                  {formUjian.tahunAjaran || '-'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Durasi (menit)</label>
+                              <input 
+                                type="number" required min="1"
+                                value={formUjian.durasi}
+                                onChange={(e) => setFormUjian({...formUjian, durasi: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Nilai Minimum</label>
+                              <input 
+                                type="number" required min="0" max="100"
+                                value={formUjian.nilaiMinimum}
+                                onChange={(e) => setFormUjian({...formUjian, nilaiMinimum: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">
+                                Semester
+                              </label>
+                              <input
+                                type="text"
+                                value={formUjian.semester}
+                                readOnly
+                                placeholder="Mengikuti rombel"
+                                className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 cursor-not-allowed"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Tanggal Mulai</label>
+                              <input 
+                                type="datetime-local"
+                                value={formUjian.tanggalMulai}
+                                onChange={(e) => setFormUjian({...formUjian, tanggalMulai: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-slate-700 font-bold">Tanggal Selesai</label>
+                              <input 
+                                type="datetime-local"
+                                value={formUjian.tanggalSelesai}
+                                onChange={(e) => setFormUjian({...formUjian, tanggalSelesai: e.target.value})}
+                                className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <label className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl cursor-pointer">
+                              <input 
+                                type="checkbox"
+                                checked={formUjian.acakSoal}
+                                onChange={(e) => setFormUjian({...formUjian, acakSoal: e.target.checked})}
+                                className="rounded text-pink-600"
+                              />
+                              <span className="text-xs font-bold text-slate-700">Acak Soal</span>
+                            </label>
+                            <label className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl cursor-pointer">
+                              <input 
+                                type="checkbox"
+                                checked={formUjian.acakJawaban}
+                                onChange={(e) => setFormUjian({...formUjian, acakJawaban: e.target.checked})}
+                                className="rounded text-pink-600"
+                              />
+                              <span className="text-xs font-bold text-slate-700">Acak Jawaban</span>
+                            </label>
+                            <label className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl cursor-pointer">
+                              <input 
+                                type="checkbox"
+                                checked={formUjian.tampilkanNilai}
+                                onChange={(e) => setFormUjian({...formUjian, tampilkanNilai: e.target.checked})}
+                                className="rounded text-pink-600"
+                              />
+                              <span className="text-xs font-bold text-slate-700">Tampilkan Nilai</span>
+                            </label>
+                          </div>
+                          <div className="pt-4 border-t border-slate-150 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="text-xs font-extrabold text-slate-700">
+                                  Pilih Soal
+                                </h4>
+                                <p className="text-[9px] text-slate-400">
+                                  Soal otomatis disaring berdasarkan rombel yang dipilih.
+                                </p>
+                              </div>
+                              <span className="px-2 py-1 bg-pink-50 text-pink-700 rounded-lg text-[9px] font-black">
+                                {formUjian.soalIds.length} soal dipilih
+                              </span>
+                            </div>
+
+                            {!formUjian.rombelId ? (
+                              <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-xl text-center">
+                                <p className="text-xs font-bold text-yellow-700">
+                                  Pilih rombel terlebih dahulu.
+                                </p>
+                              </div>
+                            ) : bankSoal.filter(
+                                (soal: any) =>
+                                  String(soal.rombelId) ===
+                                  String(formUjian.rombelId) &&
+                                  soal.status === 'Aktif'
+                              ).length === 0 ? (
+                              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                                <p className="text-xs font-bold text-slate-600">
+                                  Belum ada Bank Soal aktif untuk rombel ini.
+                                </p>
+                                <p className="text-[9px] text-slate-400 mt-1">
+                                  Buat soal di menu Bank Soal terlebih dahulu.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                                {bankSoal
+                                  .filter(
+                                    (soal: any) =>
+                                      String(soal.rombelId) ===
+                                        String(formUjian.rombelId) &&
+                                      soal.status === 'Aktif'
+                                  )
+                                  .map((soal: any) => {
+                                    const isSelected =
+                                      formUjian.soalIds.includes(
+                                        String(soal.id)
+                                      );
+
+                                    return (
+                                      <label
+                                        key={soal.id}
+                                        className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                                          isSelected
+                                            ? 'bg-pink-50 border-pink-200'
+                                            : 'bg-white border-slate-200 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => {
+                                            const soalId = String(soal.id);
+
+                                            setFormUjian(prev => {
+                                              const alreadySelected =
+                                                prev.soalIds.includes(soalId);
+
+                                              const nextSoalIds = alreadySelected
+                                                ? prev.soalIds.filter(
+                                                    id => id !== soalId
+                                                  )
+                                                : [...prev.soalIds, soalId];
+
+                                              const firstSelectedSoal =
+                                                bankSoal.find(
+                                                  (item: any) =>
+                                                    String(item.id) ===
+                                                    String(nextSoalIds[0] || '')
+                                                );
+
+                                              return {
+                                                ...prev,
+                                                soalIds: nextSoalIds,
+                                                mataPelajaran:
+                                                  firstSelectedSoal
+                                                    ?.mataPelajaran || ''
+                                              };
+                                            });
+                                          }}
+                                          className="mt-0.5 rounded text-pink-600"
+                                        />
+
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-bold text-slate-800">
+                                            {soal.judul}
+                                          </p>
+                                          <p className="text-[9px] text-slate-500 mt-0.5">
+                                            {soal.mataPelajaran} • {soal.jenisSoal} • {soal.tingkatKesulitan}
+                                          </p>
+                                          <p className="text-[9px] text-slate-400 mt-1 line-clamp-2">
+                                            {soal.pertanyaan}
+                                          </p>
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="pt-4 border-t border-slate-150 flex gap-3">
+                            <button 
+                              type="button"
+                              onClick={() => { setCbtSubView('list'); setSelectedUjian(null); }}
+                              className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black cursor-pointer"
+                            >
+                              Batal
+                            </button>
+                            <button 
+                              type="submit"
+                              className="flex-1 py-3 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-black cursor-pointer"
+                            >
+                              {cbtSubView === 'addUjian' ? 'Simpan Ujian' : 'Perbarui Ujian'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  ) : cbtSubView === 'viewUjian' && selectedUjian ? (
+                    <div className="max-w-4xl mx-auto">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="text-sm font-extrabold text-slate-800">{selectedUjian.namaUjian}</h3>
+                            <p className="text-[9px] text-slate-400">{selectedUjian.jenisUjian} - {selectedUjian.mataPelajaran}</p>
+                          </div>
+                          <button 
+                            onClick={() => setCbtSubView('list')}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Kembali
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[10px]">
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Program</span>
+                            <p className="text-slate-800 font-semibold">{selectedUjian.program}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Kelas</span>
+                            <p className="text-slate-800 font-semibold">{selectedUjian.kelas}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Durasi</span>
+                            <p className="text-slate-800 font-semibold">{selectedUjian.durasi} menit</p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-slate-400 font-bold">Jumlah Soal</span>
+                            <p className="text-slate-800 font-semibold">{selectedUjian.jumlahSoal} soal</p>
+                          </div>
+                        </div>
+                        <div className="pt-4 border-t border-slate-150">
+                          <h4 className="text-xs font-bold text-slate-700 mb-3">Daftar Soal dalam Ujian</h4>
+                          <div className="space-y-2">
+                            {bankSoal.filter(s => selectedUjian.soalIds.includes(s.id)).map(soal => (
+                              <div key={soal.id} className="p-3 bg-slate-50 rounded-xl border border-slate-150">
+                                <p className="text-xs font-semibold text-slate-800">{soal.judul}</p>
+                                <p className="text-[9px] text-slate-500">{soal.mataPelajaran} - {soal.tingkatKesulitan}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : cbtSubView === 'kelolaSoalUjian' && selectedUjian ? (
+                    <div className="max-w-5xl mx-auto">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h3 className="text-sm font-extrabold text-slate-800">Kelola Soal untuk: {selectedUjian.namaUjian}</h3>
+                            <p className="text-[9px] text-slate-400">Pilih soal dari Bank Soal untuk dimasukkan ke ujian</p>
+                          </div>
+                          <button 
+                            onClick={() => setCbtSubView('list')}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Kembali
+                          </button>
+                        </div>
+                        <div className="flex gap-4">
+                          <div className="flex-1">
+                            <h4 className="text-xs font-bold text-slate-700 mb-3">Pilih Soal ({formUjian.soalIds.length} terpilih)</h4>
+                            <div className="max-h-[500px] overflow-y-auto space-y-2">
+                              {bankSoal.map(soal => {
+                                const isSelected = formUjian.soalIds.includes(soal.id);
+                                return (
+                                  <div 
+                                    key={soal.id}
+                                    onClick={() => handleToggleSoalForUjian(soal.id)}
+                                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                      isSelected ? 'bg-pink-50 border-pink-200' : 'bg-white border-slate-150 hover:border-slate-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => handleToggleSoalForUjian(soal.id)}
+                                        className="mt-0.5 rounded text-pink-600"
+                                      />
+                                      <div className="flex-1">
+                                        <p className="text-xs font-semibold text-slate-800">{soal.judul}</p>
+                                        <p className="text-[9px] text-slate-500">{soal.mataPelajaran} - {soal.tingkatKesulitan} - {soal.jenisSoal}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="w-72">
+                            <h4 className="text-xs font-bold text-slate-700 mb-3">Soal Terpilih</h4>
+                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-150 max-h-[400px] overflow-y-auto space-y-2">
+                              {formUjian.soalIds.map(id => {
+                                const soal = bankSoal.find(s => s.id === id);
+                                if (!soal) return null;
+                                return (
+                                  <div key={id} className="p-2 bg-white rounded-lg border border-slate-200">
+                                    <p className="text-[10px] font-semibold text-slate-800">{soal.judul}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="pt-4 border-t border-slate-150 flex gap-3 justify-end">
+                          <button 
+                            type="button"
+                            onClick={() => setCbtSubView('list')}
+                            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black cursor-pointer"
+                          >
+                            Batal
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              handleEditUjianSubmit({ preventDefault: () => {} } as any);
+                            }}
+                            className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-black cursor-pointer"
+                          >
+                            Simpan Perubahan
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {/* ========== HASIL UJIAN ========== */}
+              {cbtActiveTab === 'hasilUjian' && (
+                <div>
+                  {cbtSubView === 'viewUjianHasil' && selectedUjian ? (
+                    <div className="max-w-5xl mx-auto space-y-4">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-sm">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-sm font-extrabold text-slate-800">Hasil Ujian: {selectedUjian.namaUjian}</h3>
+                            <p className="text-[9px] text-slate-400">{selectedUjian.mataPelajaran} - {selectedUjian.jenisUjian}</p>
+                          </div>
+                          <button 
+                            onClick={() => { setCbtActiveTab('daftarUjian'); setCbtSubView('list'); setSelectedUjian(null); }}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Kembali
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                          <div className="p-4 bg-purple-50 border border-purple-100 rounded-xl text-center">
+                            <p className="text-2xl font-black text-purple-700">{selectedUjian.jumlahPeserta}</p>
+                            <p className="text-[10px] font-bold text-purple-600">Total Peserta</p>
+                          </div>
+                          <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl text-center">
+                            <p className="text-2xl font-black text-emerald-700">{selectedUjian.sudahMengerjakan}</p>
+                            <p className="text-[10px] font-bold text-emerald-600">Sudah Mengerjakan</p>
+                          </div>
+                          <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-xl text-center">
+                            <p className="text-2xl font-black text-yellow-700">{selectedUjian.belumMengerjakan || 0}</p>
+                            <p className="text-[10px] font-bold text-yellow-600">Belum Mengerjakan</p>
+                          </div>
+                          <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-center">
+                            <p className="text-2xl font-black text-blue-700">{selectedUjian.nilaiRataRata.toFixed(1)}</p>
+                            <p className="text-[10px] font-bold text-blue-600">Rata-rata Nilai</p>
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs font-semibold">
+                            <thead>
+                              <tr className="border-b border-slate-200 text-slate-500">
+                                <th className="py-2 px-2 text-left">Nama Siswa</th>
+                                <th className="py-2 px-2 text-left">Kelas</th>
+                                <th className="py-2 px-2 text-left">Waktu Pengerjaan</th>
+                                <th className="py-2 px-2 text-left">Nilai</th>
+                                <th className="py-2 px-2 text-left">Status</th>
+                                <th className="py-2 px-2 text-left">Aksi</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedUjian.jumlahPeserta > 0 ? (
+                                Array.from({ length: Math.min(5, selectedUjian.sudahMengerjakan) }).map((_, i) => (
+                                  <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                                    <td className="py-2 px-2 text-slate-800">{['Siswa A', 'Siswa B', 'Siswa C', 'Siswa D', 'Siswa E'][i]}</td>
+                                    <td className="py-2 px-2 text-slate-700">{selectedUjian.kelas}</td>
+                                    <td className="py-2 px-2 text-slate-700">{`${Math.floor(selectedUjian.durasi * 0.7)} menit`}</td>
+                                    <td className="py-2 px-2 text-slate-700 font-bold">{selectedUjian.nilaiTertinggi - (i * 5)}</td>
+                                    <td className="py-2 px-2">
+                                      <span className="px-2 py-0.5 rounded-full text-[8px] font-black bg-emerald-100 text-emerald-700">Selesai</span>
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <button 
+                                        className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-[8px] font-black cursor-pointer"
+                                        type="button"
+                                      >
+                                        Lihat Jawaban
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
+                                    Belum ada peserta yang mengerjakan ujian ini
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="pt-4 border-t border-slate-150 flex gap-2">
+                          <button 
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Unduh Hasil (Excel)
+                          </button>
+                          <button 
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black cursor-pointer"
+                            type="button"
+                          >
+                            Cetak Hasil
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-extrabold text-slate-800">Hasil Ujian CBT</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {daftarUjian.filter(u => u.jumlahPeserta > 0).map(ujian => (
+                          <div key={ujian.id} className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm">
+                            <h4 className="text-xs font-extrabold text-slate-800 mb-2">{ujian.namaUjian}</h4>
+                            <div className="grid grid-cols-3 gap-3 text-[10px] mb-3">
+                              <div className="text-center">
+                                <p className="font-bold text-slate-800">{ujian.sudahMengerjakan}/{ujian.jumlahPeserta}</p>
+                                <p className="text-slate-400">Sudah Mengerjakan</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="font-bold text-slate-800">{ujian.nilaiRataRata.toFixed(1)}</p>
+                                <p className="text-slate-400">Rata-rata</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="font-bold text-slate-800">{ujian.nilaiTertinggi}</p>
+                                <p className="text-slate-400">Tertinggi</p>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => { setSelectedUjian(ujian); setCbtSubView('viewUjianHasil'); }}
+                              className="w-full px-3 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg text-[9px] font-black cursor-pointer"
+                              type="button"
+                            >
+                              Lihat Detail Hasil
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : showUploadModal ? (
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+            {/* Header with back button */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowUploadModal(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-sm font-extrabold text-slate-800">Tambah Materi Pembelajaran</h2>
+                  <p className="text-[9px] text-slate-400 font-medium">Buat, unggah, dan publikasikan modul ajar baru untuk siswa</p>
+                </div>
+              </div>
+              <span className="text-[8px] text-pink-600 font-bold bg-pink-50 px-2 py-1 rounded-full uppercase tracking-wider font-sans">KURIKULUM MERDEKA</span>
+            </div>
+
+            {/* Form Container */}
+            <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
+              <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 border border-slate-150 shadow-sm space-y-5">
+                
+                {/* Information Banner */}
+                <div className="bg-gradient-to-r from-pink-50 to-indigo-50 p-3.5 rounded-2xl border border-pink-100/50 flex gap-3 items-start">
+                  <Sparkles className="w-5 h-5 text-pink-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="text-[10px] font-black text-slate-800">Tips Mengunggah Modul Ajar</h4>
+                    <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
+                      Pastikan judul modul ajar sudah sesuai dengan kompetensi dasar (CP/TP). Unggah file PDF dengan materi lengkap, rangkuman, dan latihan mandiri untuk mempermudah siswa belajar mandiri.
+                    </p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateMateri} className="space-y-4 text-xs font-semibold text-slate-500">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Judul Materi Pembelajaran</label>
+                      <input 
+                        type="text" 
+                        required
+                        placeholder="Misal: Struktur Organ Hewan Mamalia"
+                        value={formData.materiTitle}
+                        onChange={(e) => setFormData(prev => ({ ...prev, materiTitle: e.target.value }))}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Mata Pelajaran</label>
+                      <select 
+                        value={formData.materiSubject}
+                        onChange={(e) => setFormData(prev => ({ ...prev, materiSubject: e.target.value }))}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                      >
+                        {subjectsList.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-slate-700 font-bold">Unggah Dokumen Pendukung (PDF/Modul)</label>
+                    <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center bg-slate-50/50 hover:bg-slate-100/50 hover:border-pink-400 cursor-pointer transition-all group">
+                      <FileDown className="w-8 h-8 text-slate-400 group-hover:text-pink-500 mx-auto mb-2 transition-colors" />
+                      <h5 className="text-[11px] font-black text-slate-700">Tarik berkas di sini atau klik untuk mengunggah</h5>
+                      <p className="text-[9px] text-slate-400 mt-1">Hanya mendukung format PDF. Kapasitas maksimum unggah berkas adalah 10 MB.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-slate-700 font-bold">Tautan / Link Video Pembelajaran (YouTube/Lainnya)</label>
+                    <input 
+                      type="text" 
+                      placeholder="Misal: https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                      value={formData.materiVideoUrl}
+                      onChange={(e) => setFormData(prev => ({ ...prev, materiVideoUrl: e.target.value }))}
+                      className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                    />
+                    <span className="text-[9px] text-slate-400 font-medium leading-normal block">Sematkan video pembelajaran interaktif untuk memperjelas topik pembelajaran bagi siswa kesetaraan.</span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-slate-700 font-bold">Tulis Materi Secara Manual (Opsional)</label>
+                    <textarea 
+                      placeholder="Tulis ringkasan materi, penjelasan detail, atau materi ajar secara manual di sini jika tidak ingin melampirkan berkas PDF..."
+                      value={formData.materiContent}
+                      onChange={(e) => setFormData(prev => ({ ...prev, materiContent: e.target.value }))}
+                      rows={6}
+                      className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all resize-none"
+                    />
+                    <span className="text-[9px] text-slate-400 font-medium leading-normal block">Penjelasan manual ini akan langsung tampil di halaman siswa ketika materi ini dipilih.</span>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-150 flex gap-3">
+                    <button 
+                      type="button"
+                      onClick={() => setShowUploadModal(false)}
+                      className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer text-center"
+                    >
+                      Batal & Kembali
+                    </button>
+                    <button 
+                      type="submit" 
+                      className="flex-1 py-3 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-black shadow-md shadow-pink-500/10 transition-all cursor-pointer text-center"
+                    >
+                      Daftar & Publikasikan Modul
+                    </button>
+                  </div>
+                </form>
+
+              </div>
+            </div>
+          </div>
+        ) : currentView === 'nilai' ? (
+          /* FULL-PAGE INPUT NILAI VIEW */
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 text-[10.5px]">
+            {/* 1. Header Area */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setCurrentView('dashboard')}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-sm font-extrabold text-slate-800">Input Nilai Siswa</h2>
+                  <p className="text-[9px] text-slate-400 font-medium">
+                    T.A {activeAcademicYear?.nama || '2026/2027'} - {activeAcademicYear?.semester || 'Ganjil'} • {loggedInTeacher.mapel} • {loggedInTeacher.kelas}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  // Explicitly sync all grades to student rapor
+                  syncGradesToStudentRapor(localTaskSubmissions);
+                  showModal('Berhasil', 'Data nilai berhasil disinkronisasikan ke e-Rapor & Data Akademik siswa!', 'success');
+                }}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9.5px] font-black shadow-sm flex items-center gap-1.5 cursor-pointer"
+                type="button"
+              >
+                <CheckCircle className="w-3.5 h-3.5" /> Simpan Nilai
+              </button>
+            </div>
+
+            {/* Sub-tab Selector inside Input Nilai */}
+            <div className="px-5 py-2.5 bg-white border-b border-slate-150 flex items-center justify-start gap-4 shrink-0 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setNilaiTab('akademik')}
+                className={`px-3 py-1.5 rounded-xl font-extrabold text-[10px] transition-all cursor-pointer flex items-center gap-1.5 ${
+                  nilaiTab === 'akademik'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" /> Input Nilai Akademik & SKK
+              </button>
+              <button
+                type="button"
+                onClick={() => setNilaiTab('keaktifan')}
+                className={`px-3 py-1.5 rounded-xl font-extrabold text-[10px] transition-all cursor-pointer flex items-center gap-1.5 ${
+                  nilaiTab === 'keaktifan'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" /> Keaktifan Belajar (e-Rapor)
+              </button>
+            </div>
+
+            {/* 2. Filter & Search Bar */}
+            <div className="p-4 bg-white border-b border-slate-100 space-y-3 shrink-0">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[7.5px] font-black text-slate-400 uppercase block">Program</label>
+                  <select 
+                    value="Paket C" 
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[9.5px] font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option>Paket A</option>
+                    <option>Paket B</option>
+                    <option>Paket C</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[7.5px] font-black text-slate-400 uppercase block">Kelas</label>
+                  <select 
+                    value="all" 
+                    onChange={(e) => setNilaiFilterClass(e.target.value)}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[9.5px] font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option value="all">Semua Kelas</option>
+                    {loggedInTeacher.kelasList?.map(kls => <option key={kls} value={kls}>{kls}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[7.5px] font-black text-slate-400 uppercase block">Mata Pelajaran</label>
+                  <select 
+                    value="all" 
+                    onChange={(e) => setNilaiFilterSubject(e.target.value)}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[9.5px] font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option value="all">Semua Mapel</option>
+                    {loggedInTeacher.mapels?.map(mapel => <option key={mapel} value={mapel}>{mapel}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[7.5px] font-black text-slate-400 uppercase block">Semester</label>
+                  <select 
+                    value={nilaiFilterSemester} 
+                    onChange={(e) => setNilaiFilterSemester(e.target.value)}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[9.5px] font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option value="Ganjil">Ganjil</option>
+                    <option value="Genap">Genap</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
+                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <input 
+                  type="text" 
+                  placeholder="Cari nama siswa..." 
+                  value={nilaiSearch}
+                  onChange={(e) => setNilaiSearch(e.target.value)}
+                  className="w-full bg-transparent text-[9.5px] font-semibold text-slate-700 outline-none placeholder-slate-400"
+                />
+              </div>
+            </div>
+
+            {/* 3. Main Content: Table of Students */}
+            <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
+              <div className="bg-white rounded-2xl border border-slate-150 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  {nilaiTab === 'akademik' ? (
+                    <table className="w-full border-collapse text-left">
+                    <thead className="bg-slate-50 border-b border-slate-150 text-[7.5px] font-black text-slate-400 uppercase tracking-wider">
+                      <tr>
+                        <th className="px-4 py-3">Nama Siswa</th>
+                        {/* Dynamically render task columns */}
+                        {(() => {
+                          // Get all unique tasks from tasks prop
+                          const filteredTasks = tasks.filter(task => {
+                            const classMatch = nilaiFilterClass === 'all' || (task.kelas || '').includes(nilaiFilterClass);
+                            const subjectMatch = nilaiFilterSubject === 'all' || task.subject === nilaiFilterSubject;
+                            const semesterMatch = task.semester === nilaiFilterSemester;
+                            return classMatch && subjectMatch && semesterMatch;
+                          });
+                          return filteredTasks.map(task => (
+                            <th key={task.id} className="px-4 py-3 text-center min-w-[100px]">
+                              {task.title}
+                            </th>
+                          ));
+                        })()}
+                        <th className="px-4 py-3 text-center">Rata-rata</th>
+                        <th className="px-4 py-3 text-center">UTS</th>
+                        <th className="px-4 py-3 text-center">UAS</th>
+                        <th className="px-4 py-3 text-center">Keaktifan</th>
+                        <th className="px-4 py-3 text-center">Nilai Akhir</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-[9.5px] font-semibold text-slate-700">
+                      {(() => {
+                        // Mock student list
+                        const studentList = students.length > 0 ? students : [
+                          { id: 'std-001', nama: 'Fajar Pratama', kelas: 'Kelas X - Paket C', program: 'Paket C' },
+                          { id: 'std-002', nama: 'Budi Santoso', kelas: 'Kelas XI - Paket C', program: 'Paket C' },
+                          { id: 'std-003', nama: 'Siti Aminah', kelas: 'Kelas XII - Paket C', program: 'Paket C' },
+                        ];
+
+                        // Filter students
+                        const filteredStudents = studentList.filter(s => 
+                          (nilaiFilterClass === 'all' || (s.kelas || '').includes(nilaiFilterClass)) &&
+                          ((s.nama || '').toLowerCase().includes((nilaiSearch || '').toLowerCase()))
+                        );
+
+                        // Get filtered tasks
+                        const filteredTasks = tasks.filter(task => {
+                          const classMatch = nilaiFilterClass === 'all' || (task.kelas || '').includes(nilaiFilterClass);
+                          const subjectMatch = nilaiFilterSubject === 'all' || task.subject === nilaiFilterSubject;
+                          const semesterMatch = task.semester === nilaiFilterSemester;
+                          return classMatch && subjectMatch && semesterMatch;
+                        });
+
+                        return filteredStudents.map(student => {
+                          // Read completed exams from localStorage
+                          const savedCompletedExams = localStorage.getItem('completedExams');
+                          const completedExams: Record<string | number, { score: number; timestamp: string }> = savedCompletedExams 
+                            ? JSON.parse(savedCompletedExams) 
+                            : {};
+                          
+                          // Get student's task submissions
+                          const studentSubmissions = localTaskSubmissions.filter(sub => 
+                            sub.studentId === student.id || sub.studentName === student.nama
+                          );
+
+                          // Calculate nilai harian for each task and average
+                          const taskGrades = filteredTasks.map(task => {
+                            const submission = studentSubmissions.find(s => s.taskId === task.id);
+                            const grade = submission?.finalGrade ?? submission?.grade;
+                            return grade;
+                          });
+                          const validGrades = taskGrades.filter(g => g !== null && g !== undefined) as number[];
+                          const nilaiHarian = validGrades.length > 0 
+                            ? Math.round(validGrades.reduce((sum, g) => sum + g, 0) / validGrades.length)
+                            : null;
+
+                          // Calculate UTS & UAS from CBT (including remedial, take highest score)
+                          const utsExams = daftarUjian.filter(ex => ex.jenisUjian === 'UTS' || ex.jenisUjian === 'Remedial UTS');
+                          const uasExams = daftarUjian.filter(ex => ex.jenisUjian === 'UAS' || ex.jenisUjian === 'Remedial UAS');
+                          
+                          const utsScores = utsExams.map(ex => completedExams[ex.id]?.score).filter(s => s !== undefined) as number[];
+                          const uasScores = uasExams.map(ex => completedExams[ex.id]?.score).filter(s => s !== undefined) as number[];
+                          
+                          const nilaiUTS = utsScores.length > 0 ? Math.max(...utsScores) : (utsExams.length > 0 ? 85 : null);
+                          const nilaiUAS = uasScores.length > 0 ? Math.max(...uasScores) : (uasExams.length > 0 ? 88 : null);
+
+                          // Calculate Keaktifan from Absensi
+                          const studentAttendance = attendanceRecords.filter(r => r.studentId === student.id);
+                          const totalMeetings = meetings.length;
+                          const hadirCount = studentAttendance.filter(r => r.status === 'Hadir').length;
+                          const izinCount = studentAttendance.filter(r => r.status === 'Izin').length;
+                          const sakitCount = studentAttendance.filter(r => r.status === 'Sakit').length;
+                          const keaktifan = totalMeetings > 0 
+                            ? Math.round(((hadirCount + izinCount * 0.75 + sakitCount * 0.5) / totalMeetings) * 100)
+                            : null;
+
+                          // Calculate Nilai Akhir
+                          const components = [nilaiHarian, nilaiUTS, nilaiUAS, keaktifan].filter(n => n !== null) as number[];
+                          const nilaiAkhir = components.length > 0 
+                            ? Math.round(components.reduce((a, b) => a + b, 0) / components.length)
+                            : null;
+
+                          return (
+                            <tr key={student.id} className="hover:bg-slate-50/50">
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-black text-[9px]">
+                                    {student.nama.split(' ').map(n => n[0]).join('')}
+                                  </div>
+                                  <div>
+                                    <p className="font-extrabold text-slate-800">{student.nama}</p>
+                                    <p className="text-[7.5px] text-slate-400 font-medium">{student.kelas}</p>
+                                    <span className={`inline-block text-[7px] font-black px-1.5 py-0.2 rounded mt-0.5 border ${
+                                      nilaiAkhir && nilaiAkhir >= 75
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                        : 'bg-amber-50 text-amber-700 border-amber-100'
+                                    }`}>
+                                      SKK: {nilaiAkhir && nilaiAkhir >= 75 ? '+4 SKK (Tuntas)' : '0 SKK (Proses)'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Task grades columns */}
+                              {filteredTasks.map(task => {
+                                const submission = studentSubmissions.find(s => s.taskId === task.id);
+                                const grade = submission?.finalGrade ?? submission?.grade;
+                                const isEditing = editingGrade?.studentId === student.id && editingGrade?.taskId === task.id;
+
+                                return (
+                                  <td key={task.id} className="px-4 py-3 text-center">
+                                    {isEditing ? (
+                                      <div className="flex flex-col items-center gap-1">
+                                        <input
+                                          type="number"
+                                          value={editingGradeValue}
+                                          onChange={(e) => setEditingGradeValue(e.target.value)}
+                                          min="0"
+                                          max="100"
+                                          className="w-16 p-1 border border-slate-300 rounded text-center text-[9.5px] focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                        />
+                                        <div className="flex gap-1">
+                                          <button
+                                            onClick={() => {
+                                              // Save the grade
+                                              setLocalTaskSubmissions(prev => {
+                                                const updated = prev.map(sub => {
+                                                  if ((sub.studentId === student.id || sub.studentName === student.nama) && sub.taskId === task.id) {
+                                                    return { ...sub, finalGrade: parseInt(editingGradeValue) || 0 };
+                                                  }
+                                                  return sub;
+                                                });
+                                                syncGradesToStudentRapor(updated);
+                                                return updated;
+                                              });
+                                              setEditingGrade(null);
+                                              setEditingGradeValue('');
+                                            }}
+                                            className="p-1 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition-colors"
+                                          >
+                                            <CheckCircle className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setEditingGrade(null);
+                                              setEditingGradeValue('');
+                                            }}
+                                            className="p-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors"
+                                          >
+                                            <X className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          setEditingGrade({ studentId: student.id, taskId: task.id });
+                                          setEditingGradeValue(grade?.toString() || '');
+                                        }}
+                                        className={`w-full p-1 rounded ${grade !== null ? 'text-teal-700 hover:bg-teal-50' : 'text-slate-400 hover:bg-slate-50'} font-black transition-colors`}
+                                      >
+                                        {grade !== null ? grade : '-'}
+                                      </button>
+                                    )}
+                                  </td>
+                                );
+                              })}
+
+                              {/* Rata-rata */}
+                              <td className="px-4 py-3 text-center">
+                                <span className={`font-black ${nilaiHarian !== null ? 'text-teal-700' : 'text-slate-400'}`}>
+                                  {nilaiHarian !== null ? nilaiHarian : '-'}
+                                </span>
+                              </td>
+
+                              {/* UTS */}
+                              <td className="px-4 py-3 text-center">
+                                <span className={`font-black ${nilaiUTS !== null ? 'text-indigo-700' : 'text-slate-400'}`}>
+                                  {nilaiUTS !== null ? nilaiUTS : '-'}
+                                </span>
+                              </td>
+
+                              {/* UAS */}
+                              <td className="px-4 py-3 text-center">
+                                <span className={`font-black ${nilaiUAS !== null ? 'text-purple-700' : 'text-slate-400'}`}>
+                                  {nilaiUAS !== null ? nilaiUAS : '-'}
+                                </span>
+                              </td>
+
+                              {/* Keaktifan */}
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className={`font-black ${keaktifan !== null ? 'text-pink-700' : 'text-slate-400'}`}>
+                                    {keaktifan !== null ? keaktifan : '-'}
+                                  </span>
+                                  {keaktifan !== null && (
+                                    <span className="text-[6.5px] text-slate-400 font-medium">
+                                      {hadirCount}H • {izinCount}I • {sakitCount}S
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Nilai Akhir */}
+                              <td className="px-4 py-3 text-center">
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100">
+                                  <span className="text-[10px] font-black text-emerald-700">
+                                    {nilaiAkhir !== null ? nilaiAkhir : '-'}
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                  ) : (
+                    <table className="w-full border-collapse text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-150 text-[7.5px] font-black text-slate-400 uppercase tracking-wider">
+                        <tr>
+                          <th className="px-4 py-3">Nama Siswa</th>
+                          <th className="px-4 py-3 text-center">Aktivitas LMS (Indikator)</th>
+                          <th className="px-4 py-3 text-center">Status Keaktifan</th>
+                          <th className="px-4 py-3">Deskripsi Keaktifan Belajar (e-Rapor)</th>
+                          <th className="px-4 py-3 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-[9.5px] font-semibold text-slate-700">
+                        {(() => {
+                          const studentList = students.length > 0 ? students : [
+                            { id: 'std-001', nama: 'Fajar Pratama', kelas: 'Kelas X - Paket C', program: 'Paket C' },
+                            { id: 'std-002', nama: 'Budi Santoso', kelas: 'Kelas XI - Paket C', program: 'Paket C' },
+                            { id: 'std-003', nama: 'Siti Aminah', kelas: 'Kelas XII - Paket C', program: 'Paket C' },
+                          ];
+
+                          const filteredStudents = studentList.filter(s => 
+                            (nilaiFilterClass === 'all' || (s.kelas || '').includes(nilaiFilterClass)) &&
+                            ((s.nama || '').toLowerCase().includes((nilaiSearch || '').toLowerCase()))
+                          );
+
+                          return filteredStudents.map(student => {
+                            let score = 85;
+                            try {
+                              const savedActs = localStorage.getItem('lulus_learning_activities');
+                              const parsedActs = savedActs ? JSON.parse(savedActs) : [];
+                              const studentActs = parsedActs.filter((a: any) => a.studentId === student.id || a.studentName?.toLowerCase() === student.nama?.toLowerCase());
+                              const pointsSum = studentActs.reduce((sum: number, act: any) => sum + (act.points || 0), 0);
+                              score = pointsSum > 0 ? Math.min(100, pointsSum) : (student.id === 'SIS-1001' ? 88 : student.id === 'SIS-1002' ? 75 : 92);
+                            } catch (e) {
+                              score = 92;
+                            }
+
+                            const key = `${student.id}_${nilaiFilterSemester}`;
+                            const currentData = studentKeaktifanLocal[key] || {};
+                            const statusVal = currentData.status || (score >= 85 ? 'Sangat Aktif' : score >= 70 ? 'Aktif' : score >= 55 ? 'Cukup Aktif' : 'Kurang Aktif');
+                            
+                            const defaultDesc = statusVal === 'Sangat Aktif' ? 'Peserta didik sangat aktif mengikuti seluruh proses pembelajaran online dan tatap muka mandiri, konsisten mengumpulkan tugas tepat waktu, berpartisipasi penuh dalam forum diskusi kelas, serta menunjukkan perkembangan kompetensi yang sangat luar biasa di seluruh mata pelajaran semester ini.'
+                              : statusVal === 'Aktif' ? 'Peserta didik mengikuti pembelajaran secara konsisten, aktif mengerjakan tugas, dan menunjukkan perkembangan belajar yang baik selama semester ini.'
+                              : statusVal === 'Cukup Aktif' ? 'Peserta didik mengikuti beberapa sesi pembelajaran dan mengumpulkan tugas-tugas utama, namun perlu meningkatkan partisipasi aktif dalam forum kelas serta kedisiplinan pengumpulan tugas di semester berikutnya.'
+                              : 'Peserta didik kurang aktif dalam mengikuti sesi pembelajaran online maupun penyelesaian materi mandiri. Diharapkan lebih fokus, disiplin, dan proaktif menjalin komunikasi dengan tutor pendamping.';
+                            
+                            const descVal = currentData.deskripsi !== undefined ? currentData.deskripsi : defaultDesc;
+                            const isEditingThis = editingKeaktifanId === student.id;
+
+                            return (
+                              <tr key={student.id} className="hover:bg-slate-50/50">
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-black text-[9px]">
+                                      {student.nama.split(' ').map(n => n[0]).join('')}
+                                    </div>
+                                    <div>
+                                      <p className="font-extrabold text-slate-800">{student.nama}</p>
+                                      <p className="text-[7.5px] text-slate-400 font-bold">{student.kelas}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="inline-flex flex-col items-center gap-1 bg-slate-50 border border-slate-150 px-2.5 py-1 rounded-xl">
+                                    <span className="font-black text-slate-700">{score}%</span>
+                                    <div className="w-12 bg-slate-200 h-1 rounded-full overflow-hidden">
+                                      <div className="bg-indigo-500 h-full" style={{ width: `${score}%` }}></div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {isEditingThis ? (
+                                    <select
+                                      value={tempKeaktifanStatus}
+                                      onChange={(e: any) => {
+                                        const nextStatus = e.target.value;
+                                        setTempKeaktifanStatus(nextStatus);
+                                        const autoDesc = nextStatus === 'Sangat Aktif' ? 'Peserta didik sangat aktif mengikuti seluruh proses pembelajaran online dan tatap muka mandiri, konsisten mengumpulkan tugas tepat waktu, berpartisipasi penuh dalam forum diskusi kelas, serta menunjukkan perkembangan kompetensi yang sangat luar biasa di seluruh mata pelajaran semester ini.'
+                                          : nextStatus === 'Aktif' ? 'Peserta didik mengikuti pembelajaran secara konsisten, aktif mengerjakan tugas, dan menunjukkan perkembangan belajar yang baik selama semester ini.'
+                                          : nextStatus === 'Cukup Aktif' ? 'Peserta didik mengikuti beberapa sesi pembelajaran dan mengumpulkan tugas-tugas utama, namun perlu meningkatkan partisipasi aktif dalam forum kelas serta kedisiplinan pengumpulan tugas di semester berikutnya.'
+                                          : 'Peserta didik kurang aktif dalam mengikuti sesi pembelajaran online maupun penyelesaian materi mandiri. Diharapkan lebih fokus, disiplin, dan proaktif menjalin komunikasi dengan tutor pendamping.';
+                                        setTempKeaktifanDesc(autoDesc);
+                                      }}
+                                      className="p-1.5 bg-slate-50 border border-slate-250 rounded-xl text-[9px] font-bold text-slate-800 focus:ring-1 focus:ring-rose-500"
+                                    >
+                                      <option value="Sangat Aktif">Sangat Aktif</option>
+                                      <option value="Aktif">Aktif</option>
+                                      <option value="Cukup Aktif">Cukup Aktif</option>
+                                      <option value="Kurang Aktif">Kurang Aktif</option>
+                                    </select>
+                                  ) : (
+                                    <span className={`px-2 py-0.5 rounded-full text-[8.5px] font-extrabold uppercase ${
+                                      statusVal === 'Sangat Aktif' ? 'bg-emerald-100 text-emerald-700' :
+                                      statusVal === 'Aktif' ? 'bg-indigo-100 text-indigo-700' :
+                                      statusVal === 'Cukup Aktif' ? 'bg-amber-100 text-amber-700' :
+                                      'bg-rose-100 text-rose-700'
+                                    }`}>
+                                      {statusVal}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {isEditingThis ? (
+                                    <textarea
+                                      value={tempKeaktifanDesc}
+                                      onChange={(e) => setTempKeaktifanDesc(e.target.value)}
+                                      className="w-full p-2 bg-slate-50 border border-slate-250 rounded-xl text-[9px] font-semibold text-slate-700 focus:ring-1 focus:ring-rose-500 min-h-[50px]"
+                                      placeholder="Deskripsi Keaktifan Belajar..."
+                                    />
+                                  ) : (
+                                    <p className="text-[9px] text-slate-500 italic leading-relaxed max-w-sm font-medium">
+                                      "{descVal}"
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {isEditingThis ? (
+                                    <div className="flex gap-1.5 justify-center">
+                                      <button
+                                        onClick={() => {
+                                          saveStudentKeaktifan(student.id, nilaiFilterSemester, tempKeaktifanStatus, tempKeaktifanDesc);
+                                          setEditingKeaktifanId(null);
+                                          showModal('Berhasil', `Data keaktifan ${student.nama} berhasil disimpan ke e-Rapor!`, 'success');
+                                        }}
+                                        className="px-2 py-1 bg-emerald-600 text-white rounded text-[8px] font-bold cursor-pointer"
+                                      >
+                                        Simpan
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingKeaktifanId(null)}
+                                        className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-[8px] font-bold cursor-pointer"
+                                      >
+                                        Batal
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => {
+                                        setEditingKeaktifanId(student.id);
+                                        setTempKeaktifanStatus(statusVal);
+                                        setTempKeaktifanDesc(descVal);
+                                      }}
+                                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-700 rounded-lg text-[8px] font-extrabold cursor-pointer border border-indigo-150 transition-all"
+                                    >
+                                      Ubah Status
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : currentView === 'mading' ? (
+          /* MADING GURU — INFORMASI RESMI, HANYA BACA */
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 text-[10.5px]">
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setCurrentView('dashboard');
+                    setMadingSubView('list');
+                    setSelectedAnnouncement(null);
+                  }}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                  type="button"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+
+                <div>
+                  <h2 className="text-sm font-extrabold text-slate-800">
+                    Mading Guru
+                  </h2>
+                  <p className="text-[9px] text-slate-400 font-medium">
+                    Informasi resmi untuk guru Lulus.id
+                  </p>
+                </div>
+              </div>
+
+              <span className="px-3 py-2 rounded-xl bg-indigo-50 text-indigo-600 text-[8.5px] font-bold border border-indigo-100">
+                Dikelola oleh Admin
+              </span>
+            </div>
+
+            {madingSubView === 'list' ? (
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                {madingLoading ? (
+                  <div className="bg-white p-10 rounded-2xl border border-slate-150 text-center shadow-sm">
+                    <Loader2 className="w-8 h-8 text-indigo-500 mx-auto mb-3 animate-spin" />
+                    <p className="text-[9px] font-bold text-slate-500">
+                      Memuat informasi resmi...
+                    </p>
+                  </div>
+                ) : madingError ? (
+                  <div className="bg-rose-50 p-5 rounded-2xl border border-rose-100 text-center">
+                    <AlertCircle className="w-8 h-8 text-rose-500 mx-auto mb-2" />
+                    <p className="text-[9px] font-bold text-rose-700">
+                      {madingError}
+                    </p>
+                  </div>
+                ) : announcements.length === 0 ? (
+                  <div className="bg-white p-10 rounded-2xl border border-slate-150 text-center space-y-2 shadow-sm">
+                    <Megaphone className="w-12 h-12 text-slate-300 mx-auto" />
+                    <h4 className="text-xs font-extrabold text-slate-800">
+                      Belum Ada Informasi
+                    </h4>
+                    <p className="text-[9px] text-slate-400 font-medium max-w-xs mx-auto">
+                      Informasi resmi dari admin akan muncul di halaman ini.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {announcements.map((announcement) => (
+                      <div
+                        key={announcement.id}
+                        className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3"
+                      >
+                        <div className="space-y-1">
+                          <h4 className="text-[11px] font-extrabold text-slate-800">
+                            {announcement.judul}
+                          </h4>
+
+                          <div className="flex flex-wrap items-center gap-2 text-[7.5px] font-bold text-slate-400">
+                            <span className="flex items-center gap-1">
+                              <User className="w-3 h-3" />
+                              {announcement.createdBy || 'Admin'}
+                            </span>
+
+                            <span>•</span>
+
+                            <span>
+                              {announcement.createdAt
+                                ? new Date(
+                                    announcement.createdAt
+                                  ).toLocaleDateString(
+                                    'id-ID',
+                                    {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric'
+                                    }
+                                  )
+                                : '-'}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[7px] font-black uppercase">
+                              {announcement.status}
+                            </span>
+
+                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[7px] font-black uppercase">
+                              {announcement.target}
+                            </span>
+
+                            <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-[7px] font-black uppercase">
+                              {announcement.kategori}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-[9px] font-medium text-slate-600 leading-relaxed line-clamp-3">
+                          {announcement.isi}
+                        </p>
+
+                        {(announcement.foto ||
+                          announcement.pdf ||
+                          announcement.video ||
+                          announcement.youtubeLink) && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {announcement.foto && (
+                              <span className="px-2 py-1 bg-slate-50 rounded-lg border border-slate-200 text-[7.5px] font-bold text-slate-600">
+                                🖼️ Foto
+                              </span>
+                            )}
+
+                            {announcement.pdf && (
+                              <span className="px-2 py-1 bg-slate-50 rounded-lg border border-slate-200 text-[7.5px] font-bold text-slate-600">
+                                📄 PDF
+                              </span>
+                            )}
+
+                            {announcement.video && (
+                              <span className="px-2 py-1 bg-slate-50 rounded-lg border border-slate-200 text-[7.5px] font-bold text-slate-600">
+                                🎥 Video
+                              </span>
+                            )}
+
+                            {announcement.youtubeLink && (
+                              <span className="px-2 py-1 bg-slate-50 rounded-lg border border-slate-200 text-[7.5px] font-bold text-slate-600">
+                                📺 YouTube
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            setSelectedAnnouncement(announcement);
+                            setMadingSubView('view');
+                          }}
+                          className="w-full px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[8px] font-black transition-colors cursor-pointer border border-indigo-100"
+                          type="button"
+                        >
+                          Lihat Informasi
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : selectedAnnouncement ? (
+              <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
+                <div className="max-w-2xl mx-auto bg-white p-6 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-[13px] font-extrabold text-slate-800">
+                      {selectedAnnouncement.judul}
+                    </h3>
+
+                    <div className="text-[8px] font-bold text-slate-400 space-y-1">
+                      <p className="flex items-center gap-1">
+                        <User className="w-3 h-3" />
+                        Dipublikasikan oleh
+                        <span className="text-slate-700">
+                          {selectedAnnouncement.createdBy || 'Admin'}
+                        </span>
+                      </p>
+
+                      <p className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        Tanggal:
+                        <span className="text-slate-700">
+                          {selectedAnnouncement.createdAt
+                            ? new Date(
+                                selectedAnnouncement.createdAt
+                              ).toLocaleDateString(
+                                'id-ID',
+                                {
+                                  day: '2-digit',
+                                  month: 'long',
+                                  year: 'numeric'
+                                }
+                              )
+                            : '-'}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100">
+                    <div className="text-[9.5px] font-medium text-slate-600 leading-relaxed whitespace-pre-wrap">
+                      {selectedAnnouncement.isi}
+                    </div>
+                  </div>
+
+                  {selectedAnnouncement.foto && (
+                    <div className="pt-3 border-t border-slate-100">
+                      <img
+                        src={selectedAnnouncement.foto}
+                        alt={selectedAnnouncement.judul}
+                        className="w-full max-h-96 object-contain rounded-xl border border-slate-200 bg-slate-50"
+                      />
+                    </div>
+                  )}
+
+                  {selectedAnnouncement.pdf && (
+                    <a
+                      href={selectedAnnouncement.pdf}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 text-[9px] font-bold text-slate-700"
+                    >
+                      <span>📄 Dokumen PDF</span>
+                      <span className="text-indigo-600">
+                        Buka Dokumen
+                      </span>
+                    </a>
+                  )}
+
+                  {selectedAnnouncement.youtubeLink && (
+                    <a
+                      href={selectedAnnouncement.youtubeLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 text-[9px] font-bold text-slate-700"
+                    >
+                      <span>📺 Video YouTube</span>
+                      <span className="text-indigo-600">
+                        Buka Video
+                      </span>
+                    </a>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setMadingSubView('list');
+                      setSelectedAnnouncement(null);
+                    }}
+                    className="w-full px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[9px] font-bold transition-colors cursor-pointer"
+                    type="button"
+                  >
+                    Kembali
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : currentView === 'perpustakaan' ? (
+          // Perpustakaan Digital View
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 text-[10.5px]">
+            {/* Header Area with Submenu */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 shrink-0">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      setCurrentView('dashboard');
+                      setPerpustakaanSubView('dashboard');
+                    }}
+                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                    type="button"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <div>
+                    <h2 className="text-sm font-extrabold text-slate-800">Perpustakaan Digital</h2>
+                    <p className="text-[9px] text-slate-400 font-medium">Kelola koleksi buku dan modul</p>
+                  </div>
+                </div>
+                {perpustakaanSubView === 'dashboard' || perpustakaanSubView === 'list' ? (
+                  <button 
+                    onClick={() => {
+                      setPerpustakaanSubView('add');
+                      setFormLibraryBook({
+                        title: '',
+                        description: '',
+                        author: '',
+                        publisher: '',
+                        year: undefined,
+                        isbn: '',
+                        category: 'Modul Pembelajaran',
+                        subject: '',
+                        program: 'Semua',
+                        kelas: 'Semua Kelas',
+                        semester: 'Semua',
+                        cover: '',
+                        file: '',
+                        fileType: 'pdf',
+                        keywords: [],
+                        status: 'Draft'
+                      });
+                    }}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[9.5px] font-black shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    type="button"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Tambah Koleksi
+                  </button>
+                ) : null}
+              </div>
+
+              {/* Submenu Navigation */}
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setPerpustakaanSubView('dashboard')}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-bold transition-colors cursor-pointer ${
+                    perpustakaanSubView === 'dashboard' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Dashboard
+                </button>
+                <button 
+                  onClick={() => setPerpustakaanSubView('list')}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-bold transition-colors cursor-pointer ${
+                    perpustakaanSubView === 'list' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Semua Koleksi
+                </button>
+                <button 
+                  onClick={() => setPerpustakaanSubView('list')} // Filter for draft
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-bold transition-colors cursor-pointer ${
+                    perpustakaanSubView === 'list' && libraryBooks.some(b => b.status === 'Draft') ? 'bg-amber-100 text-amber-700' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Draft
+                </button>
+                <button 
+                  onClick={() => setPerpustakaanSubView('list')} // Filter for published
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-bold transition-colors cursor-pointer ${
+                    perpustakaanSubView === 'list' && libraryBooks.some(b => b.status === 'Publish') ? 'bg-emerald-100 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Dipublikasikan
+                </button>
+              </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+              {/* Dashboard View */}
+              {perpustakaanSubView === 'dashboard' ? (
+                <>
+                  {/* Statistics Cards */}
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="bg-white p-3 rounded-xl border border-slate-150 shadow-sm">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-wide block">Total Buku</span>
+                      <p className="text-lg font-black text-slate-800 mt-1">{libraryBooks.length}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-slate-150 shadow-sm">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-wide block">Total Modul</span>
+                      <p className="text-lg font-black text-indigo-600 mt-1">{libraryBooks.filter(b => b.category === 'Modul Pembelajaran').length}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-slate-150 shadow-sm">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-wide block">Total Unduhan</span>
+                      <p className="text-lg font-black text-emerald-600 mt-1">{libraryBooks.reduce((sum, b) => sum + b.downloads, 0)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-slate-150 shadow-sm">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-wide block">Total Dilihat</span>
+                      <p className="text-lg font-black text-pink-600 mt-1">{libraryBooks.reduce((sum, b) => sum + b.views, 0)}</p>
+                    </div>
+                  </div>
+
+                  {/* Recent Books */}
+                  <div className="bg-white rounded-xl border border-slate-150 shadow-sm p-4">
+                    <h3 className="text-xs font-extrabold text-slate-800 mb-3">Koleksi Terbaru</h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      {libraryBooks.slice(0, 3).map(book => (
+                        <div 
+                          key={book.id} 
+                          className="border border-slate-150 rounded-xl p-3 hover:border-indigo-300 cursor-pointer transition-all"
+                          onClick={() => handleViewLibraryBook(book)}
+                        >
+                          <div className="w-full h-24 bg-slate-100 rounded-lg mb-2 flex items-center justify-center">
+                            {book.cover ? (
+                              <img src={book.cover} alt={book.title} className="w-full h-full object-cover rounded-lg" />
+                            ) : (
+                              <BookOpen className="w-10 h-10 text-slate-400" />
+                            )}
+                          </div>
+                          <h4 className="font-bold text-slate-800 line-clamp-2">{book.title}</h4>
+                          <p className="text-[9px] text-slate-500 mt-1">{book.author}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : perpustakaanSubView === 'list' ? (
+                // List View - Table of Books
+                <div className="bg-white rounded-xl border border-slate-150 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-150">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-[9px] font-black text-slate-600 uppercase tracking-wider">Cover</th>
+                          <th className="px-4 py-3 text-left text-[9px] font-black text-slate-600 uppercase tracking-wider">Judul</th>
+                          <th className="px-4 py-3 text-left text-[9px] font-black text-slate-600 uppercase tracking-wider">Kategori</th>
+                          <th className="px-4 py-3 text-left text-[9px] font-black text-slate-600 uppercase tracking-wider">Program</th>
+                          <th className="px-4 py-3 text-left text-[9px] font-black text-slate-600 uppercase tracking-wider">Penulis</th>
+                          <th className="px-4 py-3 text-left text-[9px] font-black text-slate-600 uppercase tracking-wider">Status</th>
+                          <th className="px-4 py-3 text-center text-[9px] font-black text-slate-600 uppercase tracking-wider">Dilihat</th>
+                          <th className="px-4 py-3 text-center text-[9px] font-black text-slate-600 uppercase tracking-wider">Diunduh</th>
+                          <th className="px-4 py-3 text-center text-[9px] font-black text-slate-600 uppercase tracking-wider">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {libraryBooks.map(book => {
+                          const isOwner = book.createdBy === loggedInTeacher.nama;
+                          return (
+                            <tr key={book.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-4 py-3">
+                                <div className="w-12 h-16 bg-slate-100 rounded-lg flex items-center justify-center">
+                                  {book.cover ? (
+                                    <img src={book.cover} alt={book.title} className="w-full h-full object-cover rounded-lg" />
+                                  ) : (
+                                    <BookOpen className="w-6 h-6 text-slate-400" />
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="font-bold text-slate-800">{book.title}</div>
+                                <div className="text-[8px] text-slate-500 mt-0.5">{book.publisher || '-'}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-indigo-100 text-[8px] font-bold text-indigo-700">
+                                  {book.category}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-[9px] text-slate-600 font-medium">{book.program}</td>
+                              <td className="px-4 py-3 text-[9px] text-slate-600 font-medium">{book.author}</td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-bold ${
+                                  book.status === 'Publish' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {book.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center text-[9px] text-slate-600 font-bold">{book.views}</td>
+                              <td className="px-4 py-3 text-center text-[9px] text-slate-600 font-bold">{book.downloads}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button 
+                                    onClick={() => handleViewLibraryBook(book)}
+                                    className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                                    title="Lihat"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                  {isOwner && (
+                                    <>
+                                      <button 
+                                        onClick={() => {
+                                          setSelectedLibraryBook(book);
+                                          setFormLibraryBook({...book});
+                                          setPerpustakaanSubView('edit');
+                                        }}
+                                        className="w-7 h-7 rounded-md bg-blue-100 hover:bg-blue-200 flex items-center justify-center text-blue-600 transition-colors cursor-pointer"
+                                        title="Edit"
+                                      >
+                                        <Edit className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button 
+                                        onClick={() => setShowDeleteLibraryBookConfirm(book)}
+                                        className="w-7 h-7 rounded-md bg-red-100 hover:bg-red-200 flex items-center justify-center text-red-600 transition-colors cursor-pointer"
+                                        title="Hapus"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : perpustakaanSubView === 'view' && selectedLibraryBook ? (
+                // Detail View
+                <div className="bg-white rounded-xl border border-slate-150 shadow-sm p-6">
+                  <div className="flex gap-6">
+                    {/* Cover */}
+                    <div className="w-48 shrink-0">
+                      <div className="w-full h-64 bg-slate-100 rounded-xl flex items-center justify-center border border-slate-150">
+                        {selectedLibraryBook.cover ? (
+                          <img src={selectedLibraryBook.cover} alt={selectedLibraryBook.title} className="w-full h-full object-cover rounded-xl" />
+                        ) : (
+                          <BookOpen className="w-20 h-20 text-slate-400" />
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Info */}
+                    <div className="flex-1">
+                      <h2 className="text-xl font-black text-slate-800 mb-1">{selectedLibraryBook.title}</h2>
+                      <p className="text-sm text-slate-600 mb-4">oleh {selectedLibraryBook.author}</p>
+                      
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Penerbit</span>
+                          <p className="text-[10px] font-semibold text-slate-800">{selectedLibraryBook.publisher || '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Tahun Terbit</span>
+                          <p className="text-[10px] font-semibold text-slate-800">{selectedLibraryBook.year || '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Kategori</span>
+                          <p className="text-[10px] font-semibold text-slate-800">{selectedLibraryBook.category}</p>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Program</span>
+                          <p className="text-[10px] font-semibold text-slate-800">{selectedLibraryBook.program}</p>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Dilihat</span>
+                          <p className="text-[10px] font-semibold text-slate-800">{selectedLibraryBook.views} kali</p>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Diunduh</span>
+                          <p className="text-[10px] font-semibold text-slate-800">{selectedLibraryBook.downloads} kali</p>
+                        </div>
+                      </div>
+
+                      <div className="mb-6">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block mb-2">Deskripsi</span>
+                        <p className="text-[10px] text-slate-700 leading-relaxed">{selectedLibraryBook.description}</p>
+                      </div>
+
+                      <div className="flex gap-3">
+                        {selectedLibraryBook.file && (
+                          <button 
+                            onClick={() => handleReadLibraryBook(selectedLibraryBook)}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-black shadow-sm flex items-center gap-2 cursor-pointer"
+                          >
+                            <BookOpen className="w-4 h-4" /> Baca Sekarang
+                          </button>
+                        )}
+                        {selectedLibraryBook.file && (
+                          <button 
+                            onClick={() => handleDownloadLibraryBook(selectedLibraryBook)}
+                            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-black shadow-sm flex items-center gap-2 cursor-pointer"
+                          >
+                            <FileDown className="w-4 h-4" /> Download
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : perpustakaanSubView === 'viewer' && selectedLibraryBook ? (
+                // Viewer (PDF/EPUB)
+                <div className="flex-1 flex flex-col bg-white rounded-xl border border-slate-150 shadow-sm overflow-hidden">
+                  {/* Viewer Controls */}
+                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-150 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => setPerpustakaanSubView('view')}
+                        className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                      <div>
+                        <h3 className="text-[11px] font-extrabold text-slate-800">{selectedLibraryBook.title}</h3>
+                        <p className="text-[9px] text-slate-500">{selectedLibraryBook.author}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedLibraryBook.fileType === 'pdf' && (
+                        <>
+                          <button 
+                            onClick={() => setLibraryViewerZoom(Math.max(50, libraryViewerZoom - 10))}
+                            className="w-8 h-8 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                          >
+                            <ZoomOut className="w-4 h-4" />
+                          </button>
+                          <span className="text-[10px] font-bold text-slate-700 min-w-[50px] text-center">{libraryViewerZoom}%</span>
+                          <button 
+                            onClick={() => setLibraryViewerZoom(Math.min(200, libraryViewerZoom + 10))}
+                            className="w-8 h-8 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                          >
+                            <ZoomIn className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                      {selectedLibraryBook.fileType === 'epub' && (
+                        <>
+                          <button 
+                            onClick={() => {}}
+                            className="w-8 h-8 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => {}}
+                            className="w-8 h-8 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors cursor-pointer"
+                          >
+                            <ChevronRightIcon className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => setLibraryViewerDarkMode(!libraryViewerDarkMode)}
+                            className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                              libraryViewerDarkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            <Moon className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {/* Viewer Content */}
+                  <div className="flex-1 p-4 flex items-center justify-center">
+                    <div className="text-center">
+                      <BookOpen className="w-20 h-20 text-slate-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-bold text-slate-700 mb-2">Viewer Buku</h3>
+                      <p className="text-sm text-slate-500">
+                        File {selectedLibraryBook.fileType.toUpperCase()} akan ditampilkan di sini saat terintegrasi dengan backend
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : perpustakaanSubView === 'add' || perpustakaanSubView === 'edit' ? (
+                // Add/Edit Form
+                <div className="bg-white rounded-xl border border-slate-150 shadow-sm p-6">
+                  <h3 className="text-sm font-extrabold text-slate-800 mb-6">
+                    {perpustakaanSubView === 'add' ? 'Tambah Koleksi Baru' : 'Edit Koleksi'}
+                  </h3>
+                  
+                  <form 
+                    onSubmit={perpustakaanSubView === 'add' ? handleCreateLibraryBookSubmit : handleEditLibraryBookSubmit}
+                    className="space-y-5"
+                  >
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Judul */}
+                      <div className="space-y-1.5 col-span-2">
+                        <label className="text-slate-700 font-bold">Judul Buku</label>
+                        <input 
+                          type="text" 
+                          placeholder="Masukkan judul buku"
+                          value={formDigitalLibraryBook.title}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, title: e.target.value}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                          required
+                        />
+                      </div>
+
+                      {/* Penulis */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Penulis</label>
+                        <input 
+                          type="text" 
+                          placeholder="Nama penulis"
+                          value={formDigitalLibraryBook.author}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, author: e.target.value}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                          required
+                        />
+                      </div>
+
+                      {/* Penerbit */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Penerbit</label>
+                        <input 
+                          type="text" 
+                          placeholder="Nama penerbit"
+                          value={formDigitalLibraryBook.publisher}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, publisher: e.target.value}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        />
+                      </div>
+
+                      {/* Tahun Terbit */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Tahun Terbit</label>
+                        <input 
+                          type="number" 
+                          placeholder="Tahun"
+                          value={formDigitalLibraryBook.year || ''}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, year: e.target.value ? parseInt(e.target.value) : undefined}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        />
+                      </div>
+
+                      {/* ISBN */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">ISBN (Opsional)</label>
+                        <input 
+                          type="text" 
+                          placeholder="Nomor ISBN"
+                          value={formDigitalLibraryBook.isbn}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, isbn: e.target.value}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        />
+                      </div>
+
+                      {/* Kategori */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Kategori</label>
+                        <select 
+                          value={formDigitalLibraryBook.category}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, category: e.target.value as any}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        >
+                          <option value="Modul Pembelajaran">Modul Pembelajaran</option>
+                          <option value="Ebook">Ebook</option>
+                          <option value="Buku Referensi">Buku Referensi</option>
+                          <option value="Buku Paket">Buku Paket</option>
+                          <option value="Jurnal">Jurnal</option>
+                          <option value="Panduan">Panduan</option>
+                        </select>
+                      </div>
+
+                      {/* Program */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Program</label>
+                        <select 
+                          value={formDigitalLibraryBook.program}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, program: e.target.value as any}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        >
+                          <option value="Semua">Semua Program</option>
+                          <option value="Paket A">Paket A</option>
+                          <option value="Paket B">Paket B</option>
+                          <option value="Paket C">Paket C</option>
+                        </select>
+                      </div>
+
+                      {/* Kelas */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Kelas</label>
+                        <input 
+                          type="text" 
+                          placeholder="Kelas"
+                          value={formDigitalLibraryBook.kelas}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, kelas: e.target.value}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        />
+                      </div>
+
+                      {/* Semester */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Semester</label>
+                        <select 
+                          value={formDigitalLibraryBook.semester}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, semester: e.target.value as any}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        >
+                          <option value="Semua">Semua Semester</option>
+                          <option value="Ganjil">Ganjil</option>
+                          <option value="Genap">Genap</option>
+                        </select>
+                      </div>
+
+                      {/* Status */}
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Status</label>
+                        <select 
+                          value={formDigitalLibraryBook.status}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, status: e.target.value as any}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400"
+                        >
+                          <option value="Draft">Draft</option>
+                          <option value="Publish">Publish</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Deskripsi */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-700 font-bold">Deskripsi</label>
+                      <textarea 
+                        placeholder="Deskripsi buku"
+                        value={formDigitalLibraryBook.description}
+                        onChange={(e) => setFormLibraryBook(prev => ({...prev, description: e.target.value}))}
+                        rows={4}
+                        className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-400 resize-none"
+                        required
+                      />
+                    </div>
+
+                    {/* Uploads */}
+                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-150">
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">Cover Buku</label>
+                        <input 
+                          type="text" 
+                          placeholder="Link cover"
+                          value={formDigitalLibraryBook.cover}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, cover: e.target.value}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-slate-700 font-bold">File Buku</label>
+                        <input 
+                          type="text" 
+                          placeholder="Link file"
+                          value={formDigitalLibraryBook.file}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, file: e.target.value}))}
+                          className="w-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                        />
+                        <select 
+                          value={formDigitalLibraryBook.fileType}
+                          onChange={(e) => setFormLibraryBook(prev => ({...prev, fileType: e.target.value as any}))}
+                          className="w-full p-2 bg-slate-50/50 border border-slate-200 rounded-lg text-[9px] font-bold text-slate-700 focus:outline-none"
+                        >
+                          <option value="pdf">PDF</option>
+                          <option value="epub">EPUB</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-150 flex gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setPerpustakaanSubView('list');
+                          setSelectedLibraryBook(null);
+                        }}
+                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer text-center"
+                      >
+                        Batal
+                      </button>
+                      <button 
+                        type="submit"
+                        className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-500/10 transition-all cursor-pointer text-center"
+                      >
+                        {perpustakaanSubView === 'add' ? 'Tambahkan Koleksi' : 'Simpan Perubahan'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : null}
+
+              {/* Delete Confirmation Modal */}
+              {showDeleteLibraryBookConfirm && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                    <div className="text-center">
+                      <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                        <Trash2 className="w-7 h-7 text-red-600" />
+                      </div>
+                      <h3 className="text-lg font-extrabold text-slate-800 mb-2">Hapus Koleksi?</h3>
+                      <p className="text-sm text-slate-600 mb-6">
+                        Apakah Anda yakin ingin menghapus "{showDeleteLibraryBookConfirm.title}"? Tindakan ini tidak dapat dibatalkan.
+                      </p>
+                      <div className="flex gap-3">
+                        <button 
+                          onClick={() => setShowDeleteLibraryBookConfirm(null)}
+                          className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold cursor-pointer"
+                        >
+                          Batal
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteLibraryBook(showDeleteLibraryBookConfirm)}
+                          className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-bold cursor-pointer"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : currentView === 'transkrip' ? (
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+            {/* Header Area with back button */}
+            <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 shrink-0 flex items-center gap-2">
+              <button 
+                onClick={() => setCurrentView('dashboard')}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                type="button"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-800">Transkrip Nilai Siswa</h2>
+                <p className="text-[9px] text-slate-400 font-medium font-sans">Pemantauan & Analisis Hasil Evaluasi</p>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <AdminTranscript 
+                students={students || []}
+                subjects={subjects || []}
+                loggedInUser={{
+                  id: loggedInTeacher.id,
+                  nama: loggedInTeacher.nama,
+                  role: 'guru'
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 space-y-5 no-scrollbar">
+        
+        {/* Welcome Banner */}
+        <div className="bg-gradient-to-r from-pink-600 to-indigo-600 p-4 rounded-2xl text-white shadow-md relative overflow-hidden shrink-0">
+          <div className="absolute right-[-10px] bottom-[-20px] opacity-10 text-9xl">
+            <Sparkles className="w-32 h-32" />
+          </div>
+          <div className="relative z-10 space-y-1">
+            <span className="text-[8px] uppercase tracking-wider font-extrabold bg-white/20 px-2 py-0.5 rounded-full">
+              Sistem Penilaian Terpadu Lulus.id
+            </span>
+            <h3 className="text-xs font-black tracking-tight">Selamat datang kembali, {loggedInTeacher.nama}!</h3>
+            <p className="text-[9px] text-pink-100 font-medium max-w-xs leading-relaxed">
+              Seluruh rekapitulasi penilaian, pembuatan tugas kelompok, dan modul P5 kurikulum merdeka telah tersinkronisasi otomatis dengan server Data Akademik.
+            </p>
+          </div>
+        </div>
+
+        {/* Quick Actions Panel */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5 px-0.5">
+            <Star className="w-4 h-4 text-pink-500" /> Aksi Cepat Guru
+          </h3>
+          <div className="grid grid-cols-4 gap-2">
+            <button 
+              onClick={() => {
+                setCurrentView('materi');
+                setMateriSubView('list');
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-pink-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+              type="button"
+            >
+              <div className="w-8 h-8 rounded-xl bg-pink-50 flex items-center justify-center group-hover:bg-pink-100 transition-colors">
+                <BookOpen className="w-4 h-4 text-pink-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Kelola Materi</span>
+            </button>
+
+            <button 
+              onClick={() => {
+                setCurrentView('tugas');
+                setTugasSubView('list');
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-pink-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+              type="button"
+            >
+              <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                <FileText className="w-4 h-4 text-blue-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Kelola Tugas</span>
+            </button>
+
+            <button 
+              onClick={() => {
+                setCurrentView('cbt');
+                setCbtActiveTab('bankSoal');
+                setCbtSubView('list');
+                setIsCbtLoading(true);
+                setTimeout(() => {
+                  setIsCbtLoading(false);
+                }, 500);
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-pink-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+              type="button"
+            >
+              <div className="w-8 h-8 rounded-xl bg-teal-50 flex items-center justify-center group-hover:bg-teal-100 transition-colors">
+                <Award className="w-4 h-4 text-teal-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Kelola CBT</span>
+            </button>
+
+            <button 
+              onClick={() => {
+                setCurrentView('perpustakaan');
+                setPerpustakaanSubView('dashboard');
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-pink-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
+                <Library className="w-4 h-4 text-indigo-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Perpustakaan</span>
+            </button>
+
+
+
+            <button 
+              onClick={() => {
+                setCurrentView('nilai');
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-pink-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-purple-50 flex items-center justify-center group-hover:bg-purple-100 transition-colors">
+                <BookMarked className="w-4 h-4 text-purple-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Input Nilai</span>
+            </button>
+
+            <button 
+              onClick={() => {
+                setCurrentView('mading');
+                setMadingSubView('list');
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-pink-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-orange-50 flex items-center justify-center group-hover:bg-orange-100 transition-colors">
+                <Megaphone className="w-4 h-4 text-orange-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Mading Guru</span>
+            </button>
+
+            <button 
+              onClick={() => setActiveSubTab('tanyaAIGuru')}
+              className="bg-white p-2.5 rounded-2xl border border-purple-200 shadow-sm hover:border-purple-400 hover:shadow-md transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group ring-2 ring-purple-100"
+            >
+              <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+                <Sparkles className="w-4 h-4 text-purple-700 animate-pulse" />
+              </div>
+              <span className="text-[8.5px] font-black text-purple-700">Lulus AI Guru</span>
+            </button>
+
+            <button 
+              onClick={() => {
+                setProfileForm({
+                  nama: loggedInTeacher.nama,
+                  nip: loggedInTeacher.nip,
+                  username: loggedInTeacher.username || loggedInTeacher.nama.split(' ')[0].toLowerCase().replace(/[^a-z]/g, ''),
+                  password: '',
+                  rekeningType: loggedInTeacher.rekeningType || 'Bank',
+                  rekeningNomor: loggedInTeacher.rekeningNomor || '',
+                  rekeningNama: loggedInTeacher.rekeningNama || '',
+                  tandaTangan: loggedInTeacher.tandaTangan || '',
+                  qrTandaTangan: loggedInTeacher.qrTandaTangan || '',
+                  photo: loggedInTeacher.photo || ''
+                });
+                setShowEditProfileModal(true);
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-pink-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center group-hover:bg-rose-100 transition-colors">
+                <User className="w-4 h-4 text-rose-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Edit Profil</span>
+            </button>
+
+            <button 
+              onClick={() => {
+                setCurrentView('absensi');
+                setAbsensiTab('pertemuan');
+              }}
+              className="bg-white p-2.5 rounded-2xl border border-slate-150 shadow-sm hover:border-teal-500 hover:shadow transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-teal-50 flex items-center justify-center group-hover:bg-teal-100 transition-colors">
+                <Calendar className="w-4 h-4 text-teal-600" />
+              </div>
+              <span className="text-[8.5px] font-bold text-slate-800">Keaktifan Belajar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Lulus AI Guru Special Promoted Feature Card */}
+        <div className="bg-purple-900 text-white p-4 rounded-2xl border border-purple-800 shadow-md flex flex-col gap-3 relative overflow-hidden select-none">
+          <div className="absolute top-[-10px] right-[-10px] opacity-10">
+            <Sparkles className="w-20 h-20" />
+          </div>
+          <div className="flex gap-2 items-center text-purple-200">
+            <Sparkles className="w-5 h-5 text-yellow-400 animate-bounce" />
+            <span className="text-xs font-black tracking-wider uppercase">🤖 Lulus AI Guru</span>
+          </div>
+          <p className="text-[9.5px] text-purple-100 leading-normal font-semibold">
+            Asisten pintar yang membantu guru membuat modul pembelajaran, ATP, tujuan pembelajaran, modul ajar, soal pilihan ganda, soal esai, bank soal, rubrik penilaian, rangkuman materi, serta berbagai kebutuhan pembelajaran lainnya secara otomatis menggunakan kecerdasan Gemini.
+          </p>
+          <button 
+            onClick={() => setActiveSubTab('tanyaAIGuru')} 
+            className="w-full py-2 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-[10px] font-black rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-pink-500/10 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Buka Lulus AI Guru
+          </button>
+        </div>
+
+        {/* Statistics Dashboard Cards */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-extrabold text-slate-800 px-0.5">Statistik Pengajaran</h3>
+          <div className="grid grid-cols-4 gap-2 text-center">
+            
+            <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm hover:scale-[1.02] transition-transform">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Kelas</span>
+              <p className="text-base font-black text-slate-800 mt-0.5">{stats.totalKelas}</p>
+              <span className="text-[6.5px] font-bold text-slate-400">Aktif</span>
+            </div>
+
+            <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm hover:scale-[1.02] transition-transform">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Mata Pelajaran</span>
+              <p className="text-base font-black text-pink-600 mt-0.5">{stats.totalMapel}</p>
+              <span className="text-[6.5px] font-bold text-slate-400">Kesetaraan</span>
+            </div>
+
+            <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm hover:scale-[1.02] transition-transform">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Total Siswa</span>
+              <p className="text-base font-black text-indigo-600 mt-0.5">{stats.totalSiswa}</p>
+              <span className="text-[6.5px] font-bold text-emerald-500">Terdaftar</span>
+            </div>
+
+            <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm hover:scale-[1.02] transition-transform">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Materi Pub</span>
+              <p className="text-base font-black text-emerald-600 mt-0.5">{stats.materiPublik}</p>
+              <span className="text-[6.5px] font-bold text-slate-400">({stats.materiDraft} Draft)</span>
+            </div>
+
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 text-center">
+            
+            <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm hover:scale-[1.02] transition-transform">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Tugas Aktif</span>
+              <p className="text-base font-black text-blue-600 mt-0.5">{stats.tugasAktif}</p>
+              <span className="text-[6.5px] font-bold text-slate-400">Berjalan</span>
+            </div>
+
+            <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm hover:scale-[1.02] transition-transform">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Ujian CBT</span>
+              <p className="text-base font-black text-teal-600 mt-0.5">{stats.ujianAktif}</p>
+              <span className="text-[6.5px] font-bold text-slate-400">Aktif</span>
+            </div>
+
+            <div className="bg-white p-2 rounded-xl border-2 border-amber-300 bg-amber-50/20 shadow-sm hover:scale-[1.02] transition-transform">
+              <span className="text-[7px] font-black text-amber-700 uppercase tracking-tight block">Butuh Penilaian</span>
+              <p className="text-base font-black text-amber-600 mt-0.5">{stats.tugasPending}</p>
+              <span className="text-[6.5px] font-bold text-amber-500 animate-pulse">Perlu Diperiksa</span>
+            </div>
+
+            <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-center items-center">
+              <span className="text-[7px] font-black text-emerald-700 uppercase tracking-tight block">Rata-rata Kelas</span>
+              <p className="text-base font-black text-emerald-600 mt-0.5">
+                {stats.rataRataKelas > 0 ? stats.rataRataKelas.toFixed(1) : '-'}
+              </p>
+              <span className="text-[6px] font-bold text-emerald-500 uppercase">
+                {stats.rataRataKelas >= 85
+                  ? 'Sangat Baik'
+                  : stats.rataRataKelas >= 75
+                    ? 'Baik'
+                    : stats.rataRataKelas > 0
+                      ? 'Perlu Peningkatan'
+                      : 'Belum Ada Nilai'}
+              </span>
+            </div>
+
+          </div>
+        </div>
+
+        {/* Statistik SKK & Verifikasi Panel */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+            <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+              <Award className="w-4 h-4 text-pink-500" /> Pemantauan SKK & Verifikasi Kelas
+            </h3>
+            <span className="px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-extrabold text-[8px]">
+              Engine Kompetensi
+            </span>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 shadow-xs">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Antrean Verifikasi</span>
+              <p className="text-sm font-black text-amber-600 mt-0.5">
+                {studentCompetencies.filter(sc => sc.status === 'proses').length}
+              </p>
+              <span className="text-[6.5px] font-bold text-slate-400">Kompetensi</span>
+            </div>
+
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 shadow-xs">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Belum Tercapai</span>
+              <p className="text-sm font-black text-slate-800 mt-0.5">
+                {studentCompetencies.filter(sc => sc.status === 'belum_tercapai').length}
+              </p>
+              <span className="text-[6.5px] font-bold text-slate-400">Kompetensi</span>
+            </div>
+
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 shadow-xs">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-tight block">Perlu Revisi</span>
+              <p className="text-sm font-black text-red-600 mt-0.5">
+                {studentCompetencies.filter(sc => sc.catatan_guru && sc.status !== 'tercapai').length}
+              </p>
+              <span className="text-[6.5px] font-bold text-slate-400">Kompetensi</span>
+            </div>
+
+            <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-100 shadow-xs">
+              <span className="text-[7px] font-black text-emerald-700 uppercase tracking-tight block">Pencapaian Kelas</span>
+              <p className="text-sm font-black text-emerald-600 mt-0.5">
+                {skkReports.length > 0 ? Math.round(skkReports.reduce((sum, r) => sum + r.persentase, 0) / skkReports.length) : 0}%
+              </p>
+              <span className="text-[6.5px] font-bold text-emerald-500">Rata-rata SKK</span>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Integrated Realtime Chat Widget */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3 select-none">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+            <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+              <MessageSquare className="w-4 h-4 text-emerald-500" /> Pesan Terbaru Siswa & Rekan
+            </h3>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-extrabold text-[8px] animate-pulse">
+              {unreadMessages.length} Belum Dibaca
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {unreadMessages.map((msg) => (
+              <div 
+                key={msg.id} 
+                onClick={() => setActiveSubTab('chat')}
+                className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5 overflow-hidden">
+                  <div className="relative shrink-0">
+                    <img src={msg.photo} alt={msg.name} className="w-8 h-8 rounded-full border border-slate-100 object-cover" />
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full"></span>
+                  </div>
+                  <div className="overflow-hidden">
+                    <h4 className="text-[10px] font-black text-slate-800 group-hover:text-pink-600 transition-colors">{msg.name}</h4>
+                    <p className="text-[9px] text-slate-500 truncate font-medium mt-0.5 leading-tight">{msg.text}</p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0 pl-2">
+                  <span className="text-[8px] font-bold text-slate-400 block">{msg.time}</span>
+                  <span className="inline-block w-2 h-2 bg-pink-500 rounded-full mt-1"></span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button 
+            onClick={() => setActiveSubTab('chat')}
+            className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold rounded-xl text-center block"
+          >
+            Buka Halaman Chat Komunikasi Terpadu →
+          </button>
+        </div>
+
+        {/* Tugas yang Menunggu Penilaian list */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+            <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+              <BookMarked className="w-4 h-4 text-amber-500" /> Antrean Koreksi Tugas Siswa
+            </h3>
+            <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 text-[8px] font-black">
+              {submissions.length} Tugas
+            </span>
+          </div>
+
+          {submissions.length === 0 ? (
+            <div className="text-center py-4 space-y-1">
+              <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto" />
+              <p className="text-xs font-bold text-slate-700">Semua tugas selesai dikoreksi!</p>
+              <p className="text-[9px] text-slate-400">Tidak ada pengumpulan tertunda.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {submissions.map((sub) => (
+                <div key={sub.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-amber-300 transition-colors space-y-2.5">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <img src={sub.studentPhoto} alt={sub.studentName} className="w-7 h-7 rounded-full object-cover border border-slate-200" />
+                      <div>
+                        <h4 className="text-[10px] font-black text-slate-800">{sub.studentName}</h4>
+                        <p className="text-[8px] text-slate-400 font-bold">{sub.class}</p>
+                      </div>
+                    </div>
+                    <span className="text-[7.5px] font-extrabold text-slate-400 uppercase">{sub.submissionDate}</span>
+                  </div>
+
+                  <div className="text-[9px] text-slate-600 font-semibold leading-relaxed">
+                    <p className="text-slate-500">Mata Pelajaran: <strong className="text-slate-850 font-bold">{sub.subject}</strong></p>
+                    <p className="text-slate-500 mt-0.5">Judul Tugas: <strong className="text-slate-850 font-bold">{sub.taskTitle}</strong></p>
+                    <p className="text-slate-400 mt-1 flex items-center gap-1 font-mono text-[8.5px]">
+                      <FileDown className="w-3.5 h-3.5 text-blue-500" /> Lampiran: <span className="text-blue-600 font-bold hover:underline cursor-pointer">{sub.fileSize}</span>
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200/50 flex justify-end">
+                    <button 
+                      onClick={() => {
+                        setGradingSubmission(sub);
+                        setInputGrade('');
+                        setInputFeedback('');
+                      }}
+                      className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[9.5px] font-black shadow-sm flex items-center gap-1 cursor-pointer"
+                    >
+                      <Award className="w-3.5 h-3.5" /> Koreksi & Beri Nilai
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Pengumuman Sekolah & Notifikasi Panel */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-3.5">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+            <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+              <Megaphone className="w-4 h-4 text-orange-500" /> Pengumuman Resmi & Notifikasi
+            </h3>
+          </div>
+
+          <div className="space-y-3">
+            {(() => {
+              const ann = announcements.slice(0, 3);
+
+              if (madingLoading) {
+                return (
+                  <div className="p-3 rounded-xl border border-slate-100 bg-slate-50 text-[9px] font-bold text-slate-500">
+                    Memuat pengumuman resmi...
+                  </div>
+                );
+              }
+
+              if (ann.length === 0) {
+                return (
+                  <div className="p-3 rounded-xl border border-slate-100 bg-slate-50 text-[9px] font-bold text-slate-500">
+                    Belum ada pengumuman resmi.
+                  </div>
+                );
+              }
+
+              return ann.map((item: any, idx: number) => (
+                <div key={item.id || idx} className={`p-3 rounded-xl border space-y-1 ${
+                  item.kategori === 'PENTING' ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-100'
+                }`}>
+                  <span className={`text-[7.5px] font-black px-1.5 py-0.5 rounded-full uppercase ${
+                    item.kategori === 'PENTING' ? 'bg-red-100 text-red-600' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {item.kategori}
+                  </span>
+                  <h4 className="text-[10px] font-black text-slate-800 mt-1">{item.judul}</h4>
+                  <div 
+                    className="text-[9px] text-slate-500 leading-normal font-semibold"
+                    dangerouslySetInnerHTML={{ __html: item.isi }}
+                  />
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+
+        </div>
+        )
+      ) : activeSubTab === 'skkSiswa' ? (
+        <div className="flex-1 overflow-y-auto p-4 space-y-5 no-scrollbar bg-slate-50">
+          {/* Header & Sub-Tabs */}
+          <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-100 shadow-sm shrink-0">
+            <div className="flex gap-1.5 p-1 bg-slate-100 rounded-xl">
+              <button 
+                onClick={() => setSkkActiveSection('verifikasi')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                  skkActiveSection === 'verifikasi' ? 'bg-pink-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Verifikasi Bukti
+              </button>
+              <button 
+                onClick={() => setSkkActiveSection('master')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                  skkActiveSection === 'master' ? 'bg-pink-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Target Master SKK
+              </button>
+            </div>
+            <div className="text-right">
+              <span className="text-[7.5px] font-black text-slate-400 uppercase block leading-none">Total Antrean</span>
+              <span className="text-xs font-black text-pink-600">
+                {studentCompetencies.filter(sc => sc.status === 'proses').length} Berkas
+              </span>
+            </div>
+          </div>
+
+          {/* Subtab 1: Verifikasi Bukti */}
+          {skkActiveSection === 'verifikasi' && (
+            <div className="space-y-4">
+              {/* Filter Row */}
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-150 shadow-sm space-y-3">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Filter Berkas & Portofolio Siswa</h4>
+                  <span className="px-2 py-0.5 rounded bg-pink-50 text-pink-600 text-[8.5px] font-black">
+                    Kurikulum Merdeka SKK
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[9px] font-extrabold text-slate-500">
+                  <div className="space-y-1">
+                    <label>Paket Kesetaraan</label>
+                    <select 
+                      value={filterProgram} 
+                      onChange={(e) => setFilterProgram(e.target.value)}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                    >
+                      <option value="all">Semua Program</option>
+                      <option value="Paket A">Paket A (SD)</option>
+                      <option value="Paket B">Paket B (SMP)</option>
+                      <option value="Paket C">Paket C (SMA)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label>Nama Siswa</label>
+                    <select 
+                      value={filterStudent} 
+                      onChange={(e) => setFilterStudent(e.target.value)}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                    >
+                      <option value="all">Semua Siswa</option>
+                      {students.map(s => (
+                        <option key={s.id} value={s.id}>{s.nama} ({s.program})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submissions List */}
+              <div className="space-y-3">
+                {(() => {
+                  const filtered = studentCompetencies.filter(sc => {
+                    const comp = competencies.find(c => c.id === sc.kompetensi);
+                    const std = students.find(s => s.id === sc.siswa);
+                    
+                    if (!comp || !std) return false;
+                    
+                    if (filterProgram !== 'all' && comp.program !== filterProgram) return false;
+                    if (filterStudent !== 'all' && std.id !== filterStudent) return false;
+                    
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center space-y-2">
+                        <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto" />
+                        <h4 className="text-xs font-black text-slate-700">Tidak Ada Portofolio Ditemukan</h4>
+                        <p className="text-[9px] text-slate-400 font-medium">
+                          Belum ada unggahan bukti atau filter tidak cocok dengan data siswa.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((sc) => {
+                    const comp = competencies.find(c => c.id === sc.kompetensi);
+                    const std = students.find(s => s.id === sc.siswa) || { nama: 'Siswa Lulus', program: 'Kesetaraan' };
+
+                    return (
+                      <div key={sc.id} className="bg-white p-4 rounded-2xl border border-slate-150 hover:border-pink-300 hover:shadow transition-all space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center text-pink-700 text-xs font-black">
+                              {std.nama.substring(0,2).toUpperCase()}
+                            </div>
+                            <div>
+                              <h4 className="text-[10px] font-black text-slate-800">{std.nama}</h4>
+                              <p className="text-[8px] text-pink-600 font-bold tracking-tight uppercase">
+                                {comp?.program} • {comp?.mata_pelajaran}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tight ${
+                            sc.status === 'tercapai' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                            sc.status === 'proses' ? 'bg-amber-50 text-amber-600 border border-amber-100 animate-pulse' :
+                            'bg-slate-150 text-slate-600'
+                          }`}>
+                            {sc.status === 'tercapai' ? 'Tercapai (Valid)' : sc.status === 'proses' ? 'Proses Verifikasi' : 'Belum Tercapai'}
+                          </span>
+                        </div>
+
+                        <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                          <span className="text-[7.5px] text-slate-400 font-bold uppercase block">Materi Kompetensi</span>
+                          <p className="text-[9.5px] font-extrabold text-slate-800 leading-tight">
+                            {comp?.nama_kompetensi}
+                          </p>
+                          <div className="flex justify-between items-center pt-1.5 border-t border-slate-150 mt-1.5 text-[8.5px] font-bold text-slate-400">
+                            <span>Bobot SKK: <strong className="text-slate-700">{comp?.bobot_skk} SKK</strong></span>
+                            {sc.nilai !== null && <span>Skor: <strong className="text-pink-600">{sc.nilai}/100</strong></span>}
+                          </div>
+                        </div>
+
+                        {sc.bukti && (
+                          <div className="flex items-center gap-2 p-2 bg-blue-50/50 border border-blue-100 rounded-xl text-[9px] font-mono text-blue-700">
+                            <FileDown className="w-4 h-4 shrink-0 text-blue-500" />
+                            <div className="overflow-hidden">
+                              <span className="font-bold block text-slate-400 text-[7px] uppercase">BERKAS BUKTI SISWA</span>
+                              <span className="truncate block font-bold">{sc.bukti}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {sc.catatan_guru && (
+                          <div className="p-2.5 bg-slate-50 border-l-2 border-slate-400 text-[9px] font-medium text-slate-600 leading-normal">
+                            <span className="font-black text-[7.5px] text-slate-500 uppercase block">Log Catatan & Umpan Balik</span>
+                            {sc.catatan_guru}
+                          </div>
+                        )}
+
+                        <div className="pt-2 border-t border-slate-100 flex justify-end">
+                          <button 
+                            onClick={() => {
+                              setSelectedStudentComp(sc);
+                              setGradingSkkScore(sc.nilai ? String(sc.nilai) : '');
+                              setGradingSkkStatus(sc.status || 'tercapai');
+                              setGradingSkkFeedback(sc.catatan_guru ? sc.catatan_guru.replace('Catatan Guru: "', '').replace('"', '').replace('Catatan Siswa: "', '').replace('"', '') : '');
+                            }}
+                            className="px-3.5 py-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-[9px] font-black shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" /> Verifikasi & Beri Nilai
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Subtab 2: Target Master SKK */}
+          {skkActiveSection === 'master' && (
+            <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-4">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <div>
+                  <h4 className="text-xs font-black text-slate-800">Daftar Master Kompetensi (SKK)</h4>
+                  <p className="text-[8px] text-slate-400 font-semibold mt-0.5">Sistem Satuan Kompetensi per Program PKBM</p>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-100 text-emerald-600 text-[8.5px] font-black uppercase font-mono">
+                  {competencies.length} SKK Master
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {['Paket A', 'Paket B', 'Paket C'].map((prog) => {
+                  const comps = competencies.filter(c => c.program === prog);
+                  if (comps.length === 0) return null;
+
+                  return (
+                    <div key={prog} className="space-y-2">
+                      <span className="text-[8px] font-black tracking-widest text-slate-400 uppercase block bg-slate-50 px-2 py-1 rounded">
+                        {prog}
+                      </span>
+                      <div className="divide-y divide-slate-100">
+                        {comps.map((c) => (
+                          <div key={c.id} className="py-2.5 flex justify-between items-start gap-4">
+                            <div className="space-y-0.5">
+                              <span className="text-[7.5px] font-black bg-pink-50 text-pink-600 px-1.5 py-0.5 rounded uppercase">
+                                {c.mata_pelajaran}
+                              </span>
+                              <h5 className="text-[10px] font-bold text-slate-800 leading-snug mt-1">
+                                {c.nama_kompetensi}
+                              </h5>
+                            </div>
+                            <span className="text-[9.5px] font-black text-slate-500 shrink-0 bg-slate-100 px-2 py-1 rounded-lg">
+                              {c.bobot_skk} SKK
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+
+
+      {/* MODAL 3: Buat Ujian */}
+      {showExamModal && (
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4 border border-slate-100 shadow-xl">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-teal-500" /> Buat Paket Ujian CBT Baru
+              </h3>
+              <button onClick={() => setShowExamModal(false)} className="text-slate-400 hover:text-slate-600 font-black text-xs">✕</button>
+            </div>
+            
+            <form onSubmit={handleCreateExam} className="space-y-3 text-[10px] font-bold text-slate-500">
+              <div className="space-y-1">
+                <label>Judul Ujian CBT</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Misal: Ujian Akhir Bab Sistem Pencernaan"
+                  value={formData.examTitle}
+                  onChange={(e) => setFormData(prev => ({ ...prev, examTitle: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label>Mata Pelajaran</label>
+                <select 
+                  value={formData.examSubject}
+                  onChange={(e) => setFormData(prev => ({ ...prev, examSubject: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
+                >
+                  <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                  <option value="Matematika">Matematika</option>
+                  <option value="Ilmu Pengetahuan Alam (IPA)">IPA</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label>Jumlah Soal Pilihan Ganda</label>
+                <input 
+                  type="number" 
+                  value={formData.examQuestions}
+                  onChange={(e) => setFormData(prev => ({ ...prev, examQuestions: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                />
+              </div>
+
+              <button type="submit" className="w-full py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-xs font-bold shadow-sm">
+                Aktifkan Simulator Ujian CBT
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Buat Pengumuman */}
+      {showAnnouncementModal && (
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4 border border-slate-100 shadow-xl">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                <Megaphone className="w-4 h-4 text-orange-500" /> Buat Pengumuman Mading Baru
+              </h3>
+              <button onClick={() => setShowAnnouncementModal(false)} className="text-slate-400 hover:text-slate-600 font-black text-xs">✕</button>
+            </div>
+            
+            <form onSubmit={handleCreateAnnouncement} className="space-y-3 text-[10px] font-bold text-slate-500">
+              <div className="space-y-1">
+                <label>Judul Pengumuman</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Misal: Libur Bersama Idul Adha"
+                  value={formData.announcementTitle}
+                  onChange={(e) => setFormData(prev => ({ ...prev, announcementTitle: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label>Kategori</label>
+                <select 
+                  value={formData.announcementCategory}
+                  onChange={(e) => setFormData(prev => ({ ...prev, announcementCategory: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
+                >
+                  <option value="PENTING">PENTING (Merah)</option>
+                  <option value="INFO">INFO (Abu-abu)</option>
+                  <option value="SOSIALISASI">SOSIALISASI (Kuning)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label>Isi/Deskripsi Singkat</label>
+                <textarea 
+                  required
+                  rows={3}
+                  placeholder="Tuliskan isi pengumuman sekolah yang ingin dipajang di Mading..."
+                  value={formData.announcementDesc}
+                  onChange={(e) => setFormData(prev => ({ ...prev, announcementDesc: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                />
+              </div>
+
+              <button type="submit" className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold shadow-sm">
+                Terbitkan Pengumuman Mading
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Beri Nilai Tugas (Grading Interactive Form) */}
+      {gradingSubmission && (
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4 border border-slate-100 shadow-xl">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-amber-500 animate-bounce" /> Koreksi & Penilaian Tugas
+              </h3>
+              <button onClick={() => setGradingSubmission(null)} className="text-slate-400 hover:text-slate-600 font-black text-xs">✕</button>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[9px] font-bold text-slate-500 space-y-1">
+              <p>Siswa: <strong className="text-slate-800">{gradingSubmission.studentName}</strong></p>
+              <p>Mata Pelajaran: <strong className="text-slate-800">{gradingSubmission.subject}</strong></p>
+              <p>Tugas: <strong className="text-slate-800">{gradingSubmission.taskTitle}</strong></p>
+              <p className="text-blue-600 font-mono flex items-center gap-1 pt-1 border-t border-slate-200 mt-1.5">
+                <FileDown className="w-3.5 h-3.5" /> Berkas Terkirim: {gradingSubmission.fileSize}
+              </p>
+            </div>
+            
+            <form onSubmit={handleGradeSubmit} className="space-y-3.5 text-[10px] font-bold text-slate-500">
+              <div className="space-y-1">
+                <label>Nilai Angka Akhir (Skala 0-100)</label>
+                <input 
+                  type="number" 
+                  min="0"
+                  max="100"
+                  required
+                  placeholder="Misal: 92"
+                  value={inputGrade}
+                  onChange={(e) => setInputGrade(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label>Deskripsi Capaian / Umpan Balik (Feedback)</label>
+                <textarea 
+                  required
+                  rows={2}
+                  placeholder="Contoh: Sangat baik dalam menyusun gagasan logis dan merangkum isi materi secara sistematis."
+                  value={inputFeedback}
+                  onChange={(e) => setInputFeedback(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button 
+                  type="button" 
+                  onClick={handleRequestRevision}
+                  className="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-[11px] font-bold shadow-sm transition-all cursor-pointer"
+                >
+                  Minta Revisi
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[11px] font-bold shadow-sm transition-all cursor-pointer"
+                >
+                  Sahkan Nilai
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: Edit Profil Guru */}
+      {showEditProfileModal && (
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4 border border-slate-100 shadow-xl max-h-[90%] overflow-y-auto no-scrollbar">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                <User className="w-4 h-4 text-pink-500" /> Edit Data Pribadi Guru
+              </h3>
+              <button onClick={() => setShowEditProfileModal(false)} className="text-slate-400 hover:text-slate-600 font-black text-xs">✕</button>
+            </div>
+
+            <form onSubmit={handleEditProfileSubmit} className="space-y-3.5 text-[10px] font-bold text-slate-500">
+              {/* Upload Foto Profil Guru */}
+              <div className="flex flex-col items-center justify-center py-2 pb-3 border-b border-slate-100 space-y-2">
+                <div className="relative group">
+                  <img 
+                    src={profileForm.photo || `https://placehold.co/100x100/db2777/ffffff?text=${encodeURIComponent(loggedInTeacher.nama.split(',')[0].split(' ')[0])}`} 
+                    alt="Preview Foto" 
+                    className="w-20 h-20 rounded-full object-cover border-2 border-slate-200 bg-slate-50 bg-slate-100"
+                  />
+                  <label className="absolute bottom-0 right-0 w-7 h-7 bg-pink-500 hover:bg-pink-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow cursor-pointer transition-colors">
+                    <Camera className="w-3.5 h-3.5" />
+                    <input 
+                      type="file" 
+                      accept="image/png, image/jpeg, image/jpg, image/webp" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        
+                        // Validasi format
+                        const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+                        if (!allowed.includes(file.type)) {
+                          showModal('Format Salah', 'Harap pilih foto berformat JPG, JPEG, PNG, atau WEBP.', 'warning');
+                          return;
+                        }
+                        
+                        // Validasi ukuran (800KB)
+                        if (file.size > 800 * 1024) {
+                          showModal('File Terlalu Besar', 'Harap pilih foto dengan ukuran maksimal 800 KB.', 'warning');
+                          return;
+                        }
+                        
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          if (ev.target?.result) {
+                            setProfileForm(prev => ({ ...prev, photo: ev.target.result as string }));
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                      }} 
+                      className="hidden" 
+                    />
+                  </label>
+                </div>
+                {profileForm.photo && (
+                  <button 
+                    type="button"
+                    onClick={() => setProfileForm(prev => ({ ...prev, photo: '' }))}
+                    className="text-[9px] text-rose-500 hover:text-rose-600 font-bold bg-rose-50 px-2 py-1 rounded-md border border-rose-100 transition-colors"
+                  >
+                    Hapus Foto
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 text-[9px] uppercase tracking-wider">Nama Lengkap & Gelar</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Nama Lengkap dengan gelar"
+                  value={profileForm.nama}
+                  onChange={(e) => setProfileForm(prev => ({ ...prev, nama: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-500 text-[9px] uppercase tracking-wider">NIP / NUPTK</label>
+                <input 
+                  type="text" 
+                  placeholder="Nomor Induk Pegawai"
+                  value={profileForm.nip}
+                  onChange={(e) => setProfileForm(prev => ({ ...prev, nip: e.target.value }))}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-slate-500 text-[9px] uppercase tracking-wider">Username</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Username untuk login"
+                    value={profileForm.username}
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, username: e.target.value.toLowerCase().replace(/\s/g, '') }))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-slate-500 text-[9px] uppercase tracking-wider">Password</label>
+                  <input 
+                    type="password"
+                    placeholder="Kosongkan jika tidak ingin mengubah"
+                    value={profileForm.password}
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, password: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-3 space-y-2">
+                <span className="text-[9px] uppercase tracking-wider text-pink-600 font-extrabold block">Informasi Rekening Gaji</span>
+                
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1 col-span-1">
+                    <label className="text-slate-400 text-[8px] uppercase">Metode</label>
+                    <select 
+                      value={profileForm.rekeningType}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, rekeningType: e.target.value as 'Bank' | 'DANA' }))}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-800"
+                    >
+                      <option value="Bank">Bank (BCA/dll)</option>
+                      <option value="DANA">E-Wallet DANA</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-slate-400 text-[8px] uppercase">Nomor Rekening / HP DANA</label>
+                    <input 
+                      type="text" 
+                      placeholder="Contoh: 52203049182"
+                      value={profileForm.rekeningNomor}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, rekeningNomor: e.target.value }))}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-slate-400 text-[8px] uppercase">Nama Pemilik Rekening</label>
+                  <input 
+                    type="text" 
+                    placeholder="Nama di buku tabungan"
+                    value={profileForm.rekeningNama}
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, rekeningNama: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-3 space-y-2">
+                <span className="text-[9px] uppercase tracking-wider text-pink-600 font-extrabold block">Tanda Tangan Digital Rapor</span>
+                {profileForm.tandaTangan ? (
+                  <div className="flex items-center justify-between p-2 bg-slate-50 border border-slate-150 rounded-xl">
+                    <img 
+                      src={profileForm.tandaTangan} 
+                      alt="Tanda Tangan Digital" 
+                      className="h-10 object-contain bg-white rounded border border-slate-100 px-2"
+                    />
+                    <button 
+                      type="button" 
+                      onClick={() => setProfileForm(prev => ({ ...prev, tandaTangan: '' }))}
+                      className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-500 rounded text-[9px] font-black"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      const cleanName = profileForm.nama || 'Guru';
+                      const svg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="50" viewBox="0 0 120 50"><text x="15" y="32" font-family="'Brush Script MT', cursive, sans-serif" font-size="24" fill="%231e3a8a" font-style="italic">${cleanName}</text><path d="M10,40 Q40,35 110,38" fill="none" stroke="%231e3a8a" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+                      setProfileForm(prev => ({ ...prev, tandaTangan: svg }));
+                    }}
+                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[9px] font-extrabold rounded-xl border border-dashed border-slate-300 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5" /> Gunakan Tanda Tangan Cursive Otomatis
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-1">
+                <span className="text-[9px] uppercase tracking-wider text-indigo-600 font-extrabold block">QR Code Verifikasi TTE (Opsional)</span>
+                {profileForm.qrTandaTangan ? (
+                  <div className="flex items-center justify-between p-2 bg-slate-50 border border-slate-150 rounded-xl">
+                    <img 
+                      src={profileForm.qrTandaTangan} 
+                      alt="QR TTE" 
+                      className="h-10 w-10 object-contain bg-white rounded border border-slate-100 p-1"
+                    />
+                    <button 
+                      type="button" 
+                      onClick={() => setProfileForm(prev => ({ ...prev, qrTandaTangan: '' }))}
+                      className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-500 rounded text-[9px] font-black"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                ) : (
+                  <label className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[9px] font-extrabold rounded-xl border border-dashed border-slate-300 flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+                    <span>Unggah QR Code Verification</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const r = new FileReader();
+                          r.onload = (event) => {
+                            setProfileForm(prev => ({ ...prev, qrTandaTangan: event.target?.result as string }));
+                          };
+                          r.readAsDataURL(file);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+
+              <button type="submit" className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-bold shadow-md shadow-pink-500/10 transition-all cursor-pointer">
+                Simpan & Sinkronisasi Data Akademik
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: Verifikasi & Penilaian SKK Siswa */}
+      {selectedStudentComp && (() => {
+        const comp = competencies.find(c => c.id === selectedStudentComp.kompetensi);
+        const std = students.find(s => s.id === selectedStudentComp.siswa) || { nama: 'Siswa' };
+        return (
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4 border border-slate-100 shadow-xl max-h-[90%] overflow-y-auto no-scrollbar">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                  <UserCheck className="w-4 h-4 text-pink-500 animate-pulse" /> Verifikasi Kompetensi SKK
+                </h3>
+                <button onClick={() => setSelectedStudentComp(null)} className="text-slate-400 hover:text-slate-600 font-black text-xs">✕</button>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[9px] font-bold text-slate-500 space-y-1">
+                <p>Siswa: <strong className="text-slate-800">{std.nama}</strong></p>
+                <p>Program: <strong className="text-slate-800">{comp?.program}</strong></p>
+                <p>Kompetensi: <strong className="text-slate-800">{comp?.nama_kompetensi}</strong></p>
+                <p>Bobot: <strong className="text-pink-600 font-black">{comp?.bobot_skk} SKK</strong></p>
+                {selectedStudentComp.bukti && (
+                  <p className="text-blue-600 font-mono flex items-center gap-1 pt-1 border-t border-slate-200 mt-1.5 overflow-hidden">
+                    <FileDown className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">Bukti: {selectedStudentComp.bukti}</span>
+                  </p>
+                )}
+              </div>
+              
+              <form onSubmit={handleGradeSkkSubmit} className="space-y-3.5 text-[10px] font-bold text-slate-500">
+                <div className="space-y-1">
+                  <label>Status Verifikasi</label>
+                  <select 
+                    value={gradingSkkStatus}
+                    onChange={(e) => setGradingSkkStatus(e.target.value as any)}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                  >
+                    <option value="tercapai">Tercapai (Valid & Sah)</option>
+                    <option value="proses">Proses (Kembalikan/Butuh Revisi)</option>
+                    <option value="belum">Belum Tercapai</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label>Nilai Kompetensi (Skala 0-100)</label>
+                  <input 
+                    type="number" 
+                    min="0"
+                    max="100"
+                    required
+                    placeholder="Misal: 85"
+                    value={gradingSkkScore}
+                    onChange={(e) => setGradingSkkScore(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label>Catatan Guru & Umpan Balik</label>
+                  <textarea 
+                    required
+                    rows={2}
+                    placeholder="Contoh: Bukti portofolio sangat lengkap dan menunjukkan kriteria kompetensi secara matang."
+                    value={gradingSkkFeedback}
+                    onChange={(e) => setGradingSkkFeedback(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                  />
+                </div>
+
+                <button type="submit" className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-bold shadow-md shadow-pink-500/10 transition-all cursor-pointer">
+                  Sahkan & Terbitkan Sertifikasi
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL KELOLA MATERI: Hapus Materi Konfirmasi */}
+      {showDeleteMateriConfirm && (
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 select-none">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4 border border-slate-100 shadow-xl text-center">
+            <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto text-red-500">
+              <AlertCircle className="w-6 h-6 animate-pulse" />
+            </div>
+            
+            <div className="space-y-1">
+              <h3 className="text-xs font-black text-slate-800">Hapus Materi Secara Permanen?</h3>
+              <p className="text-[9px] text-slate-500 font-medium leading-normal">
+                Apakah Anda yakin ingin menghapus materi <strong className="text-slate-800">"{showDeleteMateriConfirm.name}"</strong>? Siswa tidak akan dapat mengakses modul ini lagi. Tindakan ini tidak dapat dibatalkan.
+              </p>
+            </div>
+
+            <div className="flex gap-2.5 pt-2">
+              <button 
+                onClick={() => setShowDeleteMateriConfirm(null)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition-colors cursor-pointer"
+                type="button"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={() => handleDeleteMateri(showDeleteMateriConfirm)}
+                className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black transition-colors cursor-pointer"
+                type="button"
+              >
+                Ya, Hapus Materi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

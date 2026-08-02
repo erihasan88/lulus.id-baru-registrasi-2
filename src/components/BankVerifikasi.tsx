@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   QrCode, Search, Filter, ShieldCheck, ShieldAlert, Award, FileText, 
   Calendar, User, CheckCircle2, XCircle, Plus, Eye, Check, X, 
-  Download, Trash2, Edit, AlertCircle, RefreshCw, FileSpreadsheet,
+  Download, Edit, AlertCircle, RefreshCw, FileSpreadsheet,
   Layers, Building2, BadgeCheck, HelpCircle, FileCheck2
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { VerificationDocument, Student, Role } from '../types';
+import { api } from '../lib/api';
 
 interface BankVerifikasiProps {
   role: Role;
@@ -101,104 +102,94 @@ export default function BankVerifikasi({ role, students, loggedInUser, showModal
   const [formNotes, setFormNotes] = useState('');
   const [formCustomDataJson, setFormCustomDataJson] = useState('{\n  "kategori": "Uji Kompetensi",\n  "predikat": "Sangat Baik",\n  "penyelenggara": "PKBM Agrabinta"\n}');
 
-  // Load and consolidate documents on mount
-  const loadConsolidatedDocuments = () => {
-    // 1. Load from standard academic library
-    let docsList: any[] = [];
-    const savedDocs = localStorage.getItem('documentLibrary');
-    if (savedDocs) {
-      try {
-        docsList = JSON.parse(savedDocs);
-      } catch (e) {
-        console.error('Failed to parse documentLibrary', e);
-      }
-    }
+  // Load documents from backend
+  const loadConsolidatedDocuments = async () => {
+    try {
+      const [documents, transcripts] = await Promise.all([
+        api.getAcademicDocuments(),
+        api.getAcademicTranscripts()
+      ]);
 
-    // Map academic library to VerificationDocument structure
-    const mappedDocs: VerificationDocument[] = docsList.map(doc => {
-      // If the document already has validation schema properties, retain them.
-      // E-Rapor has status 'Publish' which corresponds to isValid: true (unless status is 'Dicabut' or 'isValid' is explicitly false)
-      const isDocValid = doc.isValid !== undefined ? doc.isValid : (doc.status !== 'Dicabut' && doc.status !== 'Draft');
-      
-      return {
-        id: doc.id,
-        verificationCode: doc.verificationCode || doc.id,
-        documentType: doc.documentType || 'Dokumen Akademik',
-        studentId: doc.studentId,
-        studentName: doc.studentName || 'Siswa',
-        studentNisn: doc.nisn,
-        studentProgram: doc.program,
-        studentKelas: doc.kelas,
-        issueDate: doc.issueDate || doc.tanggalTerbit || new Date().toISOString().split('T')[0],
-        signerName: doc.kepalaSekolah || doc.signerName || lembagaIdentitas.namaPejabatTtd || lembagaIdentitas.namaKepalaSekolah,
-        signerRole: doc.signerRole || (doc.documentType === 'E-Rapor' ? 'Kepala PKBM' : 'Kepala PKBM'),
-        isValid: isDocValid,
-        snapshotData: doc.snapshotData || {
+      const academicDocs: VerificationDocument[] = (documents || []).map((doc: any) => ({
+        id: String(doc.id),
+        verificationCode: doc.verification_code,
+        documentType:
+          doc.document_type === 'IJAZAH'
+            ? 'Ijazah'
+            : doc.document_type === 'SKL'
+              ? 'SKL'
+              : doc.document_type === 'TRANSKRIP'
+                ? 'Transkrip Nilai'
+                : 'Sertifikat',
+        studentId: String(doc.student),
+        studentName: doc.student_name || doc.student_username || 'Siswa',
+        studentNisn: doc.student_username || '-',
+        studentProgram: '',
+        studentKelas: '',
+        issueDate: doc.issue_date || doc.created_at?.split('T')[0] || '',
+        signerName:
+          lembagaIdentitas.namaPejabatTtd ||
+          lembagaIdentitas.namaKepalaSekolah,
+        signerRole:
+          lembagaIdentitas.jabatanPejabatTtd ||
+          'Kepala PKBM',
+        isValid: doc.status === 'PUBLISHED',
+        snapshotData: {
+          documentNumber: doc.document_number,
           title: doc.title,
-          description: doc.description,
-          documentNumber: doc.documentNumber,
-          file: doc.file,
+          fileUrl: doc.file_url,
+          status: doc.status,
+          graduationYear: doc.graduation_year,
+          downloads: doc.downloads_count,
+          views: doc.views_count
+        },
+        createdAt: doc.created_at,
+        notes: doc.verification_notes || ''
+      }));
+
+      const transcriptDocs: VerificationDocument[] = (transcripts || []).map((doc: any) => ({
+        id: `TRANSCRIPT-${doc.id}`,
+        verificationCode: doc.verification_code,
+        documentType: 'Transkrip Nilai',
+        studentId: String(doc.student),
+        studentName: doc.student_name || doc.student_username || 'Siswa',
+        studentNisn: doc.student_username || '-',
+        studentProgram: '',
+        studentKelas: '',
+        issueDate: doc.issue_date || doc.created_at?.split('T')[0] || '',
+        signerName:
+          lembagaIdentitas.namaPejabatTtd ||
+          lembagaIdentitas.namaKepalaSekolah,
+        signerRole:
+          lembagaIdentitas.jabatanPejabatTtd ||
+          'Kepala PKBM',
+        isValid: doc.status === 'PUBLISHED',
+        snapshotData: {
+          documentNumber: doc.document_number,
+          academicYear: doc.academic_year,
+          semester: doc.semester,
+          subjects: doc.subjects,
+          averageScore: doc.average_score,
+          predicate: doc.predicate,
           status: doc.status
         },
-        createdAt: doc.uploadedAt || new Date().toISOString(),
-        notes: doc.notes || doc.catatanVerifikasi || ''
-      };
-    });
+        createdAt: doc.created_at,
+        notes: ''
+      }));
 
-    // 2. Load from students list for PPDB (Formulir Pendaftaran Siswa)
-    const savedStudents = localStorage.getItem('lulus_students');
-    if (savedStudents) {
-      try {
-        const studentList: Student[] = JSON.parse(savedStudents);
-        studentList.forEach(s => {
-          // If the student matches registration, compile its verification entry
-          const idDigits = s.id.replace(/\D/g, '') || '0';
-          const paddedId = idDigits.padStart(6, '0');
-          let year = '2026';
-          if (s.tahunAjaran) {
-            const match = s.tahunAjaran.match(/\d{4}/g);
-            if (match && match.length > 0) year = match[0];
-          }
-          const formCode = `FRM-PPDB-${year}-${paddedId}`;
+      const combined = [...academicDocs, ...transcriptDocs].sort(
+        (a, b) => (b.issueDate || '').localeCompare(a.issueDate || '')
+      );
 
-          mappedDocs.push({
-            id: `VERIF-PPDB-${s.id}`,
-            verificationCode: formCode,
-            documentType: 'Formulir PPDB',
-            studentId: s.id,
-            studentName: s.nama,
-            studentNisn: s.nisn || '-',
-            studentProgram: s.program,
-            studentKelas: s.kelas || 'Calon Siswa',
-            issueDate: (s as any).tanggalDaftar || (s as any).createdAt || '2026-07-16',
-            signerName: lembagaIdentitas.namaPejabatTtd || lembagaIdentitas.namaKepalaSekolah,
-            signerRole: 'Panitia PPDB / Kepala PKBM',
-            isValid: s.status !== 'Nonaktif',
-            snapshotData: {
-              nik: s.nik,
-              kk: s.kk,
-              jk: s.jk,
-              tempatLahir: s.tempatLahir,
-              tglLahir: s.tglLahir,
-              alamat: s.alamat,
-              ayah: s.ayah,
-              ibu: s.ibu,
-              statusSiswa: s.status,
-              tahunAjaran: s.tahunAjaran,
-              riwayatVerifikasi: s.riwayatVerifikasi || []
-            },
-            createdAt: (s as any).createdAt || new Date().toISOString(),
-            notes: s.catatanVerifikasi || ''
-          });
-        });
-      } catch (e) {
-        console.error('Failed to parse lulus_students', e);
-      }
+      setVerifiedDocs(combined);
+    } catch (err) {
+      console.error('Gagal memuat Bank Verifikasi:', err);
+      showModal(
+        'Gagal Memuat Data',
+        'Bank Verifikasi belum berhasil mengambil dokumen dari server.',
+        'warning'
+      );
     }
-
-    // Sort by issue date descending
-    mappedDocs.sort((a, b) => b.issueDate.localeCompare(a.issueDate));
-    setVerifiedDocs(mappedDocs);
   };
 
   useEffect(() => {
@@ -227,88 +218,57 @@ export default function BankVerifikasi({ role, students, loggedInUser, showModal
       .catch(err => console.error(err));
   };
 
-  // Toggle validation status (isValid = true/false)
-  const handleToggleValidation = (doc: VerificationDocument) => {
+  // Toggle validation status through backend
+  const handleToggleValidation = async (doc: VerificationDocument) => {
     if (role !== 'admin') {
-      showModal('Akses Ditolak', 'Hanya Administrator yang memiliki wewenang untuk mencabut atau memulihkan validasi dokumen resmi.', 'warning');
+      showModal(
+        'Akses Ditolak',
+        'Hanya Administrator yang dapat mengubah validasi dokumen resmi.',
+        'warning'
+      );
       return;
     }
 
-    const currentStatus = doc.isValid;
-    const actionWord = currentStatus ? 'Mencabut' : 'Mengaktifkan';
-    const promptNotes = window.prompt(`Apakah Anda yakin ingin ${actionWord.toLowerCase()} status validasi dokumen dengan kode "${doc.verificationCode}"?\n\nMasukkan alasan atau catatan verifikator:`, doc.notes || '');
-    
-    if (promptNotes === null) return; // User cancelled
+    const newIsValid = !doc.isValid;
+    const actionWord = newIsValid ? 'mengaktifkan kembali' : 'mencabut';
 
-    const newIsValid = !currentStatus;
-
-    // Apply change back to the correct storage location
-    if (doc.documentType === 'Formulir PPDB') {
-      // Update student list status (lulus_students)
-      const savedStudents = localStorage.getItem('lulus_students');
-      if (savedStudents) {
-        try {
-          const studentList: Student[] = JSON.parse(savedStudents);
-          const updated = studentList.map(s => {
-            if (s.id === doc.studentId) {
-              const timestamp = new Date();
-              const formattedDate = timestamp.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-              const formattedTime = timestamp.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-              
-              const log = {
-                admin: 'Administrator Lulus.id',
-                tanggal: formattedDate,
-                jam: formattedTime + ' WIB',
-                status: newIsValid ? 'DISETUJUI' : 'DITOLAK',
-                catatan: promptNotes || (newIsValid ? 'Validasi dipulihkan.' : 'Dokumen dinonaktifkan sementara.')
-              };
-
-              return {
-                ...s,
-                status: newIsValid ? 'Aktif' : 'Nonaktif',
-                catatanVerifikasi: promptNotes,
-                riwayatVerifikasi: [log, ...(s.riwayatVerifikasi || [])]
-              };
-            }
-            return s;
-          });
-          localStorage.setItem('lulus_students', JSON.stringify(updated));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    } else {
-      // Update academic library (documentLibrary)
-      const savedDocs = localStorage.getItem('documentLibrary');
-      if (savedDocs) {
-        try {
-          const docsList = JSON.parse(savedDocs);
-          const updated = docsList.map((d: any) => {
-            if (d.id === doc.id || d.verificationCode === doc.verificationCode) {
-              return {
-                ...d,
-                isValid: newIsValid,
-                status: newIsValid ? 'Publish' : 'Dicabut',
-                notes: promptNotes,
-                catatanVerifikasi: promptNotes
-              };
-            }
-            return d;
-          });
-          localStorage.setItem('documentLibrary', JSON.stringify(updated));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
-
-    // Refresh display
-    loadConsolidatedDocuments();
-    showModal(
-      'Status Validasi Diperbarui', 
-      `Dokumen "${doc.verificationCode}" berhasil dinyatakan ${newIsValid ? 'VALID & AKTIF' : 'TIDAK VALID / DICABUT'}. Catatan: "${promptNotes || '-'}"`, 
-      'success'
+    const promptNotes = window.prompt(
+      `Masukkan alasan untuk ${actionWord} dokumen "${doc.verificationCode}":`,
+      doc.notes || ''
     );
+
+    if (promptNotes === null) return;
+
+    try {
+      if (String(doc.id).startsWith('TRANSCRIPT-')) {
+        const transcriptId = String(doc.id).replace('TRANSCRIPT-', '');
+
+        await api.updateAcademicTranscript(transcriptId, {
+          status: newIsValid ? 'PUBLISHED' : 'REVOKED'
+        });
+      } else {
+        await api.updateAcademicDocument(String(doc.id), {
+          status: newIsValid ? 'PUBLISHED' : 'REVOKED',
+          verification_notes: promptNotes,
+          revoked_at: newIsValid ? null : new Date().toISOString()
+        } as any);
+      }
+
+      await loadConsolidatedDocuments();
+
+      showModal(
+        'Status Validasi Diperbarui',
+        `Dokumen berhasil ${newIsValid ? 'diaktifkan kembali' : 'dicabut'}.`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Gagal mengubah validasi dokumen:', err);
+      showModal(
+        'Perubahan Gagal',
+        err?.message || 'Status dokumen belum berhasil disimpan ke server.',
+        'warning'
+      );
+    }
   };
 
   // Delete a verification record completely
@@ -543,22 +503,7 @@ export default function BankVerifikasi({ role, students, loggedInUser, showModal
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
 
-            {role === 'admin' && (
-              <button
-                onClick={() => setViewState(viewState === 'list' ? 'add' : 'list')}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-[9px] flex items-center gap-1 shadow-sm transition-all cursor-pointer"
-              >
-                {viewState === 'list' ? (
-                  <>
-                    <Plus className="w-3 h-3" /> Daftarkan Dokumen Baru
-                  </>
-                ) : (
-                  <>
-                    <Layers className="w-3 h-3" /> Lihat Daftar Arsip
-                  </>
-                )}
-              </button>
-            )}
+
           </div>
         </div>
       </div>
@@ -848,13 +793,7 @@ export default function BankVerifikasi({ role, students, loggedInUser, showModal
                                       )}
                                     </button>
 
-                                    <button
-                                      onClick={() => handleDeleteRecord(doc)}
-                                      className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 border border-slate-100 hover:border-red-100 rounded transition-all cursor-pointer"
-                                      title="Hapus Arsip Permanent"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
+                                    
                                   </>
                                 )}
                               </div>
@@ -873,180 +812,6 @@ export default function BankVerifikasi({ role, students, loggedInUser, showModal
         )}
 
         {/* VIEW: REGISTER NEW CUSTOM DOCUMENT FORM */}
-        {viewState === 'add' && (
-          <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-3xs p-6 overflow-y-auto animate-fade-in">
-            <div className="max-w-3xl mx-auto">
-              
-              <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-3">
-                <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600">
-                  <FileCheck2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-xs sm:text-sm font-black text-slate-800">Daftarkan & Sahkan Dokumen Baru</h3>
-                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                    Masukkan rincian identitas dokumen eksternal, sertifikat kelulusan, atau ijazah untuk mendaftarkan tanda tangan QR secara otomatis.
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={handleRegisterNewDoc} className="space-y-5">
-                
-                {/* 1. SISWA SELECT */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Penerima Dokumen (Siswa Terdaftar Lulus.id)
-                    </label>
-                    <select
-                      value={formStudentId}
-                      onChange={(e) => handleStudentSelectChange(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
-                      required
-                    >
-                      <option value="">-- Pilih Siswa Penerima --</option>
-                      {students.map(s => (
-                        <option key={s.id} value={s.id}>{s.nama} ({s.id} - {s.program})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Jenis Dokumen Resmi
-                    </label>
-                    <select
-                      value={formDocType}
-                      onChange={(e) => setFormDocType(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
-                    >
-                      <option value="Sertifikat">Sertifikat Kompetensi / Pelatihan</option>
-                      <option value="Ijazah">Ijazah Kelulusan Resmi</option>
-                      <option value="SKL">Surat Keterangan Lulus (SKL)</option>
-                      <option value="Transkrip Nilai">Transkrip Nilai Hasil Belajar</option>
-                      <option value="Piagam">Piagam Penghargaan Prestasi</option>
-                      <option value="Surat Keterangan">Surat Keterangan Lembaga</option>
-                      <option value="E-Rapor">E-Rapor Hasil Belajar (Kustom)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* 2. DOKUMEN NUMBER & DATE */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Nomor Resmi Dokumen
-                    </label>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        value={formDocNumber}
-                        onChange={(e) => setFormDocNumber(e.target.value)}
-                        placeholder="Contoh: DN-01/C/0098765432/2026"
-                        className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-700 focus:outline-none focus:border-emerald-500"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAutoFillDocNumber}
-                        className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl font-bold transition-all text-[9px]"
-                      >
-                        Auto-Gen
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Tanggal Terbit Dokumen
-                    </label>
-                    <input 
-                      type="date"
-                      value={formIssueDate}
-                      onChange={(e) => setFormIssueDate(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-700 focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                </div>
-
-                {/* 3. PEJABAT PENGESAHAN */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Nama Pejabat Yang Mengesahkan
-                    </label>
-                    <input 
-                      type="text"
-                      value={formSignerName}
-                      onChange={(e) => setFormSignerName(e.target.value)}
-                      placeholder="Contoh: Drs. H. Mulyadi, M.Pd."
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-700 focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Jabatan Pejabat Pengesah
-                    </label>
-                    <input 
-                      type="text"
-                      value={formSignerRole}
-                      onChange={(e) => setFormSignerRole(e.target.value)}
-                      placeholder="Contoh: Kepala PKBM Agrabinta"
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-700 focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                </div>
-
-                {/* 4. VERIFICATION NOTES & SNAPSHOT JSON */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Catatan Tambahan Verifikasi (Notes)
-                    </label>
-                    <textarea 
-                      value={formNotes}
-                      onChange={(e) => setFormNotes(e.target.value)}
-                      placeholder="Catatan keabsahan yang akan tampil pada lembar verifikasi ketika QR Code discan..."
-                      className="w-full h-24 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold text-slate-700 focus:outline-none focus:border-emerald-500 resize-none leading-normal"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
-                      Snapshot Data Dokumen (Format JSON Metadata)
-                    </label>
-                    <textarea 
-                      value={formCustomDataJson}
-                      onChange={(e) => setFormCustomDataJson(e.target.value)}
-                      className="w-full h-24 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-[9px] font-mono text-emerald-400 focus:outline-none focus:border-emerald-500 leading-normal"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setViewState('list')}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
-                  >
-                    Simpan & Daftarkan Arsip QR
-                  </button>
-                </div>
-
-              </form>
-            </div>
-          </div>
-        )}
 
       </div>
 
@@ -1134,6 +899,41 @@ export default function BankVerifikasi({ role, students, loggedInUser, showModal
                   <span className="col-span-2 text-slate-800 font-bold">{selectedDoc.signerName} ({selectedDoc.signerRole})</span>
                 </div>
               </div>
+
+              {/* Preview dokumen asli */}
+              {selectedDoc.snapshotData?.fileUrl && (
+                <div className="space-y-2">
+                  <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                    Dokumen Asli
+                  </h5>
+
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50">
+                    {/\.pdf(?:$|\?)/i.test(selectedDoc.snapshotData.fileUrl) ? (
+                      <iframe
+                        src={selectedDoc.snapshotData.fileUrl}
+                        title={`Dokumen ${selectedDoc.verificationCode}`}
+                        className="w-full h-[480px] bg-white"
+                      />
+                    ) : (
+                      <img
+                        src={selectedDoc.snapshotData.fileUrl}
+                        alt={`Dokumen ${selectedDoc.studentName}`}
+                        className="w-full max-h-[520px] object-contain bg-white"
+                      />
+                    )}
+                  </div>
+
+                  <a
+                    href={selectedDoc.snapshotData.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-[9px] font-black text-emerald-700 hover:text-emerald-800"
+                  >
+                    <Eye className="w-3 h-3" />
+                    Buka Dokumen di Tab Baru
+                  </a>
+                </div>
+              )}
 
               {/* Snapshot data view based on type */}
               <div className="space-y-2">

@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { Loader2, FileText, ExternalLink, Download, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Configure pdfjs worker locally via Vite asset URL
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface PdfCanvasViewerProps {
   key?: string;

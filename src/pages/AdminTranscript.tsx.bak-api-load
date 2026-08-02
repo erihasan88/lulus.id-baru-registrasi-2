@@ -1,0 +1,661 @@
+import React, { useState, useEffect } from 'react';
+import { transcriptService } from '../services/transcriptService';
+import { AcademicTranscript, TranscriptSubject } from '../interfaces/academicTranscript';
+import { Student, Subject } from '../types';
+import TranscriptCard from '../components/TranscriptCard';
+import PdfViewer from '../components/PdfViewer';
+import { 
+  FileText, 
+  Plus, 
+  Search, 
+  Filter, 
+  Settings, 
+  CheckCircle, 
+  FileWarning, 
+  FolderPlus, 
+  Eye, 
+  Edit3, 
+  Check, 
+  X,
+  FileCheck,
+  AlertTriangle,
+  Layers,
+  ChevronDown,
+  Trash2
+} from 'lucide-react';
+
+interface AdminTranscriptProps {
+  students: Student[];
+  subjects: Subject[];
+  loggedInUser: {
+    id: string;
+    nama: string;
+    role: 'siswa' | 'guru' | 'admin';
+  };
+  lembagaIdentitas?: any;
+  setLembagaIdentitas?: React.Dispatch<React.SetStateAction<any>>;
+}
+
+export default function AdminTranscript({
+  students = [],
+  subjects = [],
+  loggedInUser,
+  lembagaIdentitas: propsLembagaIdentitas,
+  setLembagaIdentitas
+}: AdminTranscriptProps) {
+  const [transcripts, setTranscripts] = useState<AcademicTranscript[]>([]);
+  const [selectedTranscript, setSelectedTranscript] = useState<AcademicTranscript | null>(null);
+  const [showPdfView, setShowPdfView] = useState<boolean>(false);
+
+  // Dynamic fallback for lembagaIdentitas
+  const [lembagaIdentitas, setLocalLembagaIdentitas] = useState<any>(() => {
+    if (propsLembagaIdentitas) return propsLembagaIdentitas;
+    const saved = localStorage.getItem('lulus_lembaga_identitas');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (propsLembagaIdentitas) {
+      setLocalLembagaIdentitas(propsLembagaIdentitas);
+    }
+  }, [propsLembagaIdentitas]);
+
+
+  // Filter States
+  const [filterProgram, setFilterProgram] = useState<string>('all');
+  const [filterKelas, setFilterKelas] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Generation Tool states
+  const [showGenModal, setShowGenModal] = useState<boolean>(false);
+  const [genStudentId, setGenStudentId] = useState<string>('');
+  const [genSemester, setGenSemester] = useState<string>('Semester 2 (Genap)');
+  const [genTahunAjaran, setGenTahunAjaran] = useState<string>('2025/2026');
+
+  // Edit Doc Number states
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [tempDocNumber, setTempDocNumber] = useState<string>('');
+
+  useEffect(() => {
+    // Fetch all transcripts from local storage / mock
+    const data = transcriptService.getTranscripts(students, subjects);
+    setTranscripts(data);
+  }, [students, subjects]);
+
+  const saveToStorage = (updatedList: AcademicTranscript[]) => {
+    setTranscripts(updatedList);
+    transcriptService.saveTranscripts(updatedList);
+  };
+
+  const isAdmin = loggedInUser.role === 'admin';
+
+  // Apply authorization filters
+  // If teacher, only show transcripts of students matching teacher's class or program if restricted
+  const authorizedTranscripts = transcripts.filter(t => {
+    if (loggedInUser.role === 'guru') {
+      // In a real Django REST app, this uses a DRF permissions class or queryset filter
+      // For mock simulation, we display students matching the teacher's profile/class
+      return true; 
+    }
+    return true;
+  });
+
+  // Filtered List
+  const filteredTranscripts = authorizedTranscripts.filter(t => {
+    if (filterProgram !== 'all' && t.program !== filterProgram) return false;
+    if (filterKelas !== 'all' && t.kelas !== filterKelas) return false;
+    if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      const matchName = (t.studentName || '').toLowerCase().includes(q);
+      const matchNisn = (t.nisn || '').includes(q);
+      const matchDocNo = (t.documentNumber || '').toLowerCase().includes(q);
+      if (!matchName && !matchNisn && !matchDocNo) return false;
+    }
+    return true;
+  });
+
+  // Document Stats
+  const stats = {
+    total: authorizedTranscripts.length,
+    draft: authorizedTranscripts.filter(t => t.status === 'Draft').length,
+    publish: authorizedTranscripts.filter(t => t.status === 'Publish').length,
+    revoked: authorizedTranscripts.filter(t => t.status === 'Dicabut').length,
+    replaced: authorizedTranscripts.filter(t => t.status === 'Diganti').length,
+  };
+
+  // Generate a new draft transcript
+  const handleGenerateTranscript = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!genStudentId) return;
+
+    const student = students.find(s => s.id === genStudentId);
+    if (!student) return;
+
+    // Use available subjects that correspond to the student (excluding materials)
+    const studentSubjects = subjects.filter(sub => !sub.isMateri);
+
+    const newTranscript = transcriptService.generateTranscriptForStudent(
+      student,
+      studentSubjects,
+      genTahunAjaran,
+      genSemester,
+      loggedInUser.nama
+    );
+
+    const updated = [...transcripts, newTranscript];
+    saveToStorage(updated);
+    setShowGenModal(false);
+    setGenStudentId('');
+    setSelectedTranscript(newTranscript);
+  };
+
+  // Change Transcript Status (Publish / Draft / Dicabut / Diganti)
+  const handleStatusChange = (id: string, newStatus: 'Draft' | 'Publish' | 'Dicabut' | 'Diganti') => {
+    if (!isAdmin) return;
+    const updated = transcripts.map(t => {
+      if (t.id === id) {
+        return {
+          ...t,
+          status: newStatus,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return t;
+    });
+    saveToStorage(updated);
+    if (selectedTranscript && selectedTranscript.id === id) {
+      setSelectedTranscript({
+        ...selectedTranscript,
+        status: newStatus,
+        updatedAt: new Date().toISOString()
+      });
+    }
+  };
+
+  // Update Document Number
+  const handleSaveDocNumber = (id: string) => {
+    if (!isAdmin || !tempDocNumber.trim()) return;
+    const updated = transcripts.map(t => {
+      if (t.id === id) {
+        return {
+          ...t,
+          documentNumber: tempDocNumber,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return t;
+    });
+    saveToStorage(updated);
+    if (selectedTranscript && selectedTranscript.id === id) {
+      setSelectedTranscript({
+        ...selectedTranscript,
+        documentNumber: tempDocNumber,
+        updatedAt: new Date().toISOString()
+      });
+    }
+    setEditingDocId(null);
+  };
+
+  // Delete Transcript
+  const handleDeleteTranscript = (id: string) => {
+    if (!isAdmin) return;
+    const filtered = transcripts.filter(t => t.id !== id);
+    saveToStorage(filtered);
+    if (selectedTranscript && selectedTranscript.id === id) {
+      setSelectedTranscript(null);
+    }
+  };
+
+  // Get list of unique classes for filter
+  const classesList = Array.from(new Set(students.map(s => s.kelas))).filter(Boolean);
+
+  if (showPdfView && selectedTranscript) {
+    return (
+      <PdfViewer 
+        transcript={selectedTranscript} 
+        lembagaIdentitas={lembagaIdentitas}
+        onClose={() => setShowPdfView(false)}
+      />
+    );
+  }
+
+  if (loggedInUser?.role === 'guru') {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50 text-center select-none h-full min-h-[400px]">
+        <div className="bg-red-50 text-red-600 p-4 rounded-full border border-red-100 mb-4 animate-pulse">
+          <AlertTriangle className="w-8 h-8" />
+        </div>
+        <h3 className="text-sm font-black text-slate-800">Akses Transkrip Resmi Ditolak</h3>
+        <p className="text-[10px] text-slate-500 font-medium max-w-sm mt-1.5 leading-relaxed">
+          Sesuai kebijakan akademik Lulus.id, akun Guru tidak memiliki wewenang untuk mengakses, merekap, atau menerbitkan Transkrip Nilai Resmi siswa. Fitur ini hanya dapat dikelola sepenuhnya oleh Administrator Lembaga.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden text-[11px] h-full">
+      {/* Scrollable Workspace */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 no-scrollbar">
+        
+        {/* Statistics panel */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-xs">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Total Transkrip</span>
+            <span className="text-xl font-black text-slate-800 font-mono block mt-1">{stats.total}</span>
+            <span className="text-[8.5px] text-slate-400 font-semibold block mt-1">Seluruh Berkas Terdata</span>
+          </div>
+          <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100">
+            <span className="text-[8px] font-black text-emerald-600 uppercase tracking-wider block">Terbit (Publish)</span>
+            <span className="text-xl font-black text-emerald-700 font-mono block mt-1">{stats.publish}</span>
+            <span className="text-[8.5px] text-emerald-600/80 font-semibold block mt-1">Bisa Diakses Siswa</span>
+          </div>
+          <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200">
+            <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider block">Konsep (Draft)</span>
+            <span className="text-xl font-black text-slate-700 font-mono block mt-1">{stats.draft}</span>
+            <span className="text-[8.5px] text-slate-500/80 font-semibold block mt-1">Dalam Penyusunan</span>
+          </div>
+          <div className="bg-rose-50/50 p-4 rounded-2xl border border-rose-100">
+            <span className="text-[8px] font-black text-rose-600 uppercase tracking-wider block">Dicabut (Revoked)</span>
+            <span className="text-xl font-black text-rose-700 font-mono block mt-1">{stats.revoked}</span>
+            <span className="text-[8.5px] text-rose-600/80 font-semibold block mt-1">Dokumen Tidak Sah</span>
+          </div>
+          <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-100 col-span-2 lg:col-span-1">
+            <span className="text-[8px] font-black text-amber-600 uppercase tracking-wider block">Diganti (Replaced)</span>
+            <span className="text-xl font-black text-amber-700 font-mono block mt-1">{stats.replaced}</span>
+            <span className="text-[8.5px] text-amber-600/80 font-semibold block mt-1">Diperbarui Berkas Baru</span>
+          </div>
+        </div>
+
+        {/* Action Header and Search Filters */}
+        <div className="bg-white p-4 rounded-3xl border border-slate-150 shadow-xs flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+          
+          {/* Left search */}
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Cari nama, NISN, No. Dokumen..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:border-pink-500 text-[10.5px] font-bold text-slate-700"
+            />
+          </div>
+
+          {/* Right generation button */}
+          {isAdmin && (
+            <button
+              onClick={() => setShowGenModal(true)}
+              className="w-full md:w-auto px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-2xl text-[10.5px] font-black shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              type="button"
+            >
+              <Plus className="w-4 h-4" />
+              Generate Transkrip Baru
+            </button>
+          )}
+
+        </div>
+
+        {/* Filters bar */}
+        <div className="bg-white p-4 rounded-3xl border border-slate-150 shadow-xs flex flex-wrap gap-3 items-center">
+          <div className="flex items-center gap-1.5 text-slate-500 font-bold shrink-0">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <span>Saring Berkas :</span>
+          </div>
+
+          <div className="flex flex-wrap gap-2 flex-1">
+            {/* Program Filter */}
+            <select 
+              value={filterProgram} 
+              onChange={(e) => setFilterProgram(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[9.5px] font-bold text-slate-700 focus:outline-none cursor-pointer"
+            >
+              <option value="all">Semua Program</option>
+              <option value="Paket A">Paket A</option>
+              <option value="Paket B">Paket B</option>
+              <option value="Paket C">Paket C</option>
+            </select>
+
+            {/* Kelas Filter */}
+            <select 
+              value={filterKelas} 
+              onChange={(e) => setFilterKelas(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[9.5px] font-bold text-slate-700 focus:outline-none cursor-pointer"
+            >
+              <option value="all">Semua Kelas</option>
+              {classesList.map(cls => (
+                <option key={cls} value={cls}>{cls}</option>
+              ))}
+            </select>
+
+            {/* Status Filter */}
+            <select 
+              value={filterStatus} 
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[9.5px] font-bold text-slate-700 focus:outline-none cursor-pointer"
+            >
+              <option value="all">Semua Status</option>
+              <option value="Draft">Draft</option>
+              <option value="Publish">Publish</option>
+              <option value="Dicabut">Dicabut</option>
+              <option value="Diganti">Diganti</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Layout Split: Lists vs Selected Detail workspace */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          
+          {/* Left: Transcripts List Grid */}
+          <div className="lg:col-span-7 space-y-4">
+            {filteredTranscripts.length === 0 ? (
+              <div className="bg-white p-12 rounded-3xl border border-slate-150 text-center space-y-3">
+                <FileWarning className="w-10 h-10 text-slate-300 mx-auto" />
+                <h4 className="text-xs font-black text-slate-800">Dokumen Tidak Ditemukan</h4>
+                <p className="text-[9.5px] text-slate-400 font-semibold max-w-sm mx-auto">
+                  Cobalah untuk mengubah kata kunci pencarian atau bersihkan filter saringan yang sedang aktif.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {filteredTranscripts.map(trk => (
+                  <TranscriptCard 
+                    key={trk.id}
+                    transcript={trk}
+                    onViewDetail={(id) => {
+                      const found = transcripts.find(t => t.id === id);
+                      if (found) setSelectedTranscript(found);
+                    }}
+                    onDownloadPdf={(id) => {
+                      const found = transcripts.find(t => t.id === id);
+                      if (found) {
+                        setSelectedTranscript(found);
+                        setShowPdfView(true);
+                      }
+                    }}
+                    role={loggedInUser.role}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right: Selected Transcript Panel Workspace */}
+          <div className="lg:col-span-5">
+            {selectedTranscript ? (
+              <div className="bg-white rounded-3xl border border-slate-150 shadow-xs p-5 space-y-5 animate-scale-in text-slate-800">
+                
+                {/* Header card info */}
+                <div className="flex justify-between items-start gap-4 pb-4 border-b border-slate-50">
+                  <div className="space-y-0.5">
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Nama Peserta Didik</span>
+                    <h3 className="text-xs font-black text-slate-900 uppercase leading-snug">{selectedTranscript.studentName}</h3>
+                    <p className="text-[9.5px] font-bold text-slate-400 font-mono tracking-wider">{selectedTranscript.nisn} • {selectedTranscript.program}</p>
+                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full border text-[8.5px] font-black tracking-wider uppercase ${
+                    selectedTranscript.status === 'Publish' 
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                      : selectedTranscript.status === 'Draft'
+                      ? 'bg-slate-50 text-slate-600 border-slate-200'
+                      : 'bg-rose-50 text-rose-700 border-rose-150'
+                  }`}>
+                    {selectedTranscript.status}
+                  </span>
+                </div>
+
+                {/* Document details, edits */}
+                <div className="space-y-3 font-semibold text-[10px]">
+                  
+                  {/* Document Number Edit block (Admin only) */}
+                  <div className="space-y-1.5">
+                    <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">Nomor Surat Resmi</span>
+                    {editingDocId === selectedTranscript.id ? (
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="text"
+                          value={tempDocNumber}
+                          onChange={(e) => setTempDocNumber(e.target.value)}
+                          className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-pink-500 font-mono font-bold text-[10px]"
+                        />
+                        <button
+                          onClick={() => handleSaveDocNumber(selectedTranscript.id)}
+                          className="p-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-150 text-emerald-600 rounded-xl"
+                          type="button"
+                          title="Simpan"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setEditingDocId(null)}
+                          className="p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-500 rounded-xl"
+                          type="button"
+                          title="Batal"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between bg-slate-50/50 border border-slate-100 rounded-xl px-3 py-2 font-mono text-slate-800">
+                        <span>{selectedTranscript.documentNumber}</span>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              setEditingDocId(selectedTranscript.id);
+                              setTempDocNumber(selectedTranscript.documentNumber);
+                            }}
+                            className="p-1 text-pink-600 hover:bg-pink-50 rounded-lg transition-colors cursor-pointer"
+                            type="button"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3.5 pt-1">
+                    <div>
+                      <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">Tahun Ajaran</span>
+                      <span className="text-slate-800 font-extrabold">{selectedTranscript.tahunAjaran}</span>
+                    </div>
+                    <div>
+                      <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">Semester</span>
+                      <span className="text-slate-800 font-extrabold">{selectedTranscript.semester}</span>
+                    </div>
+                    <div>
+                      <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">Rata-rata Nilai</span>
+                      <span className="text-emerald-600 font-black text-xs font-mono">{selectedTranscript.averageScore}</span>
+                    </div>
+                    <div>
+                      <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">Predikat Belajar</span>
+                      <span className="text-slate-800 font-black">{selectedTranscript.predicate}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick actions panel */}
+                <div className="pt-2 border-t border-slate-50 space-y-2">
+                  <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">Aksi Dokumen Resmi</span>
+                  
+                  <button
+                    onClick={() => setShowPdfView(true)}
+                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-[10.5px] transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    type="button"
+                  >
+                    <Eye className="w-4 h-4 text-emerald-500" />
+                    Buka Pratinjau Surat Resmi (PDF)
+                  </button>
+
+                  {isAdmin && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {selectedTranscript.status !== 'Publish' ? (
+                        <button
+                          onClick={() => handleStatusChange(selectedTranscript.id, 'Publish')}
+                          className="py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black transition-colors cursor-pointer flex items-center justify-center gap-1"
+                          type="button"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Publish Resmi
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleStatusChange(selectedTranscript.id, 'Draft')}
+                          className="py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl font-black transition-colors cursor-pointer flex items-center justify-center gap-1"
+                          type="button"
+                        >
+                          <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                          Turunkan Draft
+                        </button>
+                      )}
+
+                      {selectedTranscript.status !== 'Dicabut' ? (
+                        <button
+                          onClick={() => handleStatusChange(selectedTranscript.id, 'Dicabut')}
+                          className="py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-black transition-colors cursor-pointer flex items-center justify-center gap-1"
+                          type="button"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                          Cabut Dokumen
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleStatusChange(selectedTranscript.id, 'Diganti')}
+                          className="py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl font-black transition-colors cursor-pointer flex items-center justify-center gap-1"
+                          type="button"
+                        >
+                          <Layers className="w-3.5 h-3.5 text-amber-500" />
+                          Tandai Diganti
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        if (confirm('Apakah Anda yakin ingin menghapus transkrip nilai ini secara permanen?')) {
+                          handleDeleteTranscript(selectedTranscript.id);
+                        }
+                      }}
+                      className="w-full py-2 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-300 text-slate-500 hover:text-rose-600 rounded-xl font-black transition-all cursor-pointer flex items-center justify-center gap-1 text-[9.5px]"
+                      type="button"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Hapus Transkrip Permanen
+                    </button>
+                  )}
+                </div>
+
+              </div>
+            ) : (
+              <div className="bg-white p-10 rounded-3xl border border-slate-150 text-center space-y-2 text-slate-400 font-semibold shadow-3xs">
+                <FileText className="w-10 h-10 text-slate-300 mx-auto" />
+                <p>Silakan pilih salah satu transkrip di sebelah kiri untuk melihat detail atau memproses penerbitan.</p>
+              </div>
+            )}
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* GENERATE DRAFT MODAL */}
+      {showGenModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 animate-scale-in text-slate-800">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+                  <FolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Generate Transkrip Akademik</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold">Tentukan target peserta didik untuk kalkulasi otomatis.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowGenModal(false)}
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-700 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateTranscript} className="space-y-4 font-semibold text-xs">
+              {/* Select Student */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Pilih Peserta Didik</label>
+                <select
+                  value={genStudentId}
+                  onChange={(e) => setGenStudentId(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-[11px] text-slate-800"
+                >
+                  <option value="">-- Pilih Siswa --</option>
+                  {students.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.nama} ({s.program} • {s.kelas})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Semester selection */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Semester Terbit</label>
+                <select
+                  value={genSemester}
+                  onChange={(e) => setGenSemester(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-[11px] text-slate-800"
+                >
+                  <option value="Semester 1 (Ganjil)">Semester 1 (Ganjil)</option>
+                  <option value="Semester 2 (Genap)">Semester 2 (Genap)</option>
+                </select>
+              </div>
+
+              {/* Tahun Ajaran */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Tahun Ajaran</label>
+                <select
+                  value={genTahunAjaran}
+                  onChange={(e) => setGenTahunAjaran(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-[11px] text-slate-800"
+                >
+                  <option value="2025/2026">2025/2026</option>
+                  <option value="2026/2027">2026/2027</option>
+                </select>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowGenModal(false)}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-250 text-slate-500 rounded-xl text-[10.5px] font-black transition-all cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10.5px] font-black shadow-xs hover:shadow transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  Kalkulasi & Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
